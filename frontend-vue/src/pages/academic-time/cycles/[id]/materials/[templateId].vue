@@ -52,7 +52,7 @@
 
             <!-- Accumulation Weeks if scope is ACCUMULATIVE -->
             <div v-if="form.scope === 'ACCUMULATIVE'" class="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-              <span class="text-xs font-bold text-slate-650 dark:text-slate-400">Semanas de acumulación:</span>
+              <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Semanas de acumulación:</span>
               <div class="flex items-center gap-3">
                 <UInput type="number" v-model.number="form.accumulationWeeks" min="2" class="w-24" />
                 <span class="text-xs text-slate-500 dark:text-slate-400">Semanas hacia atrás</span>
@@ -64,7 +64,7 @@
               <button
                 @click="saveTemplate"
                 :disabled="!isFormValid || isSaving"
-                class="w-full flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold bg-indigo-600 dark:bg-indigo-650 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-lg shadow-indigo-600/10"
+                class="w-full flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold bg-indigo-600 dark:bg-indigo-500 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-lg shadow-indigo-600/10"
               >
                 <UIcon v-if="isSaving" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
                 {{ isSaving ? 'Guardando cambios...' : 'Guardar Cambios' }}
@@ -81,7 +81,7 @@
 
           <!-- Allocated Stats Card (Allocated box in mockup) -->
           <div class="bg-white dark:bg-[#1e1e2d] border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col gap-4">
-            <h4 class="text-xs font-bold text-slate-455 dark:text-slate-400 uppercase tracking-wider">Métricas de la Plantilla</h4>
+            <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Métricas de la Plantilla</h4>
             
             <div class="grid grid-cols-2 gap-4">
               <div class="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800/80">
@@ -104,11 +104,11 @@
           <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#252536] flex items-center justify-between shrink-0">
             <div>
               <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">Cursos en la Plantilla</h3>
-              <p class="text-xs text-slate-550 dark:text-slate-400 mt-1">Establece la cantidad de preguntas y arrastra para ordenar la secuencia del examen.</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Establece la cantidad de preguntas y arrastra para ordenar la secuencia del examen.</p>
             </div>
             
             <button @click="isAddCourseModalOpen = !isAddCourseModalOpen"
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-650 hover:text-indigo-755 dark:text-indigo-400 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors border border-indigo-100 dark:border-slate-700 shadow-sm">
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors border border-indigo-100 dark:border-slate-700 shadow-sm">
               <UIcon :name="isAddCourseModalOpen ? 'i-heroicons-check' : 'i-heroicons-plus'" class="w-4 h-4" />
               {{ isAddCourseModalOpen ? 'Listo' : 'Agregar Cursos' }}
             </button>
@@ -120,7 +120,7 @@
             <!-- Left Pane: Active Courses -->
             <div class="flex-1 overflow-y-auto p-6 space-y-3 min-w-0">
               <div v-if="isCatalogsLoading" class="p-8 flex justify-center">
-                <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 animate-spin text-slate-455" />
+                <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 animate-spin text-slate-400" />
               </div>
 
               <div v-else-if="activeCourses.length === 0" class="h-full flex flex-col items-center justify-center text-center py-20">
@@ -130,8 +130,7 @@
                 <p class="text-sm font-bold text-slate-700 dark:text-slate-300">No hay cursos activos</p>
                 <p class="text-xs text-slate-400 mt-1 max-w-xs">Haz clic en "Agregar Cursos" para seleccionar los participantes del catálogo.</p>
                 
-                <button @click="isAddCourseModalOpen = true"
-                        class="mt-4 flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-indigo-650 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/10">
+                <button @click="isAddCourseModalOpen = true" class="btn-premium-primary mt-4">
                   <UIcon name="i-heroicons-plus" class="w-4 h-4" />
                   Agregar Cursos
                 </button>
@@ -144,14 +143,14 @@
                      @dragover.prevent
                      @drop="onDrop($event, index)"
                      @dragend="onDragEnd"
-                     class="flex items-center justify-between p-4 bg-slate-50/50 dark:bg-[#252536]/40 border border-slate-200/80 dark:border-slate-700 rounded-xl hover:border-indigo-350 dark:hover:border-indigo-500/25 shadow-sm transition-all duration-200 gap-4 cursor-move"
+                     class="flex items-center justify-between p-4 bg-slate-50/50 dark:bg-[#252536]/40 border border-slate-200/80 dark:border-slate-700 rounded-xl hover:border-indigo-300 dark:hover:border-indigo-500/25 shadow-sm transition-all duration-200 gap-4 cursor-move"
                      :class="{ 'opacity-30 scale-[0.98] border-dashed border-indigo-400 dark:border-indigo-500 bg-indigo-50/30 dark:bg-indigo-950/20': draggingIndex === index }">
                   
                   <!-- Left: Drag Icon + Position Index + Course Name -->
                   <div class="flex items-center gap-3 flex-1 min-w-0">
                     <UIcon name="i-heroicons-ellipsis-vertical" class="w-5 h-5 text-slate-300 dark:text-slate-600 cursor-grab shrink-0" />
                     
-                    <span class="text-[10px] font-black text-slate-400 dark:text-slate-500 bg-slate-150/60 dark:bg-slate-800/80 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border border-slate-200/40 dark:border-slate-700/60 shadow-sm">
+                    <span class="text-[10px] font-black text-slate-400 dark:text-slate-500 bg-slate-100/60 dark:bg-slate-800/80 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border border-slate-200/40 dark:border-slate-700/60 shadow-sm">
                       {{ index + 1 }}
                     </span>
 
@@ -159,40 +158,47 @@
                       <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                         {{ c.courseName }}
                       </h4>
-                      <!-- Difficulty trigger icon + mini summary -->
-                      <div class="flex items-center gap-2 mt-1.5">
-                        <UPopover mode="click" :popper="{ placement: 'bottom-start' }">
-                          <button class="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors group">
-                            <UIcon name="i-heroicons-chart-bar" class="w-4 h-4 text-slate-350 dark:text-slate-500 group-hover:text-indigo-500 transition-colors" />
-                            <span class="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-indigo-400">
-                              {{ c.easyCount }}F · {{ c.mediumCount }}M · {{ c.hardCount }}D
-                            </span>
-                          </button>
+                        <!-- Difficulty trigger icon + mini summary -->
+                        <div class="flex items-center gap-2 mt-1.5">
+                          <UPopover mode="click" :popper="{ placement: 'bottom-start' }">
+                            <button title="Configurar distribución de preguntas por dificultad"
+                                    class="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors group">
+                              <UIcon name="i-heroicons-chart-bar" class="w-4 h-4 text-slate-400 dark:text-slate-500 group-hover:text-indigo-500 transition-colors" />
+                              <span class="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-indigo-400">
+                                {{ c.easyCount }}F · {{ c.mediumCount }}M · {{ c.hardCount }}D
+                              </span>
+                            </button>
 
-                          <template #content>
-                            <div class="p-2.5 w-40 space-y-1.5 bg-white dark:bg-[#2b2b3f] rounded-xl shadow-xl ring-1 ring-slate-200 dark:ring-slate-700/50">
-                              <div class="flex items-center gap-1.5">
-                                <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">Fácil</span>
-                                <input type="number" v-model.number="c.easyCount" min="0" :max="c.questionsQuantity"
-                                       @input="clampDifficulty(c, 'easy')"
-                                       class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-emerald-500" />
+                            <template #content>
+                              <div class="p-2.5 w-44 space-y-2 bg-white dark:bg-[#2b2b3f] rounded-xl shadow-xl ring-1 ring-slate-200 dark:ring-slate-700/50">
+                                <p class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide px-1 pt-0.5 border-b border-slate-100 dark:border-white/5 pb-1.5">
+                                  Distribuir por dificultad
+                                </p>
+                                <div class="flex items-center gap-1.5">
+                                  <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 w-10 shrink-0">Fácil</span>
+                                  <input type="number" v-model.number="c.easyCount" min="0" :max="c.questionsQuantity"
+                                         @input="clampDifficulty(c, 'easy')"
+                                         title="Cantidad de preguntas fáciles"
+                                         class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-emerald-500" />
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                  <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-10 shrink-0">Medio</span>
+                                  <input type="number" v-model.number="c.mediumCount" min="0" :max="c.questionsQuantity"
+                                         @input="clampDifficulty(c, 'medium')"
+                                         title="Cantidad de preguntas de dificultad media"
+                                         class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-amber-500" />
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                  <span class="text-[10px] font-bold text-rose-600 dark:text-rose-400 w-10 shrink-0">Difícil</span>
+                                  <input type="number" v-model.number="c.hardCount" min="0" :max="c.questionsQuantity"
+                                         @input="clampDifficulty(c, 'hard')"
+                                         title="Cantidad de preguntas difíciles"
+                                         class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-rose-500" />
+                                </div>
                               </div>
-                              <div class="flex items-center gap-1.5">
-                                <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-10 shrink-0">Medio</span>
-                                <input type="number" v-model.number="c.mediumCount" min="0" :max="c.questionsQuantity"
-                                       @input="clampDifficulty(c, 'medium')"
-                                       class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-amber-500" />
-                              </div>
-                              <div class="flex items-center gap-1.5">
-                                <span class="text-[10px] font-bold text-rose-600 dark:text-rose-400 w-10 shrink-0">Difícil</span>
-                                <input type="number" v-model.number="c.hardCount" min="0" :max="c.questionsQuantity"
-                                       @input="clampDifficulty(c, 'hard')"
-                                       class="w-full text-xs font-extrabold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 focus:ring-1 focus:ring-rose-500" />
-                              </div>
-                            </div>
-                          </template>
-                        </UPopover>
-                      </div>
+                            </template>
+                          </UPopover>
+                        </div>
                     </div>
                   </div>
 
@@ -201,7 +207,7 @@
                     <!-- Adjuster Buttons (Direct Input controls) -->
                     <div class="flex items-center bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5 shadow-inner">
                       <button @click="decrementCourse(c)"
-                              class="p-1 hover:bg-white dark:hover:bg-slate-800 rounded text-slate-500 hover:text-slate-750 transition-colors">
+                              class="p-1 hover:bg-white dark:hover:bg-slate-800 rounded text-slate-500 hover:text-slate-700 transition-colors">
                         <UIcon name="i-heroicons-minus" class="w-3.5 h-3.5" />
                       </button>
                       <input type="number" 
@@ -211,14 +217,14 @@
                              max="100" 
                              class="w-12 bg-transparent text-center text-xs font-extrabold text-slate-800 dark:text-slate-200 border-0 focus:ring-0 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       <button @click="incrementCourse(c)"
-                              class="p-1 hover:bg-white dark:hover:bg-slate-800 rounded text-slate-505 hover:text-slate-755 transition-colors">
+                              class="p-1 hover:bg-white dark:hover:bg-slate-800 rounded text-slate-500 hover:text-slate-700 transition-colors">
                         <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
                       </button>
                     </div>
 
                     <!-- Delete Button -->
                     <button @click="removeCourse(c)"
-                            class="p-2 text-slate-405 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-all">
+                            class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-all">
                       <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                     </button>
                   </div>
@@ -259,7 +265,7 @@
                     {{ c.courseName }}
                   </span>
                   <button @click="addCourse(c)"
-                          class="flex items-center gap-0.5 px-2.5 py-1 text-[10px] font-bold text-indigo-650 hover:text-indigo-755 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors border border-indigo-100 dark:border-slate-700">
+                          class="flex items-center gap-0.5 px-2.5 py-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors border border-indigo-100 dark:border-slate-700">
                     <UIcon name="i-heroicons-plus" class="w-3 h-3" />
                     Añadir
                   </button>

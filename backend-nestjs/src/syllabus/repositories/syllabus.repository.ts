@@ -112,7 +112,7 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
          INNER JOIN material_request_courses mrc ON mrc.material_request_id = mr.id
          WHERE mr.cycle_id = $1
            AND mrc.course_id = $2
-           AND mrc.status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS', 'IN_REVIEW', 'REVIEW_REQUIRED')`,
+           AND mrc.status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS')`,
         [syllabus.cycleId, syllabus.courseId],
       );
       return rows.map((r: any) => r.week_number);

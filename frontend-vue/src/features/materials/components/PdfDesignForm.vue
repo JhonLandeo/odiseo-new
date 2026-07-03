@@ -352,20 +352,21 @@ const variablesHelper = [
       class="lg:col-span-6 flex flex-col h-full max-h-full overflow-y-auto pr-2 custom-scrollbar">
 
       <!-- Group: Configuración General -->
-      <div
-        class="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-white/10 shadow-sm flex flex-col">
-        <div
-          class="rounded-t-xl bg-slate-50 dark:bg-slate-800/50 px-5 py-3 border-b border-slate-200 dark:border-white/5 flex items-center gap-2">
+      <details open
+        class="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-white/10 shadow-sm group">
+        <summary
+          class="sticky top-0 z-10 cursor-pointer rounded-xl group-open:rounded-b-none bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-sm px-5 py-3 border-b border-transparent group-open:border-slate-200 dark:group-open:border-white/5 flex items-center gap-2 list-none hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
           <UIcon name="i-heroicons-document-text" class="text-indigo-500 w-5 h-5" />
           <h3 class="font-semibold text-slate-800 dark:text-slate-200 text-sm">Configuración General</h3>
-        </div>
-
+          <UIcon name="i-heroicons-chevron-down"
+            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-200" />
+        </summary>
         <div class="p-5 grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
 
           <!-- Left Col: Basics -->
           <div class="flex flex-col gap-5">
             <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Nombre de la
+              <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">Nombre de la
                 Plantilla</label>
               <UInput v-model="form.name" placeholder="Ej. Diseño Premium 2026" required size="lg" />
             </div>
@@ -400,7 +401,7 @@ const variablesHelper = [
 
             <!-- Watermark Section -->
             <div>
-              <label class="block text-[11px] dark:text-slate-400 font-semibold mb-2 uppercase tracking-wide">Marca de
+              <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">Marca de
                 Agua
                 (Fondo global)</label>
               <div class="flex items-center gap-3">
@@ -420,7 +421,7 @@ const variablesHelper = [
             </div>
           </div>
         </div>
-      </div>
+      </details>
 
       <!-- Group: Encabezado y Pie de Página -->
       <details
@@ -430,13 +431,13 @@ const variablesHelper = [
           <UIcon name="i-heroicons-bars-3-bottom-left" class="text-indigo-500 w-5 h-5" />
           <h3 class="font-semibold text-slate-800 dark:text-slate-200 text-sm">Encabezado y Pie de Página</h3>
           <UIcon name="i-heroicons-chevron-down"
-            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
+            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-200" />
         </summary>
         <div class="p-5 space-y-6">
 
           <!-- Banner Superior -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Fondo Superior
+            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">Fondo Superior
               (Banner)</label>
             <div class="flex items-center gap-3">
               <div v-if="bannerPreview"
@@ -455,10 +456,36 @@ const variablesHelper = [
             </div>
           </div>
 
+          <!-- Helper Variables (Compact Reference) -->
+          <details
+            class="border border-slate-200 dark:border-white/10 rounded-lg overflow-hidden text-sm group">
+            <summary
+              class="cursor-pointer group-open:rounded-b-none bg-slate-50/80 dark:bg-slate-800/80 px-3 py-2 border-b border-transparent group-open:border-slate-200 dark:group-open:border-white/10 flex items-center gap-2 list-none hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <UIcon name="i-heroicons-code-bracket" class="w-4 h-4 text-indigo-500 shrink-0" />
+              <span>Variables Dinámicas</span>
+              <UIcon name="i-heroicons-chevron-down"
+                class="ml-auto w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform duration-200" />
+            </summary>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-white dark:bg-slate-900">
+              <div v-for="v in variablesHelper" :key="v.token"
+                class="flex items-center justify-between gap-2 text-[11px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 p-1 rounded transition-colors group/var-item"
+                @click="copyToClipboard(v.token)" title="Click para copiar">
+                <div class="flex items-center gap-2 truncate pointer-events-none">
+                  <code
+                    class="text-indigo-600 dark:text-indigo-400 font-mono bg-indigo-50 dark:bg-indigo-900/30 px-1 py-0.5 rounded">{{
+                      v.token }}</code>
+                  <span class="text-slate-500 dark:text-slate-400 truncate" :title="v.desc">{{ v.desc }}</span>
+                </div>
+                <UIcon name="i-heroicons-document-duplicate"
+                  class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 opacity-40 group-hover/var-item:opacity-100 transition-opacity shrink-0" />
+              </div>
+            </div>
+          </details>
+
           <!-- Header Grid -->
           <div class="dark:bg-slate-800/30 p-4 rounded-lg border border-slate-200 dark:border-white/5 transition-all"
             @mouseenter="setFocus('header')" @mouseleave="setFocus(null)">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-3">Zonas de Encabezado
+            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">Zonas de Encabezado
               (Header)</label>
             <div class="grid grid-cols-3 gap-3">
               <div v-for="pos in ['left', 'center', 'right']" :key="'header-' + pos" class="flex flex-col gap-2">
@@ -489,8 +516,28 @@ const variablesHelper = [
                 </div>
 
                 <template v-if="gridModes.header[pos as 'left' | 'center' | 'right'] === 'text'">
-                  <RichTextInput v-model="(form.headerConfig as any)[pos]" placeholder="Texto o variables"
-                    collapsibleToolbar />
+                  <div class="relative">
+                    <RichTextInput v-model="(form.headerConfig as any)[pos]" placeholder="Texto o variables"
+                      collapsibleToolbar />
+                    <UPopover mode="click" :popper="{ placement: 'bottom-end' }">
+                      <UButton size="xs" variant="ghost" color="neutral" icon="i-heroicons-code-bracket"
+                        class="absolute right-1.5 bottom-1.5 opacity-40 hover:opacity-100 transition-opacity z-10 rounded-md bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-white/10 shadow-sm"
+                        title="Insertar variable" />
+                      <template #content>
+                        <div class="w-56 p-2 space-y-1">
+                          <p class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide px-2 pt-1 pb-1.5 border-b border-slate-100 dark:border-white/5">
+                            Variables disponibles
+                          </p>
+                          <button v-for="v in variablesHelper" :key="v.token" type="button"
+                            class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] text-left rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            @click="copyToClipboard(v.token)">
+                            <code class="text-indigo-600 dark:text-indigo-400 font-mono bg-indigo-50 dark:bg-indigo-900/30 px-1 py-0.5 rounded text-[10px] shrink-0">{{ v.token }}</code>
+                            <span class="text-slate-500 dark:text-slate-400 truncate">{{ v.desc }}</span>
+                          </button>
+                        </div>
+                      </template>
+                    </UPopover>
+                  </div>
                 </template>
 
                 <template v-else>
@@ -518,7 +565,7 @@ const variablesHelper = [
           <!-- Footer Grid -->
           <div class="dark:bg-slate-800/30 p-4 rounded-lg border border-slate-100 dark:border-white/5 transition-all"
             @mouseenter="setFocus('footer')" @mouseleave="setFocus(null)">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-3">Zonas de Pie de Página
+            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">Zonas de Pie de Página
               (Footer)</label>
             <div class="grid grid-cols-3 gap-3">
               <div v-for="pos in ['left', 'center', 'right']" :key="'footer-' + pos" class="flex flex-col gap-2">
@@ -549,8 +596,28 @@ const variablesHelper = [
                 </div>
 
                 <template v-if="gridModes.footer[pos as 'left' | 'center' | 'right'] === 'text'">
-                  <RichTextInput v-model="(form.footerConfig as any)[pos]" placeholder="Texto o variables"
-                    collapsibleToolbar />
+                  <div class="relative">
+                    <RichTextInput v-model="(form.footerConfig as any)[pos]" placeholder="Texto o variables"
+                      collapsibleToolbar />
+                    <UPopover mode="click" :popper="{ placement: 'bottom-end' }">
+                      <UButton size="xs" variant="ghost" color="neutral" icon="i-heroicons-code-bracket"
+                        class="absolute right-1.5 bottom-1.5 opacity-40 hover:opacity-100 transition-opacity z-10 rounded-md bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-white/10 shadow-sm"
+                        title="Insertar variable" />
+                      <template #content>
+                        <div class="w-56 p-2 space-y-1">
+                          <p class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide px-2 pt-1 pb-1.5 border-b border-slate-100 dark:border-white/5">
+                            Variables disponibles
+                          </p>
+                          <button v-for="v in variablesHelper" :key="v.token" type="button"
+                            class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] text-left rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            @click="copyToClipboard(v.token)">
+                            <code class="text-indigo-600 dark:text-indigo-400 font-mono bg-indigo-50 dark:bg-indigo-900/30 px-1 py-0.5 rounded text-[10px] shrink-0">{{ v.token }}</code>
+                            <span class="text-slate-500 dark:text-slate-400 truncate">{{ v.desc }}</span>
+                          </button>
+                        </div>
+                      </template>
+                    </UPopover>
+                  </div>
                 </template>
 
                 <template v-else>
@@ -574,28 +641,6 @@ const variablesHelper = [
               </div>
             </div>
           </div>
-
-          <!-- Helper Variables -->
-          <div class="border border-slate-200 dark:border-white/10 rounded-lg overflow-hidden text-sm">
-            <div
-              class="dark:bg-slate-800 px-3 py-2 border-b border-slate-200 dark:border-white/10 font-semibold text-xs text-slate-600 dark:text-slate-300">
-              Variables Dinámicas Soportadas
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 p-3 bg-white dark:bg-slate-900">
-              <div v-for="v in variablesHelper" :key="v.token"
-                class="flex items-center justify-between gap-2 text-[11px] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 p-1 rounded transition-colors group/var-item"
-                @click="copyToClipboard(v.token)" title="Click para copiar">
-                <div class="flex items-center gap-2 truncate pointer-events-none">
-                  <code
-                    class="text-indigo-600 dark:text-indigo-400 font-mono bg-indigo-50 dark:bg-indigo-900/30 px-1 py-0.5 rounded">{{
-                      v.token }}</code>
-                  <span class="text-slate-500 dark:text-slate-400 truncate" :title="v.desc">{{ v.desc }}</span>
-                </div>
-                <UIcon name="i-heroicons-document-duplicate"
-                  class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 opacity-40 group-hover/var-item:opacity-100 transition-opacity shrink-0" />
-              </div>
-            </div>
-          </div>
         </div>
       </details>
 
@@ -608,7 +653,7 @@ const variablesHelper = [
           <UIcon name="i-heroicons-paint-brush" class="text-indigo-500 w-5 h-5" />
           <h3 class="font-semibold text-slate-800 dark:text-slate-200 text-sm">Estilo del Contenido (Preguntas)</h3>
           <UIcon name="i-heroicons-chevron-down"
-            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
+            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-200" />
         </summary>
         <div class="p-4">
           <div
@@ -705,7 +750,7 @@ const variablesHelper = [
           <UIcon name="i-heroicons-document-duplicate" class="text-indigo-500 w-5 h-5" />
           <h3 class="font-semibold text-slate-800 dark:text-slate-200 text-sm">Márgenes y Modo Imprenta</h3>
           <UIcon name="i-heroicons-chevron-down"
-            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
+            class="ml-auto w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform duration-200" />
         </summary>
         <div class="p-5 space-y-5">
           <div
@@ -762,7 +807,7 @@ const variablesHelper = [
       class="lg:sticky lg:top-4 h-[calc(100vh-2rem)] max-h-[85vh] flex flex-col lg:col-span-6 bg-slate-100/50 dark:bg-slate-900/80 p-0 rounded-2xl border border-slate-200/60 dark:border-white/10 shadow-lg overflow-hidden backdrop-blur-xl">
       <!-- Toolbar of the Preview -->
       <div
-        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-4 py-3 border-b border-slate-200/60 dark:border-white/10 flex items-center justify-between shrink-0 w-full overflow-hidden relative">
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-4 py-3 border-b border-slate-200/60 dark:border-white/10 flex items-center justify-between shrink-0 w-full overflow-hidden gap-3">
 
         <div class="flex items-center gap-2 min-w-0">
           <label
@@ -781,7 +826,7 @@ const variablesHelper = [
 
         <!-- Toolbar for Zoom Controls -->
         <div
-          class="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-100 dark:bg-slate-900 px-1 py-1 rounded-md border border-slate-200 dark:border-white/5 shrink-0 shadow-sm z-10">
+          class="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 px-1 py-1 rounded-md border border-slate-200 dark:border-white/5 shrink-0 shadow-sm">
           <UButton color="neutral" variant="ghost" icon="i-heroicons-minus" size="xs" @click="zoomOut"
             :disabled="zoom <= 40" />
           <span class="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 w-9 text-center">{{ zoom
@@ -794,7 +839,7 @@ const variablesHelper = [
         </div>
 
         <!-- Action Controls -->
-        <div class="ml-auto flex items-center gap-2">
+        <div class="flex items-center gap-2 shrink-0">
           <UButton color="neutral" variant="ghost" size="xs" @click="emit('cancelled')">Cancelar</UButton>
           <UButton color="primary" :loading="submitting" size="xs" @click="handleSubmit">
             {{ isEditing ? 'Guardar Cambios' : 'Crear Plantilla' }}
@@ -816,5 +861,22 @@ details>summary::-webkit-details-marker {
 
 details>summary {
   list-style: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 999px;
+}
+
+html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(51 65 85);
 }
 </style>
