@@ -100,6 +100,17 @@ interface TopicGroup {
 const localRows = ref<RowData[]>([]);
 const confirmRemove = ref<{ type: 'row' | 'topic'; data: RowData | TopicGroup } | null>(null);
 const confirmClearWeek = ref<number | null>(null);
+const expandedTopics = ref<Set<string>>(new Set());
+
+function toggleTopic(topicId: string) {
+  const next = new Set(expandedTopics.value);
+  if (next.has(topicId)) {
+    next.delete(topicId);
+  } else {
+    next.add(topicId);
+  }
+  expandedTopics.value = next;
+}
 
 const getTopicName = (topicId: string) => {
   const t = course.value?.topics.find(x => x.id === topicId);
@@ -236,6 +247,18 @@ const matrixColumns = computed(() => {
   }
   return cols;
 });
+
+watch(() => topicGroups.value, (groups) => {
+  if (groups.length > 0 && expandedTopics.value.size === 0) {
+    expandedTopics.value = new Set(groups.map(g => g.topicId));
+  }
+}, { immediate: true });
+
+const gridStyle = computed(() => ({
+  display: 'grid',
+  gridTemplateColumns: `320px repeat(${matrixColumns.value.length}, 80px) 100px`,
+  alignItems: 'center'
+}));
 
 const getCellValue = (row: RowData, weekNumber: number) => {
   const dist = store.distributions.find(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId && d.weekNumber === weekNumber);
@@ -465,7 +488,7 @@ const formatWeekStatus = (weekNumber: number) => {
     </div>
 
     <div
-      class="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-white dark:bg-[#1e1e2d] shadow-sm overflow-hidden flex flex-col relative">
+      class="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-slate-50/50 dark:bg-[#15152a] shadow-sm overflow-hidden flex flex-col relative px-5 pb-5">
 
       <div
         class="px-4 py-3 bg-slate-50/60 dark:bg-[#15152a]/40 border-b border-slate-200/60 dark:border-slate-750/40 flex items-center justify-between gap-4">
@@ -502,162 +525,164 @@ const formatWeekStatus = (weekNumber: number) => {
       </div>
 
       <div class="overflow-x-auto custom-scrollbar">
-        <table class="w-full text-left border-collapse min-w-max">
-          <thead>
-            <tr>
-              <th
-                class="sticky left-0 z-20 bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 min-w-[260px] text-slate-400 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
-                Tema / Subtema
-              </th>
-              <th v-for="col in matrixColumns" :key="col.number"
-                class="px-2 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold w-[60px]"
-                :class="col.isActive ? 'text-slate-400 dark:text-slate-500' : 'text-slate-300 dark:text-slate-600'">
-                <div class="flex flex-col items-center gap-1">
-                  <div class="flex items-center gap-1">
-                    <span class="font-bold text-[11px]"
-                      :class="isGeneratedWeek(col.number) ? 'text-amber-600 dark:text-amber-400' : ''">
-                      S{{ col.number }}
-                    </span>
-                    <div v-if="isGeneratedWeek(col.number)"
-                      class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
-                      title="Materiales generados en esta semana" />
-                    <div v-if="!col.isActive"
-                      class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"
-                      title="Semana inactiva" />
-                  </div>
-                </div>
-              </th>
-              <th
-                class="bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold uppercase tracking-wider w-[70px] text-slate-400 dark:text-slate-500">
-                Total
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="matrixRows.length === 0">
-              <td :colspan="matrixColumns.length + 2"
-                class="text-center py-20 text-slate-400 dark:text-slate-500">
-                <div class="max-w-xs mx-auto space-y-3">
-                  <div
-                    class="w-14 h-14 mx-auto rounded-xl bg-slate-100 dark:bg-slate-800/40 flex items-center justify-center">
-                    <UIcon name="i-heroicons-document-plus" class="w-7 h-7 text-slate-300 dark:text-slate-600" />
-                  </div>
-                  <div>
-                    <p class="font-semibold text-sm text-slate-600 dark:text-slate-300">Distribución vacía</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Agrega subtemas usando el botón "Añadir Temas".</p>
-                  </div>
-                </div>
-              </td>
-            </tr>
+        <div v-if="matrixRows.length === 0" class="py-20 text-center text-slate-400 dark:text-slate-500">
+          <div class="max-w-xs mx-auto space-y-3">
+            <div
+              class="w-14 h-14 mx-auto rounded-xl bg-slate-100 dark:bg-slate-800/40 flex items-center justify-center">
+              <UIcon name="i-heroicons-document-plus" class="w-7 h-7 text-slate-300 dark:text-slate-600" />
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-600 dark:text-slate-300">Distribución vacía</p>
+              <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Agrega subtemas usando el botón "Añadir Temas".</p>
+            </div>
+          </div>
+        </div>
 
-            <template v-for="(group, gIdx) in topicGroups" :key="group.topicId">
-              <tr>
-                <td colspan="1"
-                  class="sticky left-0 z-10 bg-white dark:bg-[#1e1e2d] px-4 py-1.5">
-                  <div class="flex items-center gap-1.5">
-                    <div class="w-0.5 h-4 rounded-full bg-indigo-400 dark:bg-indigo-500/70 shrink-0" />
-                    <span class="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{ group.topicName }}</span>
+        <div v-else class="matrix-scroll">
+          <!-- Header -->
+            <div class="matrix-row header sticky top-0 z-30" :style="gridStyle">
+            <div
+              class="name-col sticky left-0 z-[31] bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-slate-400 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
+              Tema / Subtema
+            </div>
+            <div v-for="col in matrixColumns" :key="col.number"
+              class="week-col px-2 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold bg-white dark:bg-[#1e1e2d]"
+              :class="col.isActive ? 'text-slate-400 dark:text-slate-500' : 'text-slate-300 dark:text-slate-600'">
+              <div class="flex items-center justify-center gap-1">
+                <span class="font-bold text-[11px]"
+                  :class="isGeneratedWeek(col.number) ? 'text-amber-600 dark:text-amber-400' : ''">
+                  S{{ col.number }}
+                </span>
+                <div v-if="isGeneratedWeek(col.number)"
+                  class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+                  title="Materiales generados en esta semana" />
+                <div v-if="!col.isActive"
+                  class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"
+                  title="Semana inactiva" />
+              </div>
+            </div>
+            <div
+              class="total-col px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 bg-white dark:bg-[#1e1e2d]">
+              Total
+            </div>
+          </div>
+
+          <!-- Topic Sections -->
+          <div v-for="group in topicGroups" :key="group.topicId" class="topic-section">
+            <div class="topic-card" :class="{ 'is-collapsed': !expandedTopics.has(group.topicId) }">
+              <!-- Topic Header Row -->
+              <div class="topic-header" :style="gridStyle" @click="toggleTopic(group.topicId)">
+                <div class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <div class="topic-accent" />
+                    <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{ group.topicName }}</span>
                     <UBadge v-if="!group.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
                     <button @click.stop="confirmRemove = { type: 'topic', data: group }"
                       class="ml-auto w-5 h-5 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
                       title="Quitar todo el tema">
                       <UIcon name="i-heroicons-trash" class="w-3 h-3" />
                     </button>
+                    <UIcon :name="expandedTopics.has(group.topicId) ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+                      class="w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200"
+                      :class="expandedTopics.has(group.topicId) ? 'rotate-0' : '-rotate-90'" />
                   </div>
-                </td>
-                <td v-for="col in matrixColumns" :key="col.number"
-                  class="px-1 py-1 text-center">
+                </div>
+                <div v-for="col in matrixColumns" :key="col.number"
+                  class="week-col px-1 py-1 text-center">
                   <div v-if="group.subtotalByWeek[col.number]"
                     class="inline-flex items-center justify-center min-w-[20px] h-4 rounded text-[9px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
                     {{ group.subtotalByWeek[col.number] }}
                   </div>
-                </td>
-                <td
-                  class="px-3 py-1 text-center font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
+                </div>
+                <div
+                  class="total-col px-3 py-1 text-center font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
                   {{ group.subtotal || '-' }}
-                </td>
-              </tr>
+                </div>
+              </div>
 
-              <tr v-for="row in group.rows" :key="row.topicId + '|' + row.subtopicId"
-                class="group border-t border-slate-100 dark:border-slate-800/30 hover:bg-slate-50/60 dark:hover:bg-slate-800/10 transition-colors">
-                <td
-                  class="sticky left-0 z-10 bg-white dark:bg-[#1e1e2d] group-hover:bg-slate-50/60 dark:group-hover:bg-slate-800/10 px-4 pl-9 py-2.5 transition-colors">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-slate-700 dark:text-slate-300 line-clamp-1" :title="row.subtopicName">
-                      {{ row.subtopicName }}
-                    </span>
-                    <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
-                    <button @click.stop="confirmRemove = { type: 'row', data: row }"
-                      class="ml-auto w-4 h-4 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
-                      title="Quitar subtema">
-                      <UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                </td>
-
-                <td v-for="col in matrixColumns" :key="col.number"
-                  class="p-0.5 text-center relative"
-                  :class="{ 'opacity-30': !col.isActive }">
-                  <template v-if="col.isActive">
-                    <div class="relative flex items-center justify-center">
-                      <input type="number" min="1"
-                        :ref="el => { if (el) cellRefs.set(`${row.topicId}|${row.subtopicId}|${col.number}`, el as HTMLInputElement) }"
-                        :max="targetQuestionsQuantity !== null ? targetQuestionsQuantity : 100"
-                        class="w-10 h-8 text-center border border-transparent rounded-lg text-xs font-semibold bg-transparent dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-200 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 hide-arrows transition-all mx-auto"
-                        :class="{
-                          'text-slate-300 dark:text-slate-500': getCellValue(row, col.number) === '',
-                          'text-emerald-600 dark:text-emerald-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) === targetQuestionsQuantity,
-                          'text-amber-600 dark:text-amber-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) < targetQuestionsQuantity,
-                        }"
-                        :value="getCellValue(row, col.number)"
-                        @blur="e => updateCell(row, col.number, (e.target as HTMLInputElement).value)"
-                        @keydown="e => handleCellKeydown(e, row, col.number)"
-                        placeholder="-" />
-
-                      <div v-if="getCellValue(row, col.number) !== ''"
-                        class="absolute -right-0.5 top-0.5 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button @click.stop="adjustCell(row, col.number, 1)"
-                          class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20 rounded-t transition-colors"
-                          title="Incrementar">
-                          <UIcon name="i-heroicons-chevron-up" class="w-2 h-2" />
-                        </button>
-                        <button @click.stop="adjustCell(row, col.number, -1)"
-                          class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/20 rounded-b transition-colors"
-                          title="Decrementar">
-                          <UIcon name="i-heroicons-chevron-down" class="w-2 h-2" />
-                        </button>
-                      </div>
-
-                      <div v-if="savingCells.has(`${row.topicId}|${row.subtopicId}|${col.number}`)"
-                        class="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-lg">
-                        <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 text-indigo-400 animate-spin" />
-                      </div>
+              <!-- Subtopic Rows inside card -->
+              <template v-if="expandedTopics.has(group.topicId)">
+                <div class="topic-divider" />
+                <div v-for="row in group.rows" :key="row.topicId + '|' + row.subtopicId"
+                  class="subtopic-row group" :style="gridStyle">
+                  <div
+                    class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] group-hover:bg-slate-50/60 dark:group-hover:bg-slate-800/10 px-4 pl-9 py-2.5 transition-colors">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-slate-700 dark:text-slate-300 line-clamp-1" :title="row.subtopicName">
+                        {{ row.subtopicName }}
+                      </span>
+                      <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                      <button @click.stop="confirmRemove = { type: 'row', data: row }"
+                        class="ml-auto w-4 h-4 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                        title="Quitar subtema">
+                        <UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" />
+                      </button>
                     </div>
-                  </template>
-                  <div v-else class="flex items-center justify-center text-slate-300 dark:text-slate-600 h-8">
-                    <UIcon name="i-heroicons-lock-closed" class="w-2.5 h-2.5" />
                   </div>
-                </td>
 
-                <td
-                  class="px-3 py-2.5 text-center font-bold text-xs text-slate-600 dark:text-slate-400">
-                  {{ getRowTotal(row) || '-' }}
-                </td>
-              </tr>
-            </template>
-          </tbody>
+                  <div v-for="col in matrixColumns" :key="col.number"
+                    class="week-col p-0.5 text-center relative"
+                    :class="{ 'opacity-30': !col.isActive }">
+                    <template v-if="col.isActive">
+                      <div class="relative flex items-center justify-center">
+                        <input type="number" min="1"
+                          :ref="el => { if (el) cellRefs.set(`${row.topicId}|${row.subtopicId}|${col.number}`, el as HTMLInputElement) }"
+                          :max="targetQuestionsQuantity !== null ? targetQuestionsQuantity : 100"
+                          class="w-10 h-8 text-center border border-transparent rounded-lg text-xs font-semibold bg-transparent dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-200 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 hide-arrows transition-all mx-auto"
+                          :class="{
+                            'text-slate-300 dark:text-slate-500': getCellValue(row, col.number) === '',
+                            'text-emerald-600 dark:text-emerald-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) === targetQuestionsQuantity,
+                            'text-amber-600 dark:text-amber-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) < targetQuestionsQuantity,
+                          }"
+                          :value="getCellValue(row, col.number)"
+                          @blur="e => updateCell(row, col.number, (e.target as HTMLInputElement).value)"
+                          @keydown="e => handleCellKeydown(e, row, col.number)"
+                          placeholder="-" />
 
-          <tfoot v-if="matrixRows.length > 0">
-            <tr>
-              <td
-                class="sticky left-0 z-20 bg-slate-50 dark:bg-[#15152a] px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 font-bold text-right text-[11px] text-slate-500 dark:text-slate-400">
+                        <div v-if="getCellValue(row, col.number) !== ''"
+                          class="absolute -right-0.5 top-0.5 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button @click.stop="adjustCell(row, col.number, 1)"
+                            class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20 rounded-t transition-colors"
+                            title="Incrementar">
+                            <UIcon name="i-heroicons-chevron-up" class="w-2 h-2" />
+                          </button>
+                          <button @click.stop="adjustCell(row, col.number, -1)"
+                            class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/20 rounded-b transition-colors"
+                            title="Decrementar">
+                            <UIcon name="i-heroicons-chevron-down" class="w-2 h-2" />
+                          </button>
+                        </div>
+
+                        <div v-if="savingCells.has(`${row.topicId}|${row.subtopicId}|${col.number}`)"
+                          class="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-lg">
+                          <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 text-indigo-400 animate-spin" />
+                        </div>
+                      </div>
+                    </template>
+                    <div v-else class="flex items-center justify-center text-slate-300 dark:text-slate-600 h-8">
+                      <UIcon name="i-heroicons-lock-closed" class="w-2.5 h-2.5" />
+                    </div>
+                  </div>
+
+                  <div
+                    class="total-col px-3 py-2.5 text-center font-bold text-xs text-slate-600 dark:text-slate-400">
+                    {{ getRowTotal(row) || '-' }}
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="footer-card">
+            <div class="matrix-row footer" :style="gridStyle">
+              <div
+                class="name-col sticky z-10 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 font-bold text-right text-[11px] text-slate-500 dark:text-slate-400">
                 Totales
-              </td>
-              <td v-for="col in matrixColumns" :key="col.number"
-                class="bg-slate-50 dark:bg-[#15152a] px-2 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center"
-                :class="{
-                  'text-slate-400 dark:text-slate-500': !col.isActive,
-                }">
+              </div>
+              <div v-for="col in matrixColumns" :key="col.number"
+                class="week-col px-2 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center"
+                :class="{ 'text-slate-400 dark:text-slate-500': !col.isActive }">
                 <div v-if="col.isActive" class="flex flex-col items-center gap-1.5">
                   <div class="flex items-center gap-1.5">
                     <span class="font-bold text-xs"
@@ -687,14 +712,14 @@ const formatWeekStatus = (weekNumber: number) => {
                   </div>
                 </div>
                 <span v-else class="font-bold text-xs">{{ getColTotal(col.number) || '-' }}</span>
-              </td>
-              <td
-                class="bg-indigo-50/50 dark:bg-indigo-950/30 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center font-black text-sm text-indigo-700 dark:text-indigo-400">
+              </div>
+              <div
+                class="total-col bg-indigo-50/50 dark:bg-indigo-950/30 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center font-black text-sm text-indigo-700 dark:text-indigo-400">
                 {{ grandTotalQuestionCount }}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -757,6 +782,152 @@ const formatWeekStatus = (weekNumber: number) => {
 </template>
 
 <style scoped>
+.matrix-scroll {
+  width: 100%;
+  min-width: max-content;
+}
+
+/* Row grid layout */
+.matrix-row {
+  display: grid;
+  align-items: center;
+}
+
+.topic-section {
+  margin: 12px 0;
+}
+
+/* Topic card - outer container */
+.topic-card {
+  background-color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px 0 rgb(0 0 0 / 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.topic-card:hover {
+  box-shadow: 0 8px 28px 0 rgb(0 0 0 / 0.14);
+}
+
+html.dark .topic-card {
+  background-color: rgb(30 41 59 / 0.4);
+  box-shadow: 0 4px 16px 0 rgb(0 0 0 / 0.3);
+}
+
+html.dark .topic-card:hover {
+  box-shadow: 0 8px 28px 0 rgb(0 0 0 / 0.4);
+}
+
+.topic-card.is-collapsed {
+  margin-bottom: 0;
+}
+
+/* Topic header - clickable grid row */
+.topic-header {
+  display: grid;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 16px 16px 0 0;
+}
+
+/* Footer card */
+.footer-card {
+  margin-top: 16px;
+  background-color: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px 0 rgb(0 0 0 / 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+html.dark .footer-card {
+  background-color: rgb(30 41 59 / 0.4);
+  box-shadow: 0 4px 16px 0 rgb(0 0 0 / 0.3);
+}
+
+html.dark .topic-header {
+  border-radius: 16px 16px 0 0;
+}
+
+/* Subtopic rows - list inside card */
+.subtopic-row {
+  display: grid;
+  align-items: center;
+  border-bottom: 1px solid rgb(241 245 249);
+}
+
+html.dark .subtopic-row {
+  border-bottom-color: rgb(51 65 85 / 0.25);
+}
+
+.subtopic-row:last-child {
+  border-bottom: none;
+  border-radius: 0 0 16px 16px;
+}
+
+.subtopic-row:hover {
+  background-color: rgb(248 250 252 / 0.8);
+}
+
+html.dark .subtopic-row:hover {
+  background-color: rgb(30 41 59 / 0.15);
+}
+
+/* Divider between topic header and subtopics */
+.topic-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgb(226 232 240), transparent);
+}
+
+html.dark .topic-divider {
+  background: linear-gradient(to right, transparent, rgb(51 65 85 / 0.4), transparent);
+}
+
+/* Header row */
+.matrix-row.header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+/* Name column - sticky left */
+.name-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+}
+
+.name-col.sticky {
+  position: sticky;
+  left: 0;
+}
+
+.matrix-row.header .name-col {
+  z-index: 31;
+}
+
+/* Topic accent bar */
+.topic-accent {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, #818cf8, #6366f1);
+  flex-shrink: 0;
+}
+
+html.dark .topic-accent {
+  background: linear-gradient(to bottom, #818cf8, rgba(129, 140, 248, 0.7));
+}
+
+/* Week and total columns */
+.week-col {
+  text-align: center;
+}
+
+.total-col {
+  text-align: center;
+}
+
 .hide-arrows::-webkit-outer-spin-button,
 .hide-arrows::-webkit-inner-spin-button {
   -webkit-appearance: none;
