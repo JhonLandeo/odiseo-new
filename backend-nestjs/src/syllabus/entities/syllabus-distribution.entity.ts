@@ -12,8 +12,9 @@ import {
 import { Syllabus } from './syllabus.entity';
 
 @Entity('syllabus_distribution')
-@Unique('UQ_syllabus_week_topic_subtopic', [
+@Unique('UQ_syllabus_template_week_topic_subtopic', [
   'syllabusId',
+  'templateId',
   'weekNumber',
   'topicId',
   'subtopicId',
@@ -31,6 +32,9 @@ export class SyllabusDistribution {
   })
   @JoinColumn({ name: 'syllabus_id' })
   syllabus: Syllabus;
+
+  @Column({ name: 'template_id', type: 'uuid', nullable: true })
+  templateId: string | null;
 
   @Column({ name: 'week_number', type: 'int' })
   weekNumber: number;

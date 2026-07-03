@@ -22,6 +22,9 @@ export class Syllabus {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ name: 'template_id', type: 'uuid', nullable: true })
+  templateId: string | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 

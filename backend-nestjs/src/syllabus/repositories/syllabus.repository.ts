@@ -41,11 +41,12 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
   async findByCycleWithProgress(cycleId: string): Promise<SyllabusWithProgress[]> {
     return this.tenantService.runInTenant(async (manager) => {
       return manager.query(
-        `SELECT
+         `SELECT
           s.id,
           s.cycle_id AS "cycleId",
           s.course_id AS "courseId",
           s.name,
+          s.template_id AS "templateId",
           s.is_active AS "isActive",
           s.created_at AS "createdAt",
           s.updated_at AS "updatedAt",
@@ -59,6 +60,12 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
         WHERE s.cycle_id = $1`,
         [cycleId],
       );
+    });
+  }
+
+  async setTemplate(syllabusId: string, templateId: string): Promise<void> {
+    await this.tenantService.runInTenant(async (manager) => {
+      await manager.update(Syllabus, syllabusId, { templateId });
     });
   }
 
@@ -91,11 +98,14 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
 
   async getSummaryBySyllabus(
     syllabusId: string,
+    templateId?: string,
   ): Promise<SyllabusDistribution[]> {
     return this.tenantService.runInTenant(async (manager) => {
-      return await manager.find(SyllabusDistribution, {
-        where: { syllabusId },
-      });
+      const where: any = { syllabusId };
+      if (templateId) {
+        where.templateId = templateId;
+      }
+      return await manager.find(SyllabusDistribution, { where });
     });
   }
 

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, Min, Max, IsOptional } from 'class-validator';
 
 export class CreateDistributionDto {
   @IsNumber()
@@ -19,4 +19,8 @@ export class CreateDistributionDto {
   @Max(100)
   @IsNotEmpty()
   questionCount: number;
+
+  @IsString()
+  @IsOptional()
+  templateId?: string;
 }

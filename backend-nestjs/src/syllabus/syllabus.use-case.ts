@@ -42,6 +42,7 @@ export class SyllabusUseCase {
   async addDistribution(syllabusId: string, dto: CreateDistributionDto) {
     return await this.syllabusRepo.createDistribution({
       syllabusId,
+      templateId: dto.templateId || null,
       weekNumber: dto.weekNumber,
       topicId: dto.topicId,
       subtopicId: dto.subtopicId,
@@ -61,9 +62,9 @@ export class SyllabusUseCase {
     await this.syllabusRepo.deleteDistribution(distId);
   }
 
-  async getSummary(syllabusId: string) {
+  async getSummary(syllabusId: string, templateId?: string) {
     const distributions =
-      await this.syllabusRepo.getSummaryBySyllabus(syllabusId);
+      await this.syllabusRepo.getSummaryBySyllabus(syllabusId, templateId);
     const generatedWeeks =
       await this.syllabusRepo.findGeneratedWeeks(syllabusId);
 
@@ -143,6 +144,10 @@ export class SyllabusUseCase {
     }
 
     return { clonedCount };
+  }
+
+  async setTemplate(syllabusId: string, templateId: string) {
+    await this.syllabusRepo.setTemplate(syllabusId, templateId);
   }
 
   async archiveSyllabus(id: string, isActive: boolean) {

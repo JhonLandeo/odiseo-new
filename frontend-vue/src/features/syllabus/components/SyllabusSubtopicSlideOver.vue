@@ -19,36 +19,34 @@ const selectedSubtopics = ref<Set<string>>(new Set());
 const course = computed(() => catalogsStore.courses.find(c => c.id === props.courseId));
 const activeTopics = computed(() => course.value?.topics.filter(t => t.isActive) || []);
 
+const allExistingKeys = computed(() => new Set(props.existingKeys || []));
+
+const isAlreadyAdded = (topicId: string, subtopicId: string) => {
+  return allExistingKeys.value.has(`${topicId}|${subtopicId}`);
+};
+
 const filteredTopics = computed(() => {
   const query = searchQuery.value.toLowerCase().trim();
   
   return activeTopics.value.map(topic => {
-    // Filter subtopics that are already added
-    const availableSubtopics = topic.subtopics.filter(sub => {
-      return !(props.existingKeys || []).includes(`${topic.id}|${sub.id}`);
-    });
-    
-    // If no subtopics available (and it had subtopics originally), skip topic
-    if (topic.subtopics.length > 0 && availableSubtopics.length === 0) return null;
-    
-    // If topic itself has no subtopics, check if the general topic is added
-    if (topic.subtopics.length === 0 && (props.existingKeys || []).includes(`${topic.id}|`)) return null;
+    let subtopics = topic.subtopics;
 
-    if (!query) {
-      return { ...topic, subtopics: availableSubtopics };
+    // If search query, filter by search
+    if (query) {
+      subtopics = subtopics.filter(sub =>
+        sub.name.toLowerCase().includes(query) ||
+        topic.name.toLowerCase().includes(query)
+      );
     }
 
-    // If topic name matches, include all available subtopics
-    if (topic.name.toLowerCase().includes(query)) {
-      return { ...topic, subtopics: availableSubtopics };
+    // If no subtopics, handle general topic
+    if (topic.subtopics.length === 0) {
+      return topic;
     }
 
-    // Otherwise filter available subtopics by query
-    const matchingSubtopics = availableSubtopics.filter(sub => sub.name.toLowerCase().includes(query));
-    if (matchingSubtopics.length > 0) {
-      return { ...topic, subtopics: matchingSubtopics };
-    }
-    return null;
+    if (subtopics.length === 0) return null;
+
+    return { ...topic, subtopics };
   }).filter(t => t !== null) as typeof activeTopics.value;
 });
 
@@ -147,17 +145,37 @@ defineExpose({ open, close });
               <div 
                 v-for="sub in topic.subtopics" 
                 :key="sub.id" 
-                class="px-4 py-3 flex items-center gap-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer transition-colors"
-                @click="toggleSubtopic(topic.id, sub.id)"
+                class="px-4 py-3 flex items-center gap-3 transition-colors"
+                :class="isAlreadyAdded(topic.id, sub.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20 opacity-70' : 'hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer'"
               >
-                <UCheckbox :model-value="isSelected(topic.id, sub.id)" @update:model-value="toggleSubtopic(topic.id, sub.id)" @click.stop />
-                <span class="text-sm text-gray-600 dark:text-gray-300">{{ sub.name }}</span>
+                <template v-if="isAlreadyAdded(topic.id, sub.id)">
+                  <div class="w-4 h-4 rounded bg-emerald-500 flex items-center justify-center text-white shrink-0">
+                    <UIcon name="i-heroicons-check" class="w-3 h-3" />
+                  </div>
+                  <span class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ sub.name }}</span>
+                  <UBadge color="emerald" variant="subtle" size="xs">Agregado</UBadge>
+                </template>
+                <template v-else>
+                  <UCheckbox :model-value="isSelected(topic.id, sub.id)" @update:model-value="toggleSubtopic(topic.id, sub.id)" @click.stop />
+                  <span class="text-sm text-gray-600 dark:text-gray-300 cursor-pointer flex-1" @click="toggleSubtopic(topic.id, sub.id)">{{ sub.name }}</span>
+                </template>
               </div>
             </template>
             <template v-else>
-              <div class="px-4 py-3 flex items-center gap-3 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer transition-colors" @click="toggleSubtopic(topic.id, '')">
-                <UCheckbox :model-value="isSelected(topic.id, '')" @update:model-value="toggleSubtopic(topic.id, '')" @click.stop />
-                <span class="text-sm text-gray-600 dark:text-gray-300 text-italic">Sin subtemas (General)</span>
+              <div class="px-4 py-3 flex items-center gap-3 transition-colors"
+                :class="isAlreadyAdded(topic.id, '') ? 'bg-emerald-50/50 dark:bg-emerald-950/20 opacity-70' : 'hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer'"
+              >
+                <template v-if="isAlreadyAdded(topic.id, '')">
+                  <div class="w-4 h-4 rounded bg-emerald-500 flex items-center justify-center text-white shrink-0">
+                    <UIcon name="i-heroicons-check" class="w-3 h-3" />
+                  </div>
+                  <span class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">Sin subtemas (General)</span>
+                  <UBadge color="emerald" variant="subtle" size="xs">Agregado</UBadge>
+                </template>
+                <template v-else>
+                  <UCheckbox :model-value="isSelected(topic.id, '')" @update:model-value="toggleSubtopic(topic.id, '')" @click.stop />
+                  <span class="text-sm text-gray-600 dark:text-gray-300 cursor-pointer flex-1" @click="toggleSubtopic(topic.id, '')">Sin subtemas (General)</span>
+                </template>
               </div>
             </template>
           </div>

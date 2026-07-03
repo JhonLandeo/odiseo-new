@@ -24,6 +24,7 @@ export interface ISyllabusRepository {
   ): Promise<Syllabus | null>;
   findByCycle(cycleId: string): Promise<Syllabus[]>;
   findByCycleWithProgress(cycleId: string): Promise<SyllabusWithProgress[]>;
+  setTemplate(syllabusId: string, templateId: string): Promise<void>;
   updateVisibility(id: string, isActive: boolean): Promise<void>;
 
   createDistribution(
@@ -32,6 +33,6 @@ export interface ISyllabusRepository {
   updateDistributionQuantity(id: string, questionCount: number): Promise<void>;
   deleteDistribution(id: string): Promise<void>;
 
-  getSummaryBySyllabus(syllabusId: string): Promise<SyllabusDistribution[]>;
+  getSummaryBySyllabus(syllabusId: string, templateId?: string): Promise<SyllabusDistribution[]>;
   findGeneratedWeeks(syllabusId: string): Promise<number[]>;
 }

@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Get,
+  Query,
 } from '@nestjs/common';
 import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
@@ -56,8 +57,11 @@ export class SyllabusController {
   }
 
   @Get(':id/summary')
-  async getSummary(@Param('id') syllabusId: string) {
-    const summary = await this.useCase.getSummary(syllabusId);
+  async getSummary(
+    @Param('id') syllabusId: string,
+    @Query('templateId') templateId?: string,
+  ) {
+    const summary = await this.useCase.getSummary(syllabusId, templateId);
     return { status: 'success', summary };
   }
 
@@ -77,6 +81,15 @@ export class SyllabusController {
   ) {
     const result = await this.useCase.cloneCycleSyllabuses(targetCycleId, sourceCycleId);
     return { status: 'cloned', ...result };
+  }
+
+  @Patch(':id/template')
+  async setTemplate(
+    @Param('id') id: string,
+    @Body('templateId') templateId: string,
+  ) {
+    await this.useCase.setTemplate(id, templateId);
+    return { status: 'updated' };
   }
 
   @Patch(':id/archive')

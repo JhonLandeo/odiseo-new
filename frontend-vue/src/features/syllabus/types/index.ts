@@ -3,6 +3,7 @@ export interface Syllabus {
   cycleId: string
   courseId: string
   name: string
+  templateId?: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -11,6 +12,7 @@ export interface Syllabus {
 export interface SyllabusDistribution {
   id: string
   syllabusId: string
+  templateId?: string | null
   weekNumber: number
   topicId: string
   subtopicId: string
@@ -29,6 +31,7 @@ export interface CreateDistributionPayload {
   topicId: string
   subtopicId: string
   questionCount: number
+  templateId?: string
 }
 
 export interface UpdateDistributionPayload {

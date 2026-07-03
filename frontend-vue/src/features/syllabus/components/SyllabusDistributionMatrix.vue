@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { useSyllabusStore } from '../store';
 import { useAcademicTimeStore } from '../../academic-time/store';
 import { useCatalogsStore } from '../../catalogs/store';
@@ -17,20 +17,10 @@ function isGeneratedWeek(weekNumber: number) {
   return generatedWeeks.value.includes(weekNumber);
 }
 
-function getWeekEmptyStatus() {
-  const emptyWeeks: number[] = [];
-  for (const col of matrixColumns.value) {
-    const hasDist = store.distributions.some(d => d.weekNumber === col.number);
-    if (!hasDist) emptyWeeks.push(col.number);
-  }
-  return emptyWeeks;
-}
-
-const emptyWeeks = computed(() => getWeekEmptyStatus());
-
 const syllabus = computed(() => store.syllabus);
 const slideOverRef = ref<InstanceType<typeof SyllabusSubtopicSlideOver> | null>(null);
 const matrixSearchQuery = ref('');
+const savingCells = ref<Set<string>>(new Set());
 
 const selectedTemplateId = ref<string>('');
 
@@ -49,15 +39,34 @@ const targetQuestionsQuantity = computed(() => {
   return courseConfig ? courseConfig.questionsQuantity : null;
 });
 
-watch(() => templates.value, (newTemplates) => {
-  if (newTemplates && newTemplates.length > 0 && !selectedTemplateId.value) {
+watch(() => [templates.value, syllabus.value?.templateId], ([newTemplates, savedTemplateId]) => {
+  if (savedTemplateId && newTemplates.some(t => t.id === savedTemplateId)) {
+    selectedTemplateId.value = savedTemplateId;
+  } else if (newTemplates.length > 0 && !selectedTemplateId.value) {
     selectedTemplateId.value = newTemplates[0].id;
   }
 }, { immediate: true });
 
+const loadDistributions = async () => {
+  if (!syllabus.value?.id || !selectedTemplateId.value) return;
+  await store.fetchSummary(syllabus.value.id, selectedTemplateId.value);
+};
+
+watch(selectedTemplateId, async (newId) => {
+  if (newId && syllabus.value?.id && newId !== syllabus.value.templateId) {
+    try {
+      await store.setTemplate(syllabus.value.id, newId);
+      if (syllabus.value?.cycleId) {
+        await timeStore.fetchTemplates(syllabus.value.cycleId);
+      }
+      await loadDistributions();
+    } catch {}
+  }
+});
+
 watch(() => syllabus.value?.id, async (newId) => {
   if (newId) {
-    await store.fetchSummary(newId);
+    await loadDistributions();
     if (syllabus.value?.courseId) {
       await catalogsStore.fetchCourseTopics(syllabus.value.courseId);
     }
@@ -79,7 +88,18 @@ interface RowData {
   topicIsActive: boolean;
 }
 
+interface TopicGroup {
+  topicId: string;
+  topicName: string;
+  topicIsActive: boolean;
+  rows: RowData[];
+  subtotalByWeek: Record<number, number>;
+  subtotal: number;
+}
+
 const localRows = ref<RowData[]>([]);
+const confirmRemove = ref<{ type: 'row' | 'topic'; data: RowData | TopicGroup } | null>(null);
+const confirmClearWeek = ref<number | null>(null);
 
 const getTopicName = (topicId: string) => {
   const t = course.value?.topics.find(x => x.id === topicId);
@@ -98,6 +118,35 @@ const getTopicIsActive = (topicId: string) => {
   return t ? t.isActive !== false : true;
 };
 
+const removeRow = async (row: RowData) => {
+  if (!syllabus.value?.id) return;
+  const dists = store.distributions.filter(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId);
+  for (const dist of dists) {
+    try {
+      await store.deleteDistribution(dist.id, syllabus.value.id);
+    } catch {}
+  }
+  localRows.value = localRows.value.filter(r => r.topicId !== row.topicId || r.subtopicId !== row.subtopicId);
+};
+
+const removeTopic = async (topicId: string) => {
+  if (!syllabus.value?.id) return;
+  const rows = matrixRows.value.filter(r => r.topicId === topicId);
+  for (const row of rows) {
+    await removeRow(row);
+  }
+};
+
+const clearWeek = async (weekNumber: number) => {
+  if (!syllabus.value?.id) return;
+  const dists = store.distributions.filter(d => d.weekNumber === weekNumber);
+  for (const dist of dists) {
+    try {
+      await store.deleteDistribution(dist.id, syllabus.value.id);
+    } catch {}
+  }
+};
+
 const onAddSubtopics = (selected: RowData[]) => {
   selected.forEach(row => {
     const exists = localRows.value.some(r => r.topicId === row.topicId && r.subtopicId === row.subtopicId);
@@ -110,7 +159,6 @@ const onAddSubtopics = (selected: RowData[]) => {
 const matrixRows = computed(() => {
   const map = new Map<string, RowData>();
 
-  // Desde la base de datos (distribución existente)
   store.distributions.forEach(d => {
     const key = `${d.topicId}|${d.subtopicId}`;
     if (!map.has(key)) {
@@ -124,7 +172,6 @@ const matrixRows = computed(() => {
     }
   });
 
-  // Desde adiciones locales temporales
   localRows.value.forEach(row => {
     const key = `${row.topicId}|${row.subtopicId}`;
     if (!map.has(key)) {
@@ -143,6 +190,38 @@ const matrixRows = computed(() => {
   }
 
   return list;
+});
+
+const topicGroups = computed<TopicGroup[]>(() => {
+  const groups = new Map<string, RowData[]>();
+  matrixRows.value.forEach(row => {
+    if (!groups.has(row.topicId)) {
+      groups.set(row.topicId, []);
+    }
+    groups.get(row.topicId)!.push(row);
+  });
+
+  return Array.from(groups.entries()).map(([topicId, rows]) => {
+    const firstRow = rows[0];
+    const subtotalByWeek: Record<number, number> = {};
+    let subtotal = 0;
+    for (const col of matrixColumns.value) {
+      const weekDists = store.distributions.filter(d =>
+        d.weekNumber === col.number && rows.some(r => r.topicId === d.topicId && r.subtopicId === d.subtopicId)
+      );
+      const weekTotal = weekDists.reduce((sum, d) => sum + Number(d.questionCount), 0);
+      if (weekTotal > 0) subtotalByWeek[col.number] = weekTotal;
+      subtotal += weekTotal;
+    }
+    return {
+      topicId,
+      topicName: firstRow.topicName,
+      topicIsActive: firstRow.topicIsActive,
+      rows,
+      subtotalByWeek,
+      subtotal,
+    };
+  });
 });
 
 const matrixColumns = computed(() => {
@@ -202,6 +281,9 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
     });
   }
 
+  const cellKey = `${row.topicId}|${row.subtopicId}|${weekNumber}`;
+  savingCells.value.add(cellKey);
+
   try {
     if (dist && newValue !== null) {
       await store.updateDistributionQuestionCount(dist.id, syllabus.value.id, newValue);
@@ -212,45 +294,168 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
         weekNumber,
         topicId: row.topicId,
         subtopicId: row.subtopicId,
-        questionCount: newValue
+        questionCount: newValue,
+        templateId: selectedTemplateId.value || undefined
       });
     }
   } catch (e: any) {
     toast.add({ title: 'Error de Guardado', description: e.message || 'No se pudo guardar la cantidad de preguntas', color: 'red' });
+  } finally {
+    savingCells.value.delete(cellKey);
+  }
+};
+
+const adjustCell = async (row: RowData, weekNumber: number, delta: number) => {
+  const dist = store.distributions.find(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId && d.weekNumber === weekNumber);
+  const current = dist ? dist.questionCount : 0;
+  const newValue = Math.max(1, Math.min(current + delta, targetQuestionsQuantity.value ?? 100));
+  await updateCell(row, weekNumber, String(newValue));
+};
+
+const cellRefs = ref<Map<string, HTMLInputElement>>(new Map());
+
+const focusNextCell = (currentRow: RowData, currentWeek: number, direction: 'right' | 'left' | 'down' | 'up') => {
+  const rows = matrixRows.value;
+  const cols = matrixColumns.value;
+  const rowIdx = rows.findIndex(r => r.topicId === currentRow.topicId && r.subtopicId === currentRow.subtopicId);
+  const colIdx = cols.findIndex(c => c.number === currentWeek);
+
+  let nextRow: number;
+  let nextCol: number;
+
+  switch (direction) {
+    case 'right':
+      nextRow = rowIdx;
+      nextCol = Math.min(colIdx + 1, cols.length - 1);
+      break;
+    case 'left':
+      nextRow = rowIdx;
+      nextCol = Math.max(colIdx - 1, 0);
+      break;
+    case 'down':
+      nextRow = Math.min(rowIdx + 1, rows.length - 1);
+      nextCol = colIdx;
+      break;
+    case 'up':
+      nextRow = Math.max(rowIdx - 1, 0);
+      nextCol = colIdx;
+      break;
+  }
+
+  if (nextRow !== rowIdx || nextCol !== colIdx) {
+    focusCell(rows[nextRow], cols[nextCol].number);
+  }
+};
+
+const focusCell = (row: RowData, weekNumber: number) => {
+  const key = `${row.topicId}|${row.subtopicId}|${weekNumber}`;
+  nextTick(() => {
+    const input = cellRefs.value.get(key);
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  });
+};
+
+const handleCellKeydown = (e: KeyboardEvent, row: RowData, weekNumber: number) => {
+  const target = e.target as HTMLInputElement;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    target.blur();
+    focusNextCell(row, weekNumber, 'down');
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    target.blur();
+    if (e.shiftKey) {
+      focusNextCell(row, weekNumber, 'left');
+    } else {
+      focusNextCell(row, weekNumber, 'right');
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    target.blur();
+    focusNextCell(row, weekNumber, 'up');
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    target.blur();
+    focusNextCell(row, weekNumber, 'down');
+  } else if (e.key === 'ArrowRight') {
+    if (target.selectionStart === target.value.length) {
+      e.preventDefault();
+      target.blur();
+      focusNextCell(row, weekNumber, 'right');
+    }
+  } else if (e.key === 'ArrowLeft') {
+    if (target.selectionStart === 0) {
+      e.preventDefault();
+      target.blur();
+      focusNextCell(row, weekNumber, 'left');
+    }
+  }
+};
+
+const progressPercentage = (weekNumber: number) => {
+  if (!targetQuestionsQuantity.value) return 0;
+  const total = getColTotal(weekNumber);
+  if (total === 0) return 0;
+  return Math.min(100, Math.round((total / targetQuestionsQuantity.value) * 100));
+};
+
+const weekStatus = (weekNumber: number) => {
+  if (!targetQuestionsQuantity.value) return 'none';
+  const total = getColTotal(weekNumber);
+  if (total === 0) return 'empty';
+  if (total === targetQuestionsQuantity.value) return 'exact';
+  if (total > targetQuestionsQuantity.value) return 'over';
+  return 'under';
+};
+
+const formatWeekStatus = (weekNumber: number) => {
+  const status = weekStatus(weekNumber);
+  const total = getColTotal(weekNumber);
+  const target = targetQuestionsQuantity.value;
+  switch (status) {
+    case 'empty': return 'Sin asignar';
+    case 'exact': return `${total} / ${target} — Completo`;
+    case 'over': return `${total} / ${target} — Excede límite`;
+    case 'under': return `${total} / ${target} — Parcial`;
+    default: return `${total || 0} preguntas`;
   }
 };
 </script>
 
 <template>
   <div class="space-y-6 w-full pb-10">
-    <!-- Cabecera de la Matriz de Distribución -->
     <div
-      class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-[#2b2b3f] px-6 py-5 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm gap-4">
+      class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-[#1e1e2d] px-6 py-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm gap-4">
       <div class="flex items-center gap-3">
-        <!-- Icono decorativo -->
         <div
-          class="w-11 h-11 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100/50 dark:border-indigo-900/50 flex items-center justify-center text-indigo-500 shadow-sm shrink-0">
+          class="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-950/50 dark:to-indigo-900/30 border border-indigo-200/50 dark:border-indigo-800/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm shrink-0">
           <UIcon name="i-heroicons-table-cells" class="w-5.5 h-5.5" />
         </div>
         <div class="space-y-0.5">
           <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
-            Matriz de Distribución de Preguntas
+            Matriz de Distribución
           </h3>
           <p class="text-xs text-slate-400 dark:text-slate-500 font-medium">
-            Curso: <span class="text-slate-700 dark:text-slate-300 font-bold">{{ course?.name }}</span> • {{ totalWeeks
-            }} semanas planificadas
+            Curso: <span class="text-slate-700 dark:text-slate-300 font-bold">{{ course?.name }}</span>
+            <span class="mx-1.5 text-slate-300 dark:text-slate-600">•</span>
+            {{ totalWeeks }} semanas
           </p>
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-        <!-- Widget de Preguntas Totales -->
-        <div
-          class="bg-indigo-50/50 dark:bg-[#1e1e2d] px-5 py-2.5 rounded-xl border border-indigo-100/40 dark:border-indigo-900/30 text-right shadow-inner">
-          <p class="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-0.5">Preguntas
-            Totales Asignadas</p>
-          <p class="text-2xl font-black text-indigo-600 dark:text-indigo-400 leading-none transition-all duration-300">
-            {{ grandTotalQuestionCount }}</p>
+      <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+        <div v-if="targetQuestionsQuantity !== null"
+          class="bg-gradient-to-br from-indigo-50/80 to-indigo-100/40 dark:from-indigo-950/40 dark:to-indigo-900/20 px-4 py-2 rounded-xl border border-indigo-200/40 dark:border-indigo-800/30 text-right shadow-inner">
+          <p class="text-[9px] uppercase tracking-wider text-indigo-500 dark:text-indigo-500 font-bold mb-0.5">Preguntas Asignadas</p>
+          <p class="text-2xl font-black text-indigo-700 dark:text-indigo-400 leading-none transition-all duration-300">
+            {{ grandTotalQuestionCount }}
+            <span class="text-xs font-semibold text-indigo-400 dark:text-indigo-500 ml-1">
+              / {{ targetQuestionsQuantity * totalWeeks }}
+            </span>
+          </p>
         </div>
         <UButton color="neutral" variant="ghost" icon="i-heroicons-plus" class="btn-premium-primary"
           @click="slideOverRef?.open()">
@@ -259,14 +464,11 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
       </div>
     </div>
 
-
-    <!-- Tabla Pivote de la Matriz -->
     <div
-      class="border border-slate-200 dark:border-slate-700/50 rounded-2xl bg-white dark:bg-[#2b2b3f] shadow-sm overflow-hidden flex flex-col relative">
+      class="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-white dark:bg-[#1e1e2d] shadow-sm overflow-hidden flex flex-col relative">
 
-      <!-- Barra de Filtros Interna de la Matriz -->
       <div
-        class="p-4 bg-slate-50/50 dark:bg-[#1e1e2d]/20 border-b border-slate-200/60 dark:border-slate-750/40 flex items-center justify-between gap-4">
+        class="px-4 py-3 bg-slate-50/60 dark:bg-[#15152a]/40 border-b border-slate-200/60 dark:border-slate-750/40 flex items-center justify-between gap-4">
         <div class="flex flex-1 items-center gap-4 flex-wrap">
           <div class="w-full max-w-xs relative">
             <UInput v-model="matrixSearchQuery" placeholder="Filtrar por tema o subtema..." icon="i-heroicons-funnel"
@@ -275,10 +477,9 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
 
           <div class="flex items-center gap-2 shrink-0">
             <span
-              class="text-[11px] font-semibold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Plantilla de
-              Validación:</span>
+              class="text-[11px] font-semibold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Plantilla:</span>
             <USelectMenu v-model="selectedTemplateId" :items="templates" value-key="id" label-key="name"
-              placeholder="Selecciona plantilla..." class="w-48" size="sm">
+              placeholder="Selecciona plantilla..." class="w-44" size="sm">
               <template #empty>
                 <div class="text-xs text-slate-500 text-center py-2">
                   No hay plantillas en este ciclo
@@ -288,15 +489,15 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
           </div>
 
           <div v-if="targetQuestionsQuantity !== null"
-            class="bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100/40 dark:border-indigo-900/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
-            <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+            class="bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/30 dark:border-indigo-800/30 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
+            <UIcon name="i-heroicons-flag" class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
             <span class="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-              Meta: {{ targetQuestionsQuantity }} preguntas/semana
+              Meta: {{ targetQuestionsQuantity }} preg/semana
             </span>
           </div>
         </div>
         <span class="text-xs text-slate-400 dark:text-slate-500 font-medium select-none shrink-0">
-          Mostrando {{ matrixRows.length }} filas
+          {{ matrixRows.length }} {{ matrixRows.length === 1 ? 'fila' : 'filas' }}
         </span>
       </div>
 
@@ -305,125 +506,190 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
           <thead>
             <tr>
               <th
-                class="sticky left-0 z-20 bg-slate-50 dark:bg-[#1e1e2d] p-3.5 border-b border-r border-slate-200 dark:border-slate-700 min-w-[290px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-slate-500 dark:text-slate-450 text-[10px] font-bold uppercase tracking-wider">
+                class="sticky left-0 z-20 bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 min-w-[260px] text-slate-400 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
                 Tema / Subtema
               </th>
               <th v-for="col in matrixColumns" :key="col.number"
-                class="p-3 border-b border-r border-slate-200 dark:border-slate-700 text-center text-[10px] font-bold w-[62px]"
-                :class="[
-                  col.isActive
-                    ? isGeneratedWeek(col.number)
-                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
-                      : emptyWeeks.includes(col.number)
-                        ? 'bg-slate-50/50 dark:bg-slate-800/20 text-slate-400 dark:text-slate-500'
-                        : 'bg-indigo-50/30 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400'
-                    : 'bg-slate-50 dark:bg-[#1e1e2d]/60 text-slate-400 dark:text-slate-500'
-                ]">
-                <div class="flex flex-col items-center gap-0.5">
-                  <span>S{{ col.number }}</span>
-                  <div v-if="isGeneratedWeek(col.number)"
-                    class="flex items-center gap-0.5 text-[8px] font-medium text-amber-600 dark:text-amber-500"
-                    title="Esta semana tiene materiales generados. Al editarla los materiales podrían quedar desactualizados.">
-                    <UIcon name="i-heroicons-exclamation-triangle" class="w-2.5 h-2.5 shrink-0" />
-                    <span>Mat.</span>
-                  </div>
-                  <div v-else-if="emptyWeeks.includes(col.number) && col.isActive"
-                    class="text-[8px] font-medium text-slate-400 dark:text-slate-500">
-                    Vacío
-                  </div>
-                  <div v-if="!col.isActive"
-                    class="flex items-center gap-0.5 text-[8px] font-medium text-slate-400 dark:text-slate-500">
-                    <UIcon name="i-heroicons-lock-closed" class="w-2.5 h-2.5 shrink-0" />
-                    <span>Lock</span>
+                class="px-2 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold w-[60px]"
+                :class="col.isActive ? 'text-slate-400 dark:text-slate-500' : 'text-slate-300 dark:text-slate-600'">
+                <div class="flex flex-col items-center gap-1">
+                  <div class="flex items-center gap-1">
+                    <span class="font-bold text-[11px]"
+                      :class="isGeneratedWeek(col.number) ? 'text-amber-600 dark:text-amber-400' : ''">
+                      S{{ col.number }}
+                    </span>
+                    <div v-if="isGeneratedWeek(col.number)"
+                      class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+                      title="Materiales generados en esta semana" />
+                    <div v-if="!col.isActive"
+                      class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"
+                      title="Semana inactiva" />
                   </div>
                 </div>
               </th>
               <th
-                class="bg-slate-50 dark:bg-[#1e1e2d] p-3.5 border-b border-slate-200 dark:border-slate-700 text-center text-[10px] font-bold uppercase tracking-wider w-[82px] text-slate-500 dark:text-slate-450">
+                class="bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold uppercase tracking-wider w-[70px] text-slate-400 dark:text-slate-500">
                 Total
               </th>
             </tr>
           </thead>
           <tbody>
-            <!-- Fila cuando no hay temas añadidos -->
             <tr v-if="matrixRows.length === 0">
               <td :colspan="matrixColumns.length + 2"
-                class="text-center py-20 text-slate-500 dark:text-slate-400 bg-slate-50/10 dark:bg-[#1e1e2d]/10">
-                <div class="max-w-md mx-auto space-y-3">
-                  <UIcon name="i-heroicons-document-plus"
-                    class="w-12 h-12 text-slate-300 dark:text-slate-650 mx-auto mb-2" />
-                  <p class="font-bold text-sm text-slate-700 dark:text-slate-300">No hay temas añadidos en esta matriz
-                  </p>
-                  <p class="text-xs text-slate-400 dark:text-slate-500">Haz clic en "Añadir Temas" arriba a la derecha
-                    para
-                    seleccionar los subtemas que se impartirán.</p>
-                </div>
-              </td>
-            </tr>
-            <!-- Filas de Datos -->
-            <tr v-for="row in matrixRows" :key="row.topicId + '|' + row.subtopicId"
-              class="hover:bg-slate-50/50 dark:hover:bg-[#36364e]/30 transition-colors group">
-              <!-- Columna izquierda fija -->
-              <td
-                class="sticky left-0 z-10 bg-white dark:bg-[#2b2b3f] group-hover:bg-slate-50/60 dark:group-hover:bg-[#2d2d42] p-3.5 border-b border-r border-slate-200 dark:border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] transition-colors">
-                <div class="flex items-center gap-2">
-                  <div class="font-bold text-xs text-slate-800 dark:text-slate-200 line-clamp-1" :title="row.topicName">
-                    {{ row.topicName }}
+                class="text-center py-20 text-slate-400 dark:text-slate-500">
+                <div class="max-w-xs mx-auto space-y-3">
+                  <div
+                    class="w-14 h-14 mx-auto rounded-xl bg-slate-100 dark:bg-slate-800/40 flex items-center justify-center">
+                    <UIcon name="i-heroicons-document-plus" class="w-7 h-7 text-slate-300 dark:text-slate-600" />
                   </div>
-                  <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                  <div>
+                    <p class="font-semibold text-sm text-slate-600 dark:text-slate-300">Distribución vacía</p>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Agrega subtemas usando el botón "Añadir Temas".</p>
+                  </div>
                 </div>
-                <div class="text-[10px] font-medium text-slate-400 dark:text-slate-500 mt-1 line-clamp-1"
-                  :title="row.subtopicName">
-                  {{ row.subtopicName }}
-                </div>
-              </td>
-
-              <!-- Celdas de Semanas -->
-              <td v-for="col in matrixColumns" :key="col.number"
-                class="p-1 border-b border-r border-slate-200 dark:border-slate-700 text-center"
-                :class="{ 'bg-[linear-gradient(45deg,rgba(148,163,184,0.02)_25%,transparent_25%,transparent_50%,rgba(148,163,184,0.02)_50%,rgba(148,163,184,0.02)_75%,transparent_75%,transparent)] bg-[length:12px_12px] bg-slate-50/30 dark:bg-slate-900/10': !col.isActive }">
-                <!-- Input de Celda tipo Spreadsheet -->
-                <input v-if="col.isActive" type="number" min="1"
-                  :max="targetQuestionsQuantity !== null ? targetQuestionsQuantity : 100"
-                  class="w-full h-8 text-center border border-transparent rounded-lg text-xs bg-transparent dark:text-slate-250 hover:bg-slate-50 dark:hover:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 hide-arrows transition-all"
-                  :value="getCellValue(row, col.number)"
-                  @blur="e => updateCell(row, col.number, (e.target as HTMLInputElement).value)"
-                  @keyup.enter="e => (e.target as HTMLInputElement).blur()" placeholder="-" />
-                <!-- Celda bloqueada para semanas inactivas -->
-                <div v-else class="flex items-center justify-center text-slate-300 dark:text-slate-650 h-8"
-                  title="Semana Inactiva (Feriado)">
-                  <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
-                </div>
-              </td>
-
-              <!-- Columna derecha: Total por Fila -->
-              <td
-                class="p-3.5 border-b border-slate-200 dark:border-slate-700 text-center font-bold text-xs bg-slate-50/30 dark:bg-[#1e1e2d]/20 text-slate-700 dark:text-slate-350">
-                {{ getRowTotal(row) || '-' }}
               </td>
             </tr>
+
+            <template v-for="(group, gIdx) in topicGroups" :key="group.topicId">
+              <tr>
+                <td colspan="1"
+                  class="sticky left-0 z-10 bg-white dark:bg-[#1e1e2d] px-4 py-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-0.5 h-4 rounded-full bg-indigo-400 dark:bg-indigo-500/70 shrink-0" />
+                    <span class="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{ group.topicName }}</span>
+                    <UBadge v-if="!group.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                    <button @click.stop="confirmRemove = { type: 'topic', data: group }"
+                      class="ml-auto w-5 h-5 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                      title="Quitar todo el tema">
+                      <UIcon name="i-heroicons-trash" class="w-3 h-3" />
+                    </button>
+                  </div>
+                </td>
+                <td v-for="col in matrixColumns" :key="col.number"
+                  class="px-1 py-1 text-center">
+                  <div v-if="group.subtotalByWeek[col.number]"
+                    class="inline-flex items-center justify-center min-w-[20px] h-4 rounded text-[9px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
+                    {{ group.subtotalByWeek[col.number] }}
+                  </div>
+                </td>
+                <td
+                  class="px-3 py-1 text-center font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
+                  {{ group.subtotal || '-' }}
+                </td>
+              </tr>
+
+              <tr v-for="row in group.rows" :key="row.topicId + '|' + row.subtopicId"
+                class="group border-t border-slate-100 dark:border-slate-800/30 hover:bg-slate-50/60 dark:hover:bg-slate-800/10 transition-colors">
+                <td
+                  class="sticky left-0 z-10 bg-white dark:bg-[#1e1e2d] group-hover:bg-slate-50/60 dark:group-hover:bg-slate-800/10 px-4 pl-9 py-2.5 transition-colors">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-700 dark:text-slate-300 line-clamp-1" :title="row.subtopicName">
+                      {{ row.subtopicName }}
+                    </span>
+                    <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                    <button @click.stop="confirmRemove = { type: 'row', data: row }"
+                      class="ml-auto w-4 h-4 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                      title="Quitar subtema">
+                      <UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                </td>
+
+                <td v-for="col in matrixColumns" :key="col.number"
+                  class="p-0.5 text-center relative"
+                  :class="{ 'opacity-30': !col.isActive }">
+                  <template v-if="col.isActive">
+                    <div class="relative flex items-center justify-center">
+                      <input type="number" min="1"
+                        :ref="el => { if (el) cellRefs.set(`${row.topicId}|${row.subtopicId}|${col.number}`, el as HTMLInputElement) }"
+                        :max="targetQuestionsQuantity !== null ? targetQuestionsQuantity : 100"
+                        class="w-10 h-8 text-center border border-transparent rounded-lg text-xs font-semibold bg-transparent dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-200 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 hide-arrows transition-all mx-auto"
+                        :class="{
+                          'text-slate-300 dark:text-slate-500': getCellValue(row, col.number) === '',
+                          'text-emerald-600 dark:text-emerald-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) === targetQuestionsQuantity,
+                          'text-amber-600 dark:text-amber-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) < targetQuestionsQuantity,
+                        }"
+                        :value="getCellValue(row, col.number)"
+                        @blur="e => updateCell(row, col.number, (e.target as HTMLInputElement).value)"
+                        @keydown="e => handleCellKeydown(e, row, col.number)"
+                        placeholder="-" />
+
+                      <div v-if="getCellValue(row, col.number) !== ''"
+                        class="absolute -right-0.5 top-0.5 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button @click.stop="adjustCell(row, col.number, 1)"
+                          class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20 rounded-t transition-colors"
+                          title="Incrementar">
+                          <UIcon name="i-heroicons-chevron-up" class="w-2 h-2" />
+                        </button>
+                        <button @click.stop="adjustCell(row, col.number, -1)"
+                          class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/20 rounded-b transition-colors"
+                          title="Decrementar">
+                          <UIcon name="i-heroicons-chevron-down" class="w-2 h-2" />
+                        </button>
+                      </div>
+
+                      <div v-if="savingCells.has(`${row.topicId}|${row.subtopicId}|${col.number}`)"
+                        class="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-lg">
+                        <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 text-indigo-400 animate-spin" />
+                      </div>
+                    </div>
+                  </template>
+                  <div v-else class="flex items-center justify-center text-slate-300 dark:text-slate-600 h-8">
+                    <UIcon name="i-heroicons-lock-closed" class="w-2.5 h-2.5" />
+                  </div>
+                </td>
+
+                <td
+                  class="px-3 py-2.5 text-center font-bold text-xs text-slate-600 dark:text-slate-400">
+                  {{ getRowTotal(row) || '-' }}
+                </td>
+              </tr>
+            </template>
           </tbody>
-          <!-- Fila de Totales del Pie de Tabla -->
+
           <tfoot v-if="matrixRows.length > 0">
             <tr>
               <td
-                class="sticky left-0 z-20 bg-slate-100 dark:bg-[#1e1e2d] p-3.5 border-r border-slate-200 dark:border-slate-700 font-extrabold text-right text-xs text-slate-750 dark:text-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.15)]">
-                Totales por Semana
+                class="sticky left-0 z-20 bg-slate-50 dark:bg-[#15152a] px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 font-bold text-right text-[11px] text-slate-500 dark:text-slate-400">
+                Totales
               </td>
               <td v-for="col in matrixColumns" :key="col.number"
-                class="bg-slate-100 dark:bg-[#1e1e2d] p-3.5 border-r border-slate-200 dark:border-slate-700 text-center font-extrabold text-xs"
-                :class="[
-                  !col.isActive ? 'text-slate-450 dark:text-slate-550' : '',
-                  col.isActive && targetQuestionsQuantity === null ? 'text-indigo-650 dark:text-indigo-400' : '',
-                  col.isActive && targetQuestionsQuantity !== null && getColTotal(col.number) === targetQuestionsQuantity ? 'text-emerald-600 dark:text-emerald-450 bg-emerald-50/20 dark:bg-emerald-950/15' : '',
-                  col.isActive && targetQuestionsQuantity !== null && getColTotal(col.number) > targetQuestionsQuantity ? 'text-rose-600 dark:text-rose-450 bg-rose-50/30 dark:bg-rose-950/15' : '',
-                  col.isActive && targetQuestionsQuantity !== null && getColTotal(col.number) > 0 && getColTotal(col.number) < targetQuestionsQuantity ? 'text-amber-600 dark:text-amber-500 bg-amber-50/30 dark:bg-amber-950/15' : ''
-                ]"
-                :title="col.isActive && targetQuestionsQuantity !== null ? `Total semanal: ${getColTotal(col.number)} / ${targetQuestionsQuantity} preguntas` : ''">
-                {{ getColTotal(col.number) || '-' }}
+                class="bg-slate-50 dark:bg-[#15152a] px-2 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center"
+                :class="{
+                  'text-slate-400 dark:text-slate-500': !col.isActive,
+                }">
+                <div v-if="col.isActive" class="flex flex-col items-center gap-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-bold text-xs"
+                      :class="{
+                        'text-emerald-600 dark:text-emerald-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'exact',
+                        'text-rose-500 dark:text-rose-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'over',
+                        'text-amber-600 dark:text-amber-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'under',
+                        'text-indigo-600 dark:text-indigo-400': targetQuestionsQuantity === null,
+                      }">{{ getColTotal(col.number) || '-' }}</span>
+                    <button v-if="getColTotal(col.number) > 0"
+                      @click.stop="confirmClearWeek = col.number"
+                      class="w-3.5 h-3.5 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                      title="Limpiar semana">
+                      <UIcon name="i-heroicons-trash" class="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                  <div v-if="targetQuestionsQuantity !== null && getColTotal(col.number) > 0"
+                    class="w-10 h-1 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700/60">
+                    <div class="h-full rounded-full transition-all duration-500"
+                      :class="{
+                        'bg-emerald-500': weekStatus(col.number) === 'exact',
+                        'bg-rose-400': weekStatus(col.number) === 'over',
+                        'bg-amber-400': weekStatus(col.number) === 'under',
+                        'bg-indigo-400': weekStatus(col.number) === 'none',
+                      }"
+                      :style="{ width: Math.min(100, progressPercentage(col.number)) + '%' }" />
+                  </div>
+                </div>
+                <span v-else class="font-bold text-xs">{{ getColTotal(col.number) || '-' }}</span>
               </td>
               <td
-                class="bg-indigo-100/50 dark:bg-indigo-950/40 p-3.5 border-t border-slate-200 dark:border-slate-700 text-center font-black text-sm text-indigo-700 dark:text-indigo-450 shadow-inner">
+                class="bg-indigo-50/50 dark:bg-indigo-950/30 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center font-black text-sm text-indigo-700 dark:text-indigo-400">
                 {{ grandTotalQuestionCount }}
               </td>
             </tr>
@@ -434,6 +700,59 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
 
     <SyllabusSubtopicSlideOver ref="slideOverRef" :courseId="syllabus?.courseId"
       :existingKeys="matrixRows.map(r => `${r.topicId}|${r.subtopicId}`)" @add-subtopics="onAddSubtopics" />
+
+    <Transition name="backdrop-fade">
+      <div v-if="confirmRemove || confirmClearWeek" class="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40" @click="confirmRemove = null; confirmClearWeek = null" />
+    </Transition>
+
+    <Transition name="confirm-scale">
+      <div v-if="confirmRemove || confirmClearWeek"
+        class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div class="bg-white dark:bg-[#1e1e2d] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full mx-4 pointer-events-auto">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 flex items-center justify-center text-rose-500 shrink-0">
+              <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="font-bold text-sm text-slate-800 dark:text-slate-200">
+                <template v-if="confirmClearWeek">¿Limpiar semana S{{ confirmClearWeek }}?</template>
+                <template v-else-if="confirmRemove?.type === 'topic'">¿Quitar todo el tema?</template>
+                <template v-else>¿Quitar subtema?</template>
+              </h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <template v-if="confirmClearWeek">
+                  Se eliminarán todas las distribuciones de la semana <strong>S{{ confirmClearWeek }}</strong> ({{ getColTotal(confirmClearWeek) }} preguntas).
+                </template>
+                <template v-else-if="confirmRemove?.type === 'topic'">
+                  Se eliminarán todos los subtemas y sus distribuciones de <strong>{{ (confirmRemove?.data as TopicGroup).topicName }}</strong>.
+                </template>
+                <template v-else>
+                  Se eliminarán todas las distribuciones de <strong>{{ (confirmRemove?.data as RowData).subtopicName }}</strong>.
+                </template>
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-3">
+            <UButton color="neutral" variant="soft" size="sm" @click="confirmRemove = null; confirmClearWeek = null">Cancelar</UButton>
+            <UButton color="red" size="sm" @click="() => {
+              if (confirmClearWeek) {
+                clearWeek(confirmClearWeek);
+                confirmClearWeek = null;
+              } else if (confirmRemove?.type === 'topic') {
+                removeTopic((confirmRemove.data as TopicGroup).topicId);
+                confirmRemove = null;
+              } else if (confirmRemove?.type === 'row') {
+                removeRow(confirmRemove.data as RowData);
+                confirmRemove = null;
+              }
+            }">
+              <template v-if="confirmClearWeek">Limpiar</template>
+              <template v-else>Quitar</template>
+            </UButton>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -448,9 +767,8 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
   -moz-appearance: textfield;
 }
 
-/* Scrollbar estilizada */
 .custom-scrollbar::-webkit-scrollbar {
-  height: 8px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -464,7 +782,31 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
   background-clip: padding-box;
 }
 
-.dark class.custom-scrollbar::-webkit-scrollbar-thumb {
+:deep(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: #475569;
+}
+
+.backdrop-fade-enter-active,
+.backdrop-fade-leave-active {
+  transition: opacity 200ms ease;
+}
+.backdrop-fade-enter-from,
+.backdrop-fade-leave-to {
+  opacity: 0;
+}
+
+.confirm-scale-enter-active {
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.confirm-scale-leave-active {
+  transition: all 150ms ease;
+}
+.confirm-scale-enter-from {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+}
+.confirm-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
 }
 </style>

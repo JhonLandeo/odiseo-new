@@ -58,6 +58,7 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     const newDist: SyllabusDistribution = {
       id: tempId,
       syllabusId,
+      templateId: payload.templateId,
       weekNumber: payload.weekNumber,
       topicId: payload.topicId,
       subtopicId: payload.subtopicId,
@@ -129,14 +130,16 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     }
   }
 
-  async function fetchSummary(syllabusId: string) {
+  async function fetchSummary(syllabusId: string, templateId?: string) {
     loading.value = true;
     error.value = null;
     try {
       const authStore = useAuthStore();
       const subdomain = authStore.getSubdomain();
+      const params = templateId ? { templateId } : {};
       const response = await $fetch(`/api/v1/syllabus/${syllabusId}/summary`, {
-        headers: { 'x-subdomain': subdomain }
+        headers: { 'x-subdomain': subdomain },
+        params,
       });
       const summary = (response as { summary: SyllabusSummary }).summary;
       distributions.value = summary?.distributions || [];
@@ -184,6 +187,23 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     }
   }
 
+  async function setTemplate(syllabusId: string, templateId: string) {
+    if (syllabus.value) {
+      syllabus.value.templateId = templateId;
+    }
+    try {
+      const authStore = useAuthStore();
+      const subdomain = authStore.getSubdomain();
+      await $fetch(`/api/v1/syllabus/${syllabusId}/template`, {
+        method: 'PATCH',
+        headers: { 'x-subdomain': subdomain },
+        body: { templateId }
+      });
+    } catch (err: unknown) {
+      throw new Error(err instanceof Error ? err.message : 'Error al asignar plantilla al sílabo.');
+    }
+  }
+
   async function toggleSyllabusVisibility(id: string, isActive: boolean) {
     const target = syllabiList.value.find(s => s.id === id);
     if (!target) return;
@@ -219,6 +239,7 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     fetchSummary,
     cloneSyllabus,
     cloneCycleSyllabuses,
+    setTemplate,
     toggleSyllabusVisibility
   };
 });
