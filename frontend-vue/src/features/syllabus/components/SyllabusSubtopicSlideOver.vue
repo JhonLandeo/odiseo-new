@@ -145,8 +145,9 @@ defineExpose({ open, close });
               <div 
                 v-for="sub in topic.subtopics" 
                 :key="sub.id" 
-                class="px-4 py-3 flex items-center gap-3 transition-colors"
+                class="px-4 py-3 flex items-center gap-3 transition-colors select-none"
                 :class="isAlreadyAdded(topic.id, sub.id) ? 'bg-emerald-50/50 dark:bg-emerald-950/20 opacity-70' : 'hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer'"
+                @click="!isAlreadyAdded(topic.id, sub.id) && toggleSubtopic(topic.id, sub.id)"
               >
                 <template v-if="isAlreadyAdded(topic.id, sub.id)">
                   <div class="w-4 h-4 rounded bg-emerald-500 flex items-center justify-center text-white shrink-0">
@@ -157,13 +158,14 @@ defineExpose({ open, close });
                 </template>
                 <template v-else>
                   <UCheckbox :model-value="isSelected(topic.id, sub.id)" @update:model-value="toggleSubtopic(topic.id, sub.id)" @click.stop />
-                  <span class="text-sm text-gray-600 dark:text-gray-300 cursor-pointer flex-1" @click="toggleSubtopic(topic.id, sub.id)">{{ sub.name }}</span>
+                  <span class="text-sm text-gray-600 dark:text-gray-300 flex-1">{{ sub.name }}</span>
                 </template>
               </div>
             </template>
             <template v-else>
-              <div class="px-4 py-3 flex items-center gap-3 transition-colors"
+              <div class="px-4 py-3 flex items-center gap-3 transition-colors select-none"
                 :class="isAlreadyAdded(topic.id, '') ? 'bg-emerald-50/50 dark:bg-emerald-950/20 opacity-70' : 'hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10 cursor-pointer'"
+                @click="!isAlreadyAdded(topic.id, '') && toggleSubtopic(topic.id, '')"
               >
                 <template v-if="isAlreadyAdded(topic.id, '')">
                   <div class="w-4 h-4 rounded bg-emerald-500 flex items-center justify-center text-white shrink-0">
@@ -174,7 +176,7 @@ defineExpose({ open, close });
                 </template>
                 <template v-else>
                   <UCheckbox :model-value="isSelected(topic.id, '')" @update:model-value="toggleSubtopic(topic.id, '')" @click.stop />
-                  <span class="text-sm text-gray-600 dark:text-gray-300 cursor-pointer flex-1" @click="toggleSubtopic(topic.id, '')">Sin subtemas (General)</span>
+                  <span class="text-sm text-gray-600 dark:text-gray-300 flex-1">Sin subtemas (General)</span>
                 </template>
               </div>
             </template>

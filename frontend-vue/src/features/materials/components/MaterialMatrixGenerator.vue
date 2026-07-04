@@ -363,6 +363,11 @@ function statusLabel(status: string): string {
   return labels[status] || status;
 }
 
+const goToTemplateConfig = () => {
+  isOpen.value = false;
+  router.push(`/academic-time/cycles/${selectedCycleId.value}/materials`);
+};
+
 defineExpose({ isOpen, openWithContext });
 </script>
 
@@ -441,11 +446,24 @@ defineExpose({ isOpen, openWithContext });
                 </div>
               </div>
 
-              <div v-else-if="templates.length === 0" class="py-20 text-center">
-                <UIcon name="i-heroicons-exclamation-triangle" class="w-12 h-12 mx-auto text-amber-400 mb-4 opacity-50" />
-                <h3 class="text-lg font-bold text-slate-700 dark:text-slate-300">Este ciclo no tiene Plantillas
-                  configuradas</h3>
-                <p class="text-sm text-slate-500 mt-2">Ve a la configuración del ciclo para añadir plantillas.</p>
+              <div v-else-if="templates.length === 0" class="py-16 px-6 text-center max-w-md mx-auto flex flex-col items-center">
+                <div class="w-16 h-16 rounded-full bg-amber-50 dark:bg-amber-950/35 flex items-center justify-center text-amber-500 mb-4 ring-8 ring-amber-500/10 animate-pulse">
+                  <UIcon name="i-heroicons-exclamation-triangle" class="w-8 h-8" />
+                </div>
+                <h3 class="text-lg font-black text-slate-800 dark:text-slate-200 tracking-tight">Sin Plantillas Configuradas</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                  Para poder generar materiales y continuar con el flujo, es obligatorio que configures al menos una plantilla de preguntas para este ciclo académico.
+                </p>
+                <UButton
+                  color="amber"
+                  variant="solid"
+                  icon="i-heroicons-cog-6-tooth"
+                  class="mt-6 font-bold shadow-md shadow-amber-500/20"
+                  size="md"
+                  @click="goToTemplateConfig"
+                >
+                  Configurar Plantillas Ahora
+                </UButton>
               </div>
 
               <!-- Matrix Layout -->

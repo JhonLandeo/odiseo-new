@@ -90,15 +90,33 @@
             </UButton>
 
             <!-- Gestionar Materiales -->
+            <!-- Gestionar Materiales -->
             <UButton
               size="sm"
               color="gray"
               variant="ghost"
-              class="btn-premium-secondary"
+              class="btn-premium-secondary flex items-center"
               icon="i-heroicons-document-duplicate"
               :to="`/academic-time/cycles/${cycle.id}/materials`"
             >
-              Plantillas
+              <span>Plantillas</span>
+              
+              <!-- Si hay 0 plantillas: Mostrar icono de advertencia con tooltip nativo -->
+              <UIcon 
+                v-if="cycle.templateCount === 0" 
+                name="i-heroicons-exclamation-triangle" 
+                class="w-4.5 h-4.5 text-amber-500 ml-1.5 shrink-0" 
+                title="Se requiere configurar plantillas para este ciclo"
+              />
+
+              <!-- Si hay plantillas: Mostrar contador tradicional -->
+              <span
+                v-else-if="cycle.templateCount !== undefined"
+                class="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/30 dark:border-indigo-500/20"
+                title="Cantidad de plantillas configuradas"
+              >
+                {{ cycle.templateCount }}
+              </span>
             </UButton>
 
             <!-- Acciones secundarias agrupadas -->

@@ -223,6 +223,8 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     }
   }
 
+  const activeTemplateId = ref<string>('');
+
   return {
     syllabus,
     syllabiList,
@@ -231,6 +233,7 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     loading,
     hasFetched,
     error,
+    activeTemplateId,
     fetchSyllabiByCycle,
     createSyllabus,
     addDistribution,

@@ -64,6 +64,7 @@ async function openPreview() {
           <div class="flex items-center gap-2">
             <span class="w-3 h-3 rounded-full" :style="{ background: 'rgb(' + (option.primaryTitleColor || '2, 113, 184') + ')' }" />
             <span>{{ option.name }}</span>
+            <span v-if="option.cycleCount" class="text-[9px] text-slate-400 dark:text-slate-500">({{ option.cycleCount }} {{ option.cycleCount === 1 ? 'ciclo' : 'ciclos' }})</span>
             <UBadge v-if="option.isDefault" size="xs" color="indigo" variant="solid">Default</UBadge>
           </div>
         </template>

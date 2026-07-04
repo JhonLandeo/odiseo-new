@@ -24,11 +24,32 @@ export class PdfDesignService {
     private readonly s3Service: S3Service,
   ) {}
 
-  async findAll(tenantId: string): Promise<PdfDesignTemplate[]> {
-    return this.designRepo.find({
+  async findAll(
+    tenantId: string,
+  ): Promise<(PdfDesignTemplate & { cycleCount: number })[]> {
+    const designs = await this.designRepo.find({
       where: { tenantId },
       order: { isDefault: 'DESC', createdAt: 'DESC' },
     });
+
+    const counts = await this.materialRequestRepo
+      .createQueryBuilder('mr')
+      .select('mr.designTemplateId', 'designTemplateId')
+      .addSelect('COUNT(DISTINCT mr.cycleId)', 'count')
+      .where('mr.tenantId = :tenantId', { tenantId })
+      .andWhere('mr.designTemplateId IS NOT NULL')
+      .groupBy('mr.designTemplateId')
+      .getRawMany();
+
+    const countMap = new Map<string, number>();
+    for (const c of counts) {
+      countMap.set(c.designTemplateId, parseInt(c.count, 10));
+    }
+
+    return designs.map((design) => ({
+      ...design,
+      cycleCount: countMap.get(design.id) ?? 0,
+    }));
   }
 
   async findById(id: string, tenantId: string): Promise<PdfDesignTemplate> {

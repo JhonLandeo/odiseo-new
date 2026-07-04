@@ -27,6 +27,7 @@ export interface PdfDesignTemplate {
   footerConfig: any | null
   isDefault: boolean
   createdAt: string
+  cycleCount?: number
 }
 
 export const usePdfDesignsStore = defineStore('pdfDesigns', () => {

@@ -121,16 +121,22 @@ async function confirmDelete() {
         </div>
 
         <!-- Footer Action area -->
-        <div class="p-3.5 flex items-center justify-between gap-2">
+        <div class="p-3.5 flex items-start justify-between gap-2">
           <div class="flex flex-col min-w-0">
-            <h4 class="text-[13px] font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+            <h4 class="text-[13px] font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" :title="design.name">
               {{ design.name }}
             </h4>
+            <div class="flex items-center gap-1 mt-1">
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30" title="Ciclos Académicos que usan esta plantilla">
+                <UIcon name="i-heroicons-academic-cap" class="w-3 h-3" />
+                {{ design.cycleCount ?? 0 }} {{ (design.cycleCount ?? 0) === 1 ? 'Ciclo' : 'Ciclos' }}
+              </span>
+            </div>
           </div>
 
           <button
             @click.stop="showDeleteConfirm(design)"
-            class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors shrink-0"
+            class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors shrink-0 self-start mt-0.5"
             title="Eliminar"
           >
             <UIcon name="i-heroicons-trash" class="w-[14px] h-[14px]" />

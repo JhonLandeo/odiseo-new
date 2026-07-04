@@ -23,6 +23,18 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
         where.name = ILike(`%${search.trim()}%`);
       }
 
+      // Query template count grouped by cycleId
+      const counts = await manager
+        .createQueryBuilder(CycleMaterialTemplate, 'cmt')
+        .select('cmt.cycleId', 'cycleId')
+        .addSelect('COUNT(cmt.id)', 'count')
+        .groupBy('cmt.cycleId')
+        .getRawMany();
+
+      const countsMap = new Map<string, number>(
+        counts.map((c) => [c.cycleId, parseInt(c.count, 10)]),
+      );
+
       const [data, total] = await manager.findAndCount(Cycle, {
         relations: ['weeks'],
         where,
@@ -30,7 +42,13 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
         take: limit,
         skip: offset,
       });
-      return { data, total };
+
+      const dataWithCounts = data.map((cycle: any) => ({
+        ...cycle,
+        templateCount: countsMap.get(cycle.id) ?? 0,
+      }));
+
+      return { data: dataWithCounts, total };
     });
   }
 

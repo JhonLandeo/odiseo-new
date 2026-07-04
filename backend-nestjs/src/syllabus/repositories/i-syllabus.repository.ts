@@ -13,6 +13,7 @@ export interface SyllabusWithProgress {
   updatedAt: Date;
   totalWeeks: number;
   filledWeeks: number[];
+  templateProgress?: Record<string, number[]>;
 }
 
 export interface ISyllabusRepository {

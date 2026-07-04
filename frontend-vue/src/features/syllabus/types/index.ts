@@ -49,6 +49,7 @@ export interface SyllabusSummary {
 export interface SyllabusWithProgress extends Syllabus {
   totalWeeks: number
   filledWeeks: number[]
+  templateProgress?: Record<string, number[]>
 }
 
 export interface SyllabusListWithCourse extends SyllabusWithProgress {

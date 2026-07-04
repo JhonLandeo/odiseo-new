@@ -21,6 +21,7 @@ export interface Cycle {
   totalWeeks: number;
   isActive: boolean;
   weeks: CycleWeek[];
+  templateCount?: number;
 }
 
 export interface CycleMaterialTemplateCourse {

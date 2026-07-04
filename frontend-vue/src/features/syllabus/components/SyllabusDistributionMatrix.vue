@@ -39,9 +39,11 @@ const targetQuestionsQuantity = computed(() => {
   return courseConfig ? courseConfig.questionsQuantity : null;
 });
 
-watch(() => [templates.value, syllabus.value?.templateId], ([newTemplates, savedTemplateId]) => {
-  if (savedTemplateId && newTemplates.some(t => t.id === savedTemplateId)) {
-    selectedTemplateId.value = savedTemplateId;
+watch(() => [templates.value, syllabus.value?.templateId, store.activeTemplateId], ([newTemplates, savedTemplateId, activeId]) => {
+  if (activeId && newTemplates.some(t => t.id === activeId)) {
+    selectedTemplateId.value = activeId as string;
+  } else if (savedTemplateId && newTemplates.some(t => t.id === savedTemplateId)) {
+    selectedTemplateId.value = savedTemplateId as string;
   } else if (newTemplates.length > 0 && !selectedTemplateId.value) {
     selectedTemplateId.value = newTemplates[0].id;
   }
@@ -52,15 +54,23 @@ const loadDistributions = async () => {
   await store.fetchSummary(syllabus.value.id, selectedTemplateId.value);
 };
 
+// Watches template changes and saves selection
 watch(selectedTemplateId, async (newId) => {
-  if (newId && syllabus.value?.id && newId !== syllabus.value.templateId) {
-    try {
-      await store.setTemplate(syllabus.value.id, newId);
-      if (syllabus.value?.cycleId) {
-        await timeStore.fetchTemplates(syllabus.value.cycleId);
+  if (newId && syllabus.value?.id) {
+    if (newId !== store.activeTemplateId) {
+      store.activeTemplateId = newId;
+    }
+    if (newId !== syllabus.value.templateId) {
+      try {
+        await store.setTemplate(syllabus.value.id, newId);
+        if (syllabus.value?.cycleId) {
+          await timeStore.fetchTemplates(syllabus.value.cycleId);
+        }
+        await loadDistributions();
+      } catch (error) {
+        console.error('Error changing syllabus template:', error);
       }
-      await loadDistributions();
-    } catch {}
+    }
   }
 });
 
@@ -129,17 +139,27 @@ const getTopicIsActive = (topicId: string) => {
   return t ? t.isActive !== false : true;
 };
 
+/**
+ * Removes a subtopic row and deletes all its distributions.
+ * @param row The RowData corresponding to the subtopic row to remove.
+ */
 const removeRow = async (row: RowData) => {
   if (!syllabus.value?.id) return;
   const dists = store.distributions.filter(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId);
   for (const dist of dists) {
     try {
       await store.deleteDistribution(dist.id, syllabus.value.id);
-    } catch {}
+    } catch (error) {
+      console.error(`Error deleting distribution for topic ${row.topicId} subtopic ${row.subtopicId}:`, error);
+    }
   }
   localRows.value = localRows.value.filter(r => r.topicId !== row.topicId || r.subtopicId !== row.subtopicId);
 };
 
+/**
+ * Removes all rows and distributions associated with a topic.
+ * @param topicId The unique identifier of the topic.
+ */
 const removeTopic = async (topicId: string) => {
   if (!syllabus.value?.id) return;
   const rows = matrixRows.value.filter(r => r.topicId === topicId);
@@ -148,13 +168,19 @@ const removeTopic = async (topicId: string) => {
   }
 };
 
+/**
+ * Clears all question allocations/distributions for a specific week.
+ * @param weekNumber The week number to clear.
+ */
 const clearWeek = async (weekNumber: number) => {
   if (!syllabus.value?.id) return;
   const dists = store.distributions.filter(d => d.weekNumber === weekNumber);
   for (const dist of dists) {
     try {
       await store.deleteDistribution(dist.id, syllabus.value.id);
-    } catch {}
+    } catch (error) {
+      console.error(`Error clearing distribution in week S${weekNumber} for distribution ${dist.id}:`, error);
+    }
   }
 };
 
@@ -256,7 +282,7 @@ watch(() => topicGroups.value, (groups) => {
 
 const gridStyle = computed(() => ({
   display: 'grid',
-  gridTemplateColumns: `320px repeat(${matrixColumns.value.length}, 80px) 100px`,
+  gridTemplateColumns: `320px repeat(${matrixColumns.value.length}, minmax(80px, 1fr)) 100px`,
   alignItems: 'center'
 }));
 
@@ -326,13 +352,6 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
   } finally {
     savingCells.value.delete(cellKey);
   }
-};
-
-const adjustCell = async (row: RowData, weekNumber: number, delta: number) => {
-  const dist = store.distributions.find(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId && d.weekNumber === weekNumber);
-  const current = dist ? dist.questionCount : 0;
-  const newValue = Math.max(1, Math.min(current + delta, targetQuestionsQuantity.value ?? 100));
-  await updateCell(row, weekNumber, String(newValue));
 };
 
 const cellRefs = ref<Map<string, HTMLInputElement>>(new Map());
@@ -472,7 +491,8 @@ const formatWeekStatus = (weekNumber: number) => {
       <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end">
         <div v-if="targetQuestionsQuantity !== null"
           class="bg-gradient-to-br from-indigo-50/80 to-indigo-100/40 dark:from-indigo-950/40 dark:to-indigo-900/20 px-4 py-2 rounded-xl border border-indigo-200/40 dark:border-indigo-800/30 text-right shadow-inner">
-          <p class="text-[9px] uppercase tracking-wider text-indigo-500 dark:text-indigo-500 font-bold mb-0.5">Preguntas Asignadas</p>
+          <p class="text-[9px] uppercase tracking-wider text-indigo-500 dark:text-indigo-500 font-bold mb-0.5">Preguntas
+            Asignadas</p>
           <p class="text-2xl font-black text-indigo-700 dark:text-indigo-400 leading-none transition-all duration-300">
             {{ grandTotalQuestionCount }}
             <span class="text-xs font-semibold text-indigo-400 dark:text-indigo-500 ml-1">
@@ -488,10 +508,9 @@ const formatWeekStatus = (weekNumber: number) => {
     </div>
 
     <div
-      class="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-slate-50/50 dark:bg-[#15152a] shadow-sm overflow-hidden flex flex-col relative px-5 pb-5">
+      class="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl bg-slate-50/50 dark:bg-[#15152a] shadow-sm overflow-hidden flex flex-col relative px-5">
 
-      <div
-        class="px-4 py-3 bg-slate-50/60 dark:bg-[#15152a]/40 border-b border-slate-200/60 dark:border-slate-750/40 flex items-center justify-between gap-4">
+      <div class="px-4 py-3 bg-slate-50/60 dark:bg-[#15152a]/40 flex items-center justify-between gap-4">
         <div class="flex flex-1 items-center gap-4 flex-wrap">
           <div class="w-full max-w-xs relative">
             <UInput v-model="matrixSearchQuery" placeholder="Filtrar por tema o subtema..." icon="i-heroicons-funnel"
@@ -533,16 +552,17 @@ const formatWeekStatus = (weekNumber: number) => {
             </div>
             <div>
               <p class="font-semibold text-sm text-slate-600 dark:text-slate-300">Distribución vacía</p>
-              <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Agrega subtemas usando el botón "Añadir Temas".</p>
+              <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Agrega subtemas usando el botón "Añadir Temas".
+              </p>
             </div>
           </div>
         </div>
 
         <div v-else class="matrix-scroll">
           <!-- Header -->
-            <div class="matrix-row header sticky top-0 z-30" :style="gridStyle">
+          <div class="matrix-row header sticky top-0 z-30" :style="gridStyle">
             <div
-              class="name-col sticky left-0 z-[31] bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-slate-400 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
+              class="name-col sticky left-0 z-[31] bg-white dark:bg-[#1e1e2d] px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-slate-400 dark:text-slate-500 text-[10px] font-semibold uppercase tracking-wider rounded-tl-2xl">
               Tema / Subtema
             </div>
             <div v-for="col in matrixColumns" :key="col.number"
@@ -553,16 +573,14 @@ const formatWeekStatus = (weekNumber: number) => {
                   :class="isGeneratedWeek(col.number) ? 'text-amber-600 dark:text-amber-400' : ''">
                   S{{ col.number }}
                 </span>
-                <div v-if="isGeneratedWeek(col.number)"
-                  class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+                <div v-if="isGeneratedWeek(col.number)" class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
                   title="Materiales generados en esta semana" />
-                <div v-if="!col.isActive"
-                  class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"
+                <div v-if="!col.isActive" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"
                   title="Semana inactiva" />
               </div>
             </div>
             <div
-              class="total-col px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 bg-white dark:bg-[#1e1e2d]">
+              class="total-col px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 bg-white dark:bg-[#1e1e2d] rounded-tr-2xl">
               Total
             </div>
           </div>
@@ -572,30 +590,30 @@ const formatWeekStatus = (weekNumber: number) => {
             <div class="topic-card" :class="{ 'is-collapsed': !expandedTopics.has(group.topicId) }">
               <!-- Topic Header Row -->
               <div class="topic-header" :style="gridStyle" @click="toggleTopic(group.topicId)">
-                <div class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] px-4 py-3">
+                <div class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] px-4 py-3 ">
                   <div class="flex items-center gap-2">
                     <div class="topic-accent" />
-                    <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{ group.topicName }}</span>
+                    <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{
+                      group.topicName }}</span>
                     <UBadge v-if="!group.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
                     <button @click.stop="confirmRemove = { type: 'topic', data: group }"
-                      class="ml-auto w-5 h-5 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                      class="w-5 h-5 flex items-center justify-center rounded text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all shrink-0"
                       title="Quitar todo el tema">
-                      <UIcon name="i-heroicons-trash" class="w-3 h-3" />
+                      <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
                     </button>
-                    <UIcon :name="expandedTopics.has(group.topicId) ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
-                      class="w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200"
+                    <UIcon
+                      :name="expandedTopics.has(group.topicId) ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+                      class="ml-auto w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 shrink-0"
                       :class="expandedTopics.has(group.topicId) ? 'rotate-0' : '-rotate-90'" />
                   </div>
                 </div>
-                <div v-for="col in matrixColumns" :key="col.number"
-                  class="week-col px-1 py-1 text-center">
+                <div v-for="col in matrixColumns" :key="col.number" class="week-col px-1 py-1 text-center">
                   <div v-if="group.subtotalByWeek[col.number]"
                     class="inline-flex items-center justify-center min-w-[20px] h-4 rounded text-[9px] font-bold text-indigo-500 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
                     {{ group.subtotalByWeek[col.number] }}
                   </div>
                 </div>
-                <div
-                  class="total-col px-3 py-1 text-center font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
+                <div class="total-col px-3 py-1 text-center font-bold text-[11px] text-indigo-600 dark:text-indigo-400">
                   {{ group.subtotal || '-' }}
                 </div>
               </div>
@@ -603,8 +621,8 @@ const formatWeekStatus = (weekNumber: number) => {
               <!-- Subtopic Rows inside card -->
               <template v-if="expandedTopics.has(group.topicId)">
                 <div class="topic-divider" />
-                <div v-for="row in group.rows" :key="row.topicId + '|' + row.subtopicId"
-                  class="subtopic-row group" :style="gridStyle">
+                <div v-for="row in group.rows" :key="row.topicId + '|' + row.subtopicId" class="subtopic-row group"
+                  :style="gridStyle">
                   <div
                     class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] group-hover:bg-slate-50/60 dark:group-hover:bg-slate-800/10 px-4 pl-9 py-2.5 transition-colors">
                     <div class="flex items-center gap-2">
@@ -613,49 +631,32 @@ const formatWeekStatus = (weekNumber: number) => {
                       </span>
                       <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
                       <button @click.stop="confirmRemove = { type: 'row', data: row }"
-                        class="ml-auto w-4 h-4 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
+                        class="w-4 h-4 flex items-center justify-center rounded text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all shrink-0"
                         title="Quitar subtema">
                         <UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" />
                       </button>
                     </div>
                   </div>
 
-                  <div v-for="col in matrixColumns" :key="col.number"
-                    class="week-col p-0.5 text-center relative"
+                  <div v-for="col in matrixColumns" :key="col.number" class="week-col p-0.5 text-center relative"
                     :class="{ 'opacity-30': !col.isActive }">
                     <template v-if="col.isActive">
-                      <div class="relative flex items-center justify-center">
+                      <div class="relative w-full h-8 flex items-center justify-center">
                         <input type="number" min="1"
                           :ref="el => { if (el) cellRefs.set(`${row.topicId}|${row.subtopicId}|${col.number}`, el as HTMLInputElement) }"
                           :max="targetQuestionsQuantity !== null ? targetQuestionsQuantity : 100"
-                          class="w-10 h-8 text-center border border-transparent rounded-lg text-xs font-semibold bg-transparent dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-200 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 hide-arrows transition-all mx-auto"
+                          class="w-full h-full text-center border border-transparent rounded-lg text-xs font-semibold bg-transparent dark:text-slate-300 hover:bg-slate-100/50 dark:hover:bg-slate-800/30 hover:border-slate-200/80 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15 pl-3.5 transition-all"
                           :class="{
                             'text-slate-300 dark:text-slate-500': getCellValue(row, col.number) === '',
                             'text-emerald-600 dark:text-emerald-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) === targetQuestionsQuantity,
                             'text-amber-600 dark:text-amber-400': getCellValue(row, col.number) !== '' && targetQuestionsQuantity !== null && Number(getCellValue(row, col.number)) < targetQuestionsQuantity,
-                          }"
-                          :value="getCellValue(row, col.number)"
+                          }" :value="getCellValue(row, col.number)"
                           @blur="e => updateCell(row, col.number, (e.target as HTMLInputElement).value)"
-                          @keydown="e => handleCellKeydown(e, row, col.number)"
-                          placeholder="-" />
-
-                        <div v-if="getCellValue(row, col.number) !== ''"
-                          class="absolute -right-0.5 top-0.5 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button @click.stop="adjustCell(row, col.number, 1)"
-                            class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20 rounded-t transition-colors"
-                            title="Incrementar">
-                            <UIcon name="i-heroicons-chevron-up" class="w-2 h-2" />
-                          </button>
-                          <button @click.stop="adjustCell(row, col.number, -1)"
-                            class="w-3 h-3 flex items-center justify-center text-[7px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/20 rounded-b transition-colors"
-                            title="Decrementar">
-                            <UIcon name="i-heroicons-chevron-down" class="w-2 h-2" />
-                          </button>
-                        </div>
+                          @keydown="e => handleCellKeydown(e, row, col.number)" placeholder="-" />
 
                         <div v-if="savingCells.has(`${row.topicId}|${row.subtopicId}|${col.number}`)"
-                          class="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-lg">
-                          <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 text-indigo-400 animate-spin" />
+                           class="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-slate-900/70 rounded-lg">
+                           <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 text-indigo-400 animate-spin" />
                         </div>
                       </div>
                     </template>
@@ -664,8 +665,7 @@ const formatWeekStatus = (weekNumber: number) => {
                     </div>
                   </div>
 
-                  <div
-                    class="total-col px-3 py-2.5 text-center font-bold text-xs text-slate-600 dark:text-slate-400">
+                  <div class="total-col px-3 py-2.5 text-center font-bold text-xs text-slate-600 dark:text-slate-400">
                     {{ getRowTotal(row) || '-' }}
                   </div>
                 </div>
@@ -677,44 +677,35 @@ const formatWeekStatus = (weekNumber: number) => {
           <div class="footer-card">
             <div class="matrix-row footer" :style="gridStyle">
               <div
-                class="name-col sticky z-10 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 font-bold text-right text-[11px] text-slate-500 dark:text-slate-400">
+                class="name-col sticky z-10 bg-white dark:bg-[#1e1e2d] px-4 py-3 font-bold text-right text-[11px] text-slate-550 dark:text-slate-400">
                 Totales
               </div>
               <div v-for="col in matrixColumns" :key="col.number"
-                class="week-col px-2 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center"
+                class="week-col px-2 py-3 dark:border-slate-800/80 text-center"
                 :class="{ 'text-slate-400 dark:text-slate-500': !col.isActive }">
                 <div v-if="col.isActive" class="flex flex-col items-center gap-1.5">
                   <div class="flex items-center gap-1.5">
-                    <span class="font-bold text-xs"
-                      :class="{
-                        'text-emerald-600 dark:text-emerald-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'exact',
-                        'text-rose-500 dark:text-rose-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'over',
-                        'text-amber-600 dark:text-amber-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'under',
-                        'text-indigo-600 dark:text-indigo-400': targetQuestionsQuantity === null,
-                      }">{{ getColTotal(col.number) || '-' }}</span>
-                    <button v-if="getColTotal(col.number) > 0"
-                      @click.stop="confirmClearWeek = col.number"
-                      class="w-3.5 h-3.5 flex items-center justify-center rounded text-slate-300 dark:text-slate-600 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all"
-                      title="Limpiar semana">
-                      <UIcon name="i-heroicons-trash" class="w-2.5 h-2.5" />
-                    </button>
+                    <span class="font-bold text-xs" :class="{
+                      'text-emerald-600 dark:text-emerald-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'exact',
+                      'text-rose-500 dark:text-rose-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'over',
+                      'text-amber-600 dark:text-amber-400': targetQuestionsQuantity !== null && weekStatus(col.number) === 'under',
+                      'text-indigo-600 dark:text-indigo-400': targetQuestionsQuantity === null,
+                    }">{{ getColTotal(col.number) || '-' }}</span>
                   </div>
                   <div v-if="targetQuestionsQuantity !== null && getColTotal(col.number) > 0"
                     class="w-10 h-1 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700/60">
-                    <div class="h-full rounded-full transition-all duration-500"
-                      :class="{
-                        'bg-emerald-500': weekStatus(col.number) === 'exact',
-                        'bg-rose-400': weekStatus(col.number) === 'over',
-                        'bg-amber-400': weekStatus(col.number) === 'under',
-                        'bg-indigo-400': weekStatus(col.number) === 'none',
-                      }"
-                      :style="{ width: Math.min(100, progressPercentage(col.number)) + '%' }" />
+                    <div class="h-full rounded-full transition-all duration-500" :class="{
+                      'bg-emerald-500': weekStatus(col.number) === 'exact',
+                      'bg-rose-400': weekStatus(col.number) === 'over',
+                      'bg-amber-400': weekStatus(col.number) === 'under',
+                      'bg-indigo-400': weekStatus(col.number) === 'none',
+                    }" :style="{ width: Math.min(100, progressPercentage(col.number)) + '%' }" />
                   </div>
                 </div>
                 <span v-else class="font-bold text-xs">{{ getColTotal(col.number) || '-' }}</span>
               </div>
               <div
-                class="total-col bg-indigo-50/50 dark:bg-indigo-950/30 px-4 py-3 border-t border-slate-200 dark:border-slate-800/80 text-center font-black text-sm text-indigo-700 dark:text-indigo-400">
+                class="total-col bg-indigo-50/50 dark:bg-indigo-950/30 px-4 py-3 text-center font-black text-sm text-indigo-700 dark:text-indigo-400">
                 {{ grandTotalQuestionCount }}
               </div>
             </div>
@@ -727,15 +718,18 @@ const formatWeekStatus = (weekNumber: number) => {
       :existingKeys="matrixRows.map(r => `${r.topicId}|${r.subtopicId}`)" @add-subtopics="onAddSubtopics" />
 
     <Transition name="backdrop-fade">
-      <div v-if="confirmRemove || confirmClearWeek" class="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40" @click="confirmRemove = null; confirmClearWeek = null" />
+      <div v-if="confirmRemove || confirmClearWeek" class="fixed inset-0 bg-black/20 backdrop-blur-[1px] z-40"
+        @click="confirmRemove = null; confirmClearWeek = null" />
     </Transition>
 
     <Transition name="confirm-scale">
       <div v-if="confirmRemove || confirmClearWeek"
         class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-        <div class="bg-white dark:bg-[#1e1e2d] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full mx-4 pointer-events-auto">
+        <div
+          class="bg-white dark:bg-[#1e1e2d] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 max-w-sm w-full mx-4 pointer-events-auto">
           <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 flex items-center justify-center text-rose-500 shrink-0">
+            <div
+              class="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 flex items-center justify-center text-rose-500 shrink-0">
               <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5" />
             </div>
             <div>
@@ -746,19 +740,23 @@ const formatWeekStatus = (weekNumber: number) => {
               </h3>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 <template v-if="confirmClearWeek">
-                  Se eliminarán todas las distribuciones de la semana <strong>S{{ confirmClearWeek }}</strong> ({{ getColTotal(confirmClearWeek) }} preguntas).
+                  Se eliminarán todas las distribuciones de la semana <strong>S{{ confirmClearWeek }}</strong> ({{
+                    getColTotal(confirmClearWeek) }} preguntas).
                 </template>
                 <template v-else-if="confirmRemove?.type === 'topic'">
-                  Se eliminarán todos los subtemas y sus distribuciones de <strong>{{ (confirmRemove?.data as TopicGroup).topicName }}</strong>.
+                  Se eliminarán todos los subtemas y sus distribuciones de <strong>{{ (confirmRemove?.data as
+                    TopicGroup).topicName }}</strong>.
                 </template>
                 <template v-else>
-                  Se eliminarán todas las distribuciones de <strong>{{ (confirmRemove?.data as RowData).subtopicName }}</strong>.
+                  Se eliminarán todas las distribuciones de <strong>{{ (confirmRemove?.data as RowData).subtopicName
+                    }}</strong>.
                 </template>
               </p>
             </div>
           </div>
           <div class="flex justify-end gap-3">
-            <UButton color="neutral" variant="soft" size="sm" @click="confirmRemove = null; confirmClearWeek = null">Cancelar</UButton>
+            <UButton color="neutral" variant="soft" size="sm" @click="confirmRemove = null; confirmClearWeek = null">
+              Cancelar</UButton>
             <UButton color="red" size="sm" @click="() => {
               if (confirmClearWeek) {
                 clearWeek(confirmClearWeek);
@@ -783,8 +781,9 @@ const formatWeekStatus = (weekNumber: number) => {
 
 <style scoped>
 .matrix-scroll {
-  width: 100%;
-  min-width: max-content;
+  min-width: 100%;
+  width: max-content;
+  padding-bottom: 20px;
 }
 
 /* Row grid layout */
@@ -906,6 +905,23 @@ html.dark .topic-divider {
   z-index: 31;
 }
 
+/* Rounded corners for sticky column matching card boundaries */
+.topic-header .name-col {
+  border-top-left-radius: 16px;
+}
+
+.subtopic-row:last-child .name-col {
+  border-bottom-left-radius: 16px;
+}
+
+.topic-card.is-collapsed .topic-header .name-col {
+  border-radius: 16px 0 0 16px;
+}
+
+.footer-card .name-col {
+  border-radius: 16px 0 0 16px;
+}
+
 /* Topic accent bar */
 .topic-accent {
   width: 3px;
@@ -928,15 +944,7 @@ html.dark .topic-accent {
   text-align: center;
 }
 
-.hide-arrows::-webkit-outer-spin-button,
-.hide-arrows::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
 
-.hide-arrows {
-  -moz-appearance: textfield;
-}
 
 .custom-scrollbar::-webkit-scrollbar {
   height: 6px;
@@ -961,21 +969,27 @@ html.dark .topic-accent {
 .backdrop-fade-leave-active {
   transition: opacity 200ms ease;
 }
+
 .backdrop-fade-enter-from,
 .backdrop-fade-leave-to {
   opacity: 0;
 }
 
+
+
 .confirm-scale-enter-active {
   transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .confirm-scale-leave-active {
   transition: all 150ms ease;
 }
+
 .confirm-scale-enter-from {
   opacity: 0;
   transform: scale(0.95) translateY(8px);
 }
+
 .confirm-scale-leave-to {
   opacity: 0;
   transform: scale(0.95);

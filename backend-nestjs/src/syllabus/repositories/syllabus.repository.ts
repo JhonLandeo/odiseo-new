@@ -54,7 +54,19 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
           COALESCE(
             (SELECT array_agg(DISTINCT sd.week_number) FROM syllabus_distribution sd WHERE sd.syllabus_id = s.id),
             ARRAY[]::integer[]
-          ) AS "filledWeeks"
+          ) AS "filledWeeks",
+          COALESCE(
+            (
+              SELECT json_object_agg(COALESCE(sd.template_id::text, 'null'), sd.weeks)
+              FROM (
+                SELECT template_id, array_agg(DISTINCT week_number) as weeks
+                FROM syllabus_distribution
+                WHERE syllabus_id = s.id
+                GROUP BY template_id
+              ) sd
+            ),
+            '{}'::json
+          ) AS "templateProgress"
         FROM syllabus s
         LEFT JOIN cycles c ON c.id = s.cycle_id
         WHERE s.cycle_id = $1`,
