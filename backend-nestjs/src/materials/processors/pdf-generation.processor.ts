@@ -29,6 +29,8 @@ import { Topic } from '../../catalogs/entities/topic.entity';
 import { Question } from '../../question-bank/entities/question.entity';
 import { TenantService } from '../../database/tenant.service';
 import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
+import { Cycle } from '../../academic-time/entities/cycle.entity';
+import { GcsService } from '../../gcs/gcs.service';
 
 @Processor('materials-queue')
 export class PdfGenerationProcessor extends WorkerHost {
@@ -47,6 +49,7 @@ export class PdfGenerationProcessor extends WorkerHost {
     @InjectEntityManager('questionsConnection')
     private readonly questionsEntityManager: EntityManager,
     private readonly tenantService: TenantService,
+    private readonly gcsService: GcsService,
   ) {
     super();
   }
@@ -182,17 +185,17 @@ export class PdfGenerationProcessor extends WorkerHost {
                 .map((q) => q.questionId)
                 .filter((id): id is string => !!id);
 
-              let questionMap = new Map<string, Question>();
+              let questionMap = new Map<string, any>();
               if (questionIds.length > 0) {
-                const dbQuestions = await this.questionsEntityManager.find(
-                  Question,
-                  {
-                    where: { id: In(questionIds) },
-                    relations: ['alternatives'],
-                  },
+                const dbQuestions = await this.questionsEntityManager.query(
+                  `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
+                  [questionIds.map((id) => BigInt(id))],
                 );
-                questionMap = new Map(dbQuestions.map((q) => [q.id, q]));
+                questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
               }
+
+              const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
+              const universityId = cycle?.universityId;
 
               for (const mrq of reviewQuestions) {
                 if (mrq.status === ReviewQuestionStatus.EMPTY) {
@@ -207,14 +210,41 @@ export class PdfGenerationProcessor extends WorkerHost {
                   if (mrq.questionId) {
                     const q = questionMap.get(mrq.questionId);
                     if (q) {
+                      const signedImages = await Promise.all(
+                        (q.images || []).map(async (img: any) => ({
+                          id: img.id,
+                          url: await this.gcsService.getSignedUrl(img.gcs_key),
+                        })),
+                      );
+
+                      const signedDiagImages = await Promise.all(
+                        (q.solution?.diagrammed_images || []).map(async (img: any) => ({
+                          id: img.id,
+                          url: await this.gcsService.getSignedUrl(img.gcs_key),
+                        })),
+                      );
+
+                      const textOrigin = universityId && q.origins ? q.origins[universityId] : null;
+
                       allQuestions.push({
-                        id: q.id,
-                        topicId: q.topicId || mrq.topicId,
-                        subtopicId: q.subtopicId || mrq.subtopicId,
-                        content: q.htmlContent,
-                        options: q.options.map(
-                          (opt) => `${opt.label}) ${opt.text}`,
-                        ),
+                        id: String(q.question_id),
+                        topicId: mrq.topicId,
+                        subtopicId: mrq.subtopicId,
+                        code: q.code,
+                        content: q.html_content,
+                        options: (q.alternatives || []).map((alt: any) => ({
+                          label: alt.label,
+                          text: alt.text,
+                          isCorrect: alt.is_correct,
+                        })),
+                        configAlternative: q.config_alternative,
+                        images: signedImages,
+                        solution: {
+                          diagrammed: q.solution?.diagrammed || [],
+                          diagrammedImages: signedDiagImages,
+                          didiMaths: q.solution?.didi_maths || [],
+                        },
+                        textOrigin: textOrigin || 'Desconocido',
                       });
                     } else {
                       missingDesglose.push(
@@ -246,6 +276,18 @@ export class PdfGenerationProcessor extends WorkerHost {
                   );
                 }
               }
+            }
+            
+            if (allQuestions.length === 0) {
+              this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
+              if (dist.course_request_id) {
+                await this.materialsService.updateMaterialStatus({
+                  job_id: dist.course_request_id,
+                  status: 'completed_with_warnings',
+                  error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
+                });
+              }
+              continue; // Skip to next course
             }
 
             const pdfBuffer = await this.pdfGeneratorService.generatePdf(
@@ -425,17 +467,17 @@ export class PdfGenerationProcessor extends WorkerHost {
               .map((q) => q.questionId)
               .filter((id): id is string => !!id);
 
-            let questionMap = new Map<string, Question>();
+            let questionMap = new Map<string, any>();
             if (questionIds.length > 0) {
-              const dbQuestions = await this.questionsEntityManager.find(
-                Question,
-                {
-                  where: { id: In(questionIds) },
-                  relations: ['alternatives'],
-                },
+              const dbQuestions = await this.questionsEntityManager.query(
+                `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
+                [questionIds.map((id) => BigInt(id))],
               );
-              questionMap = new Map(dbQuestions.map((q) => [q.id, q]));
+              questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
             }
+
+            const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
+            const universityId = cycle?.universityId;
 
             for (const mrq of reviewQuestions) {
               if (mrq.status === ReviewQuestionStatus.EMPTY) {
@@ -450,14 +492,41 @@ export class PdfGenerationProcessor extends WorkerHost {
                 if (mrq.questionId) {
                   const q = questionMap.get(mrq.questionId);
                   if (q) {
+                    const signedImages = await Promise.all(
+                      (q.images || []).map(async (img: any) => ({
+                        id: img.id,
+                        url: await this.gcsService.getSignedUrl(img.gcs_key),
+                      })),
+                    );
+
+                    const signedDiagImages = await Promise.all(
+                      (q.solution?.diagrammed_images || []).map(async (img: any) => ({
+                        id: img.id,
+                        url: await this.gcsService.getSignedUrl(img.gcs_key),
+                      })),
+                    );
+
+                    const textOrigin = universityId && q.origins ? q.origins[universityId] : null;
+
                     allQuestions.push({
-                      id: q.id,
-                      topicId: q.topicId || mrq.topicId,
-                      subtopicId: q.subtopicId || mrq.subtopicId,
-                      content: q.htmlContent,
-                      options: q.options.map(
-                        (opt) => `${opt.label}) ${opt.text}`,
-                      ),
+                      id: String(q.question_id),
+                      topicId: mrq.topicId,
+                      subtopicId: mrq.subtopicId,
+                      code: q.code,
+                      content: q.html_content,
+                      options: (q.alternatives || []).map((alt: any) => ({
+                        label: alt.label,
+                        text: alt.text,
+                        isCorrect: alt.is_correct,
+                      })),
+                      configAlternative: q.config_alternative,
+                      images: signedImages,
+                      solution: {
+                        diagrammed: q.solution?.diagrammed || [],
+                        diagrammedImages: signedDiagImages,
+                        didiMaths: q.solution?.didi_maths || [],
+                      },
+                      textOrigin: textOrigin || 'Desconocido',
                     });
                   } else {
                     missingDesglose.push(
@@ -491,6 +560,18 @@ export class PdfGenerationProcessor extends WorkerHost {
                 }
               }
             }
+          }
+
+          if (allQuestions.length === 0) {
+            this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
+            if (dist.course_request_id) {
+              await this.materialsService.updateMaterialStatus({
+                job_id: dist.course_request_id,
+                status: 'completed_with_warnings',
+                error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
+              });
+            }
+            return { course_id: courseId, status: CourseMaterialStatus.COMPLETED_WITH_WARNINGS };
           }
 
           const pdfBuffer = await this.pdfGeneratorService.generatePdf(

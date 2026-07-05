@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useSyllabusStore } from '../store';
 import { useAcademicTimeStore } from '@/features/academic-time/store';
 import { useToast } from '#imports';
@@ -10,15 +10,46 @@ const timeStore = useAcademicTimeStore();
 const isOpen = ref(false);
 const sourceCycleId = ref('');
 const targetCycleId = ref('');
+const hasConfirmedOverwrite = ref(false);
 
 const toast = useToast();
 
 const availableSourceCycles = computed(() => {
-  return timeStore.cycles.filter(c => c.id !== targetCycleId.value);
+  console.log('[CycleCloneModal] Computing available source cycles. Total cycles in store:', timeStore.cycles.length, 'Target cycle:', targetCycleId.value);
+  const filtered = timeStore.cycles.filter(c => c.id !== targetCycleId.value);
+  console.log('[CycleCloneModal] Filtered available source cycles count:', filtered.length, filtered);
+  return filtered;
 });
 
+const isConfirmDisabled = computed(() => {
+  if (!sourceCycleId.value) return true;
+  if (store.syllabiList.length > 0 && !hasConfirmedOverwrite.value) return true;
+  return false;
+});
+
+watch(isOpen, async (val) => {
+  console.log('[CycleCloneModal] isOpen watcher triggered with val:', val, 'current cycles in store:', timeStore.cycles.length);
+  if (val) {
+    sourceCycleId.value = '';
+    hasConfirmedOverwrite.value = false;
+    if (timeStore.cycles.length === 0) {
+      try {
+        await timeStore.fetchCycles();
+      } catch (e) {
+        console.error('Error fetching cycles in CycleCloneModal:', e);
+      }
+    }
+  }
+});
+
+const open = (targetId: string) => {
+  console.log('[CycleCloneModal] open() called with targetId:', targetId);
+  targetCycleId.value = targetId;
+  isOpen.value = true;
+};
+
 const confirmClone = async () => {
-  if (!sourceCycleId.value || !targetCycleId.value) return;
+  if (isConfirmDisabled.value || !targetCycleId.value) return;
   try {
     const res = await store.cloneCycleSyllabuses(targetCycleId.value, sourceCycleId.value);
     toast.add({
@@ -38,7 +69,7 @@ const confirmClone = async () => {
   }
 };
 
-defineExpose({ isOpen, targetCycleId });
+defineExpose({ open });
 </script>
 
 <template>
@@ -50,20 +81,38 @@ defineExpose({ isOpen, targetCycleId });
           <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">
             Esta acción copiará todos los sílabos configurados de un ciclo anterior hacia el ciclo actual. Si ya existe un sílabo para un curso, este será sobrescrito.
           </p>
+
+          <UAlert 
+            v-if="store.syllabiList.length > 0"
+            color="amber" 
+            variant="subtle" 
+            icon="i-heroicons-exclamation-triangle" 
+            title="Existen sílabos configurados" 
+            description="Este ciclo ya tiene sílabos o planificaciones registradas. Al proceder con la clonación, se sobrescribirá cualquier contenido existente en los cursos correspondientes." 
+            class="mb-6"
+          />
           
           <UFormField label="Seleccionar Ciclo Origen" class="mb-4">
             <USelect 
               v-model="sourceCycleId" 
-              :options="availableSourceCycles" 
-              value-attribute="id" 
-              option-attribute="name" 
+              :items="availableSourceCycles" 
+              value-key="id" 
+              label-key="name" 
               placeholder="Selecciona el ciclo desde el cual copiar..." 
+              class="w-full"
             />
           </UFormField>
+
+          <div v-if="store.syllabiList.length > 0" class="mb-4">
+            <UCheckbox
+              v-model="hasConfirmedOverwrite"
+              label="Entiendo que se sobrescribirán los datos y sílabos existentes en el ciclo destino"
+            />
+          </div>
           
           <div class="flex justify-end gap-2 mt-6">
             <UButton color="gray" variant="ghost" class="btn-premium-secondary" @click="isOpen = false">Cancelar</UButton>
-            <UButton color="neutral" variant="ghost" class="btn-premium-primary" @click="confirmClone" :loading="store.loading" :disabled="!sourceCycleId">Confirmar Clonación</UButton>
+            <UButton color="neutral" variant="ghost" class="btn-premium-primary" @click="confirmClone" :loading="store.loading" :disabled="isConfirmDisabled">Confirmar Clonación</UButton>
           </div>
         </div>
       </UCard>

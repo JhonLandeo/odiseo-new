@@ -144,8 +144,7 @@ function openCreate(courseId?: string) {
 
 function openCycleCloneModal() {
   if (cycleCloneModalRef.value) {
-    cycleCloneModalRef.value.targetCycleId = selectedCycleId.value;
-    cycleCloneModalRef.value.isOpen = true;
+    cycleCloneModalRef.value.open(selectedCycleId.value);
   }
 }
 
@@ -170,8 +169,15 @@ function openSyllabusWithTemplate(syllabus: Syllabus, templateId: string) {
   store.syllabus = syllabus;
 }
 
-function backToList() {
+async function backToList() {
   store.syllabus = null;
+  if (selectedCycleId.value) {
+    try {
+      await store.fetchSyllabiByCycle(selectedCycleId.value);
+    } catch (e) {
+      console.error('Error refetching syllabi list:', e);
+    }
+  }
 }
 
 async function onToggleSyllabus(syllabusId: string, isActive: boolean) {

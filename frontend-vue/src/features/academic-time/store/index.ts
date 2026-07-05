@@ -79,12 +79,17 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
       const subdomain = authStore.getSubdomain();
       // @ts-ignore
       const url = `/api/v1/academic-time/cycles?limit=${limit}&offset=${currentOffset.value}${currentSearch.value ? `&search=${encodeURIComponent(currentSearch.value)}` : ''}`
+      
+      console.log('[AcademicTimeStore] fetchCycles requested URL:', url, 'with subdomain:', subdomain);
+      
       const response = await $fetch(url, {
         headers: { 'x-subdomain': subdomain }
       });
       
       const { data, total } = response as { data: Cycle[], total: number };
       
+      console.log('[AcademicTimeStore] fetchCycles response data:', data, 'total:', total);
+
       if (loadMore) {
         // Prevent duplicate keys in Vue v-for by filtering existing IDs
         const existingIds = new Set(cycles.value.map(c => c.id));
@@ -98,6 +103,7 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
       currentOffset.value += data.length;
       hasFetched.value = true;
     } catch (e: any) {
+      console.error('[AcademicTimeStore] Error in fetchCycles:', e);
       error.value = e.message || 'Error fetching cycles'
     } finally {
       isLoading.value = false

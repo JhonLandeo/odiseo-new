@@ -274,10 +274,15 @@ const matrixColumns = computed(() => {
   return cols;
 });
 
+const knownTopicIds = ref<Set<string>>(new Set());
+
 watch(() => topicGroups.value, (groups) => {
-  if (groups.length > 0 && expandedTopics.value.size === 0) {
-    expandedTopics.value = new Set(groups.map(g => g.topicId));
-  }
+  groups.forEach(g => {
+    if (!knownTopicIds.value.has(g.topicId)) {
+      knownTopicIds.value.add(g.topicId);
+      expandedTopics.value.add(g.topicId);
+    }
+  });
 }, { immediate: true });
 
 const gridStyle = computed(() => ({

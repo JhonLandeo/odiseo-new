@@ -198,4 +198,38 @@ export class MaterialsController {
   async getAttempts(@Param('id') id: string) {
     return await this.materialsService.getAttempts(id);
   }
+
+  @Get('question/:questionId/preview')
+  @ApiOperation({
+    summary: 'Obtener vista previa de una pregunta por su ID para curaduría',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Datos de la pregunta.',
+  })
+  async getQuestionPreview(@Param('questionId') questionId: string) {
+    return await this.materialsService.getQuestionPreview(questionId);
+  }
+
+  @Get('question/alternatives/search')
+  @ApiOperation({
+    summary: 'Obtener alternativas de preguntas para curaduría',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de 3 preguntas alternativas.',
+  })
+  async getQuestionAlternatives(
+    @Query('topicId') topicId: string,
+    @Query('subtopicId') subtopicId: string,
+    @Query('levelId') levelId?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return await this.materialsService.getQuestionAlternatives(
+      topicId,
+      subtopicId,
+      levelId,
+      limit ? Number(limit) : 3,
+    );
+  }
 }

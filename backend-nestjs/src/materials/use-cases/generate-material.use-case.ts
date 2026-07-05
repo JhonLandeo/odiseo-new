@@ -100,15 +100,36 @@ export class GenerateMaterialUseCase {
         );
         const targetQuantity = templateCourse?.questionsQuantity || 35;
 
+        const easyCount = templateCourse?.easyCount || Math.floor(targetQuantity * 0.4);
+        const mediumCount = templateCourse?.mediumCount || Math.floor(targetQuantity * 0.4);
+        let hardCount = templateCourse?.hardCount || Math.floor(targetQuantity * 0.2);
+        
+        // Ensure the sum matches targetQuantity
+        const currentSum = easyCount + mediumCount + hardCount;
+        if (currentSum !== targetQuantity) {
+          hardCount += (targetQuantity - currentSum);
+        }
+
+        const levelsPool: string[] = [
+          ...Array(easyCount).fill('EASY'),
+          ...Array(mediumCount).fill('MEDIUM'),
+          ...Array(hardCount).fill('HARD')
+        ];
+        // Shuffle the levels pool to distribute difficulties randomly across subtopics
+        levelsPool.sort(() => 0.5 - Math.random());
+
         const topics = distributions.map((dist, idx) => {
           const baseQty = Math.floor(targetQuantity / distributions.length);
           const remainder = targetQuantity % distributions.length;
           const quantity = idx < remainder ? baseQty + 1 : baseQty;
 
+          const expectedLevels = levelsPool.splice(0, quantity);
+
           return {
             topic_id: dist.topicId,
             subtopic_id: dist.subtopicId,
             quantity,
+            expected_levels: expectedLevels,
           };
         }).filter((t) => t.quantity > 0);
 
@@ -244,7 +265,7 @@ export class GenerateMaterialUseCase {
             .addSelect('subtopic_id', 'subtopicId')
             .from('odiseo.question_subtopic', 'qs')
             .where(
-              'qs.subtopic_id IN (:...subtopicIds) AND qs.fl_status = true',
+              'qs.subtopic_id IN (:...subtopicIds) AND qs.fl_status = true AND qs.question_id IN (SELECT question_id FROM odiseo.flat_questions)',
               { subtopicIds: numericSubtopicIds },
             )
             .getRawMany();
@@ -289,20 +310,37 @@ export class GenerateMaterialUseCase {
                     !!q && !dist.exclude_question_ids.includes(q.id),
                 );
 
-              // Shuffle and select
-              const selectedQuestions = subtopicQuestions
-                .sort(() => 0.5 - Math.random())
-                .slice(0, t.quantity);
+              // Shuffle the pool initially
+              const availablePool = subtopicQuestions.sort(() => 0.5 - Math.random());
+              const selectedQuestions: (Question | null)[] = [];
 
               for (let i = 0; i < t.quantity; i++) {
-                const dbQ = selectedQuestions[i];
+                const expectedLevelStr = t.expected_levels[i];
+                let levelIds: number[] = [];
+                if (expectedLevelStr === 'EASY') levelIds = [43, 44];
+                else if (expectedLevelStr === 'MEDIUM') levelIds = [45];
+                else if (expectedLevelStr === 'HARD') levelIds = [46, 47, 48, 49, 50, 51, 52];
+
+                // Find first matching level
+                let selectedIdx = availablePool.findIndex(q => levelIds.includes(q.levelId));
+                // If not found, just grab any from pool (fallback)
+                if (selectedIdx === -1 && availablePool.length > 0) {
+                  selectedIdx = 0;
+                }
+
+                let dbQ: Question | null = null;
+                if (selectedIdx !== -1) {
+                  dbQ = availablePool.splice(selectedIdx, 1)[0];
+                }
+
                 const isVacant = !dbQ;
                 const reviewQ = manager.create(MaterialReviewQuestion, {
                   id: uuidv4(),
                   materialRequestId: materialRequest.id,
-                  questionId: isVacant ? undefined : dbQ.id,
+                  questionId: isVacant ? undefined : dbQ!.id,
                   topicId: t.topic_id,
                   subtopicId: t.subtopic_id,
+                  expectedLevel: expectedLevelStr,
                   position: position++,
                   status: isVacant
                     ? ReviewQuestionStatus.EMPTY

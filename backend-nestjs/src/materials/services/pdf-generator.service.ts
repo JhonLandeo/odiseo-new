@@ -58,9 +58,10 @@ export class PdfGeneratorService {
     design?: DesignTemplateConfig | null,
     weekNumber?: number,
     templateName?: string,
+    withSolution = false,
   ): Promise<Buffer> {
     this.logger.log(
-      `Generating PDF for course ${courseId} with ${questions.length} questions.`,
+      `Generating PDF for course ${courseId} with ${questions.length} questions. Solution: ${withSolution}`,
     );
 
     // 1. Resolve design image URLs to base64 data URIs
@@ -82,6 +83,7 @@ export class PdfGeneratorService {
       resolvedDesign,
       weekNumber,
       templateName,
+      withSolution,
     );
 
     // 3. Define footer template for Playwright
@@ -232,6 +234,7 @@ export class PdfGeneratorService {
     design?: DesignTemplateConfig | null,
     weekNumber?: number,
     templateName?: string,
+    withSolution = false,
   ): string {
     const primaryTitleColor = design?.primaryTitleColor || '2, 113, 184';
     const secondaryTitleColor = design?.secondaryTitleColor || '2, 113, 184';
@@ -291,23 +294,59 @@ export class PdfGeneratorService {
 
     const questionsHtml = questions
       .map((q, index) => {
-        const alternativesHtml = q.options
-          .map((opt, i) => {
-            const match = opt.match(/^([A-E])[\)\s]\s*(.*)$/);
-            let letter = String.fromCharCode(65 + i);
-            let text = opt;
-            if (match) {
-              letter = match[1];
-              text = match[2];
-            }
+        // 1. Determine columns layout
+        const colsClass = `alternatives--cols-${q.configAlternative?.columns || 1}`;
+
+        // 2. Render alternatives
+        const alternativesHtml = (q.options || [])
+          .map((opt) => {
+            const isCorrectClass = withSolution && opt.isCorrect ? 'alternative__bg--correct' : '';
             return `
-          <div class="alternative__item">
-              <div class="alternative__letter">${letter})</div>
-              <div class="alternative__text"><span class="alternative__bg">${text}</span></div>
-          </div>
-        `;
+              <div class="alternative__item">
+                  <div class="alternative__letter">${opt.label})</div>
+                  <div class="alternative__text">
+                    <span class="alternative__bg ${isCorrectClass}">${opt.text}</span>
+                  </div>
+              </div>
+            `;
           })
           .join('');
+
+        // 3. Render attached images
+        const imagesHtml = (q.images || [])
+          .map((img) => `<img src="${img.url}" class="question__image-attached" />`)
+          .join('');
+
+        // 4. Render university origin if present
+        const originHtml = q.textOrigin
+          ? `<span class="question__origin">(${q.textOrigin})</span>`
+          : '';
+
+        // 5. Render solution block if withSolution is true
+        let solutionHtml = '';
+        if (withSolution && q.solution) {
+          const stepsHtml = (q.solution.diagrammed || [])
+            .map(
+              (step) => `
+              <div class="solution__step">
+                <span class="solution__step-name">${step.field_diagram}:</span> ${step.value}
+              </div>
+            `,
+            )
+            .join('');
+
+          const solImagesHtml = (q.solution.diagrammedImages || [])
+            .map((img) => `<img src="${img.url}" class="solution__image" />`)
+            .join('');
+
+          solutionHtml = `
+            <div class="solution__box">
+                <div class="solution__title">Resolución Paso a Paso:</div>
+                <div class="solution__steps">${stepsHtml}</div>
+                <div class="solution__images">${solImagesHtml}</div>
+            </div>
+          `;
+        }
 
         return `
         <div class="question__block">
@@ -315,11 +354,13 @@ export class PdfGeneratorService {
                 <div class="question__number">${index + 1}.</div>
                 <div class="question__content">
                     <div class="question__description">
-                        ${q.content}
+                        ${q.content} ${originHtml}
                     </div>
-                    <div class="alternatives__grid alternatives--cols-1">
+                    ${imagesHtml}
+                    <div class="alternatives__grid ${colsClass}">
                         ${alternativesHtml}
                     </div>
+                    ${solutionHtml}
                 </div>
             </div>
         </div>
@@ -632,6 +673,55 @@ export class PdfGeneratorService {
             padding-left: 20px;
             font-size: 10pt;
             color: var(--text-color);
+        }
+
+        /* Correct alternative styling */
+        .alternative__bg--correct {
+            background-color: #d4edda !important;
+            border: 1px dashed #28a745;
+            font-weight: bold;
+        }
+
+        /* Solution step container */
+        .solution__box {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-left: 3px solid rgb(var(--v-theme-primary-title));
+            border-radius: var(--border-radius-base);
+            font-size: calc(var(--text-font-size) - 1.5pt);
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        .solution__title {
+            font-weight: bold;
+            color: rgb(var(--v-theme-primary-title));
+            margin-bottom: 5px;
+        }
+
+        .solution__step-name {
+            font-weight: bold;
+        }
+
+        .question__origin {
+            font-weight: bold;
+            font-style: italic;
+            color: #6c757d;
+        }
+
+        .question__image-attached {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            display: block;
+        }
+
+        .solution__image {
+            max-width: 100%;
+            height: auto;
+            margin: 5px 0;
+            display: block;
         }
     </style>
     <style>

@@ -31,6 +31,9 @@ export class MaterialReviewQuestion {
   @Column({ name: 'subtopic_id' })
   subtopicId: string;
 
+  @Column({ name: 'expected_level', nullable: true })
+  expectedLevel: string; // 'EASY', 'MEDIUM', 'HARD'
+
   @Column()
   position: number;
 

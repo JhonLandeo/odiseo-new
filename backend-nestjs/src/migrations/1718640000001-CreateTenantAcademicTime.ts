@@ -20,6 +20,7 @@ export class CreateTenantAcademicTime1718640000001 implements MigrationInterface
         days_per_week INTEGER NOT NULL,
         total_weeks INTEGER NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
+        university_id UUID,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW(),
         deleted_at TIMESTAMPTZ,

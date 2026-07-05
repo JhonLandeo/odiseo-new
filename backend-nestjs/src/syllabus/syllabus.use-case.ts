@@ -87,9 +87,84 @@ export class SyllabusUseCase {
     return summary;
   }
 
-  async cloneSyllabus(syllabusId: string, sourceSyllabusId: string) {
+  async cloneSyllabus(
+    syllabusId: string,
+    sourceSyllabusId: string,
+    targetActiveWeeks?: number[],
+  ) {
+    const targetSyllabus = await this.syllabusRepo.findById(syllabusId);
+    if (!targetSyllabus) {
+      throw new BadRequestException('Syllabus destino no encontrado.');
+    }
+
+    const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
+    if (!sourceSyllabus) {
+      throw new BadRequestException('Syllabus origen no encontrado.');
+    }
+
+    let activeWeeks = targetActiveWeeks;
+    if (!activeWeeks) {
+      activeWeeks = await this.syllabusRepo.findActiveWeeksByCycle(
+        targetSyllabus.cycleId,
+      );
+    }
+
     const sourceDistributions =
       await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
+
+    // Build template mapping and validate that all used templates exist in target cycle
+    const templateMap: Record<string, string | null> = {};
+    if (sourceSyllabus.cycleId !== targetSyllabus.cycleId) {
+      const referencedTemplateIds = new Set<string>();
+      if (sourceSyllabus.templateId) {
+        referencedTemplateIds.add(sourceSyllabus.templateId);
+      }
+      for (const dist of sourceDistributions) {
+        if (dist.templateId) {
+          referencedTemplateIds.add(dist.templateId);
+        }
+      }
+
+      if (referencedTemplateIds.size > 0) {
+        const sourceTemplates = await this.syllabusRepo.findTemplatesByCycle(
+          sourceSyllabus.cycleId,
+        );
+        const targetTemplates = await this.syllabusRepo.findTemplatesByCycle(
+          targetSyllabus.cycleId,
+        );
+
+        if (targetTemplates.length > 0) {
+          const missingTemplateNames: string[] = [];
+          for (const srcTempId of referencedTemplateIds) {
+            const srcTemplate = sourceTemplates.find((t) => t.id === srcTempId);
+            if (!srcTemplate) continue;
+
+            const match = targetTemplates.find(
+              (tgtT) =>
+                tgtT.name.trim().toLowerCase() ===
+                srcTemplate.name.trim().toLowerCase(),
+            );
+
+            if (match) {
+              templateMap[srcTempId] = match.id;
+            } else {
+              missingTemplateNames.push(srcTemplate.name);
+            }
+          }
+
+          if (missingTemplateNames.length > 0) {
+            throw new BadRequestException(
+              `No se puede realizar la clonación. Las siguientes plantillas de evaluación usadas en el origen no existen en el ciclo destino: [${missingTemplateNames.join(', ')}]. Por favor, configúrelas en el ciclo destino antes de continuar.`,
+            );
+          }
+        } else {
+          // If no templates exist in target cycle at all, bypass strict check and map everything to null
+          for (const srcTempId of referencedTemplateIds) {
+            templateMap[srcTempId] = null;
+          }
+        }
+      }
+    }
 
     // Clean existing
     const currentDistributions =
@@ -100,13 +175,40 @@ export class SyllabusUseCase {
 
     // Copy new
     for (const dist of sourceDistributions) {
+      if (!activeWeeks.includes(dist.weekNumber)) {
+        continue;
+      }
+
+      let targetTemplateId: string | null = null;
+      if (dist.templateId) {
+        if (sourceSyllabus.cycleId === targetSyllabus.cycleId) {
+          targetTemplateId = dist.templateId;
+        } else {
+          targetTemplateId = templateMap[dist.templateId] || null;
+        }
+      }
+
       await this.syllabusRepo.createDistribution({
         syllabusId,
         weekNumber: dist.weekNumber,
         topicId: dist.topicId,
         subtopicId: dist.subtopicId,
         questionCount: dist.questionCount,
+        templateId: targetTemplateId,
       });
+    }
+
+    // Set syllabus-level default templateId if mapped
+    if (sourceSyllabus.templateId) {
+      let targetSyllabusTemplateId: string | null = null;
+      if (sourceSyllabus.cycleId === targetSyllabus.cycleId) {
+        targetSyllabusTemplateId = sourceSyllabus.templateId;
+      } else {
+        targetSyllabusTemplateId = templateMap[sourceSyllabus.templateId] || null;
+      }
+      if (targetSyllabusTemplateId) {
+        await this.syllabusRepo.setTemplate(syllabusId, targetSyllabusTemplateId);
+      }
     }
 
     return await this.getSummary(syllabusId);
@@ -118,6 +220,9 @@ export class SyllabusUseCase {
     if (sourceSyllabuses.length === 0) {
       throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
     }
+
+    const targetActiveWeeks =
+      await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
 
     let clonedCount = 0;
     for (const sourceSyllabus of sourceSyllabuses) {
@@ -139,7 +244,11 @@ export class SyllabusUseCase {
         targetSyllabusId = newSyllabus.id;
       }
 
-      await this.cloneSyllabus(targetSyllabusId, sourceSyllabus.id);
+      await this.cloneSyllabus(
+        targetSyllabusId,
+        sourceSyllabus.id,
+        targetActiveWeeks,
+      );
       clonedCount++;
     }
 

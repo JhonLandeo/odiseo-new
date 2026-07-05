@@ -50,7 +50,8 @@ export class QuestionBankService {
         'q.id IN (SELECT question_id FROM odiseo.question_subtopic WHERE subtopic_id = :subtopicId AND fl_status = true)',
         { subtopicId: numericSubtopicId },
       )
-      .andWhere('q.fl_status = true');
+      .andWhere('q.fl_status = true')
+      .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)');
 
     if (usedIdsList.length > 0) {
       unusedIdsQb.andWhere('q.id NOT IN (:...usedIdsList)', { usedIdsList });
@@ -102,7 +103,8 @@ export class QuestionBankService {
           'q.id IN (SELECT question_id FROM odiseo.question_subtopic WHERE subtopic_id = :subtopicId AND fl_status = true)',
           { subtopicId: numericSubtopicId },
         )
-        .andWhere('q.fl_status = true');
+        .andWhere('q.fl_status = true')
+        .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)');
 
       if (selectedIds.length > 0) {
         fallbackIdsQb.andWhere('q.id NOT IN (:...selectedIds)', {

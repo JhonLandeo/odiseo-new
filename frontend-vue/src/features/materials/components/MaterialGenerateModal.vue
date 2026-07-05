@@ -14,7 +14,7 @@
         <div class="space-y-4">
           <!-- Week Selection -->
           <UFormField label="Semana Objetivo" name="weekNumber">
-            <USelect v-model="form.weekNumber" :options="availableWeeksOptions" value-attribute="value" option-attribute="label" placeholder="Selecciona la semana..." />
+            <USelect v-model="form.weekNumber" :items="availableWeeksOptions" value-key="value" label-key="label" placeholder="Selecciona la semana..." class="w-full" />
           </UFormField>
 
           <!-- Course Selection -->

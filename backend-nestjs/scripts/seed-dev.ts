@@ -113,6 +113,7 @@ async function seed() {
         days_per_week INTEGER NOT NULL DEFAULT 5,
         total_weeks INTEGER NOT NULL,
         is_active BOOLEAN NOT NULL DEFAULT true,
+        university_id UUID,
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         deleted_at TIMESTAMP WITH TIME ZONE

@@ -17,9 +17,11 @@ import { WorkerModule } from './worker/worker.module';
 import { QuestionBankModule } from './question-bank/question-bank.module';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
+import { GcsModule } from './gcs/gcs.module';
 
 @Module({
   imports: [
+    GcsModule,
     ConfigModule.forRoot({ isGlobal: true }),
     BullBoardModule.forRoot({
       route: '/queues',

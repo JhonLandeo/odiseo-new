@@ -58,10 +58,21 @@ export interface MaterialReviewQuestion {
   id: string;
   materialRequestId: string;
   questionId: string | null;
+  code?: string;
+  levelName?: string;
+  type?: string;
   topicId: string;
   subtopicId: string;
   position: number;
   status: ReviewQuestionStatus;
+  htmlContent?: string;
+  options?: any[];
+  images?: any[];
+  solution?: any;
+  textOrigin?: string;
+  courseId?: string;
+  topicName?: string;
+  subtopicName?: string;
 }
 
 // --- WebSocket Event Payloads ---

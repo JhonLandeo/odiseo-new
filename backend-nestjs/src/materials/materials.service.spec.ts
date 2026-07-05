@@ -6,6 +6,7 @@ import { TenantService } from '../database/tenant.service';
 import { getEntityManagerToken } from '@nestjs/typeorm';
 import { I_MATERIALS_REPOSITORY } from './repositories/i-materials.repository';
 import { S3Service } from '../aws/s3.service';
+import { GcsService } from '../gcs/gcs.service';
 import {
   BadRequestException,
   NotFoundException,
@@ -23,6 +24,7 @@ describe('MaterialsService', () => {
   let materialsRepo: any;
   let s3Service: any;
   let mockEntityManager: any;
+  let gcsService: any;
 
   beforeEach(async () => {
     mockEntityManager = {
@@ -52,6 +54,11 @@ describe('MaterialsService', () => {
         .fn()
         .mockResolvedValue('https://s3.amazonaws.com/mock-signed-url'),
     };
+    gcsService = {
+      getSignedUrl: jest
+        .fn()
+        .mockResolvedValue('https://storage.googleapis.com/mock-signed-url'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -61,6 +68,7 @@ describe('MaterialsService', () => {
         { provide: TenantService, useValue: tenantService },
         { provide: I_MATERIALS_REPOSITORY, useValue: materialsRepo },
         { provide: S3Service, useValue: s3Service },
+        { provide: GcsService, useValue: gcsService },
         {
           provide: getEntityManagerToken('questionsConnection'),
           useValue: mockEntityManager,

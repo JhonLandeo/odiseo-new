@@ -125,22 +125,24 @@ defineExpose({ isOpen, courseId });
           <UFormField label="1. Seleccionar Ciclo Origen" class="mb-4">
             <USelect 
               v-model="selectedCycleId" 
-              :options="timeStore.cycles" 
-              value-attribute="id" 
-              option-attribute="name" 
+              :items="timeStore.cycles" 
+              value-key="id" 
+              label-key="name" 
               placeholder="Selecciona un ciclo..." 
+              class="w-full"
             />
           </UFormField>
           
           <UFormField label="2. Seleccionar Sílabo a Clonar" class="mb-4">
             <USelect 
               v-model="sourceId" 
-              :options="syllabusOptions" 
-              value-attribute="id" 
-              option-attribute="label"
+              :items="syllabusOptions" 
+              value-key="id" 
+              label-key="label"
               placeholder="Selecciona el sílabo..." 
               :loading="loadingSyllabuses"
               :disabled="!selectedCycleId"
+              class="w-full"
             />
           </UFormField>
           

@@ -38,6 +38,8 @@ import { TenantService } from '../database/tenant.service';
 import { S3Service } from '../aws/s3.service';
 import { Cycle } from '../academic-time/entities/cycle.entity';
 import { convertUuidToIntegerId } from '../database/uuid-converter';
+import { GcsService } from '../gcs/gcs.service';
+
 @Injectable()
 export class MaterialsService {
   private readonly logger = new Logger(MaterialsService.name);
@@ -51,6 +53,7 @@ export class MaterialsService {
     private readonly s3Service: S3Service,
     @InjectEntityManager('questionsConnection')
     private readonly questionsEntityManager: EntityManager,
+    private readonly gcsService: GcsService,
   ) {}
 
   async generateMaterial(dto: {
@@ -217,38 +220,150 @@ export class MaterialsService {
         .map((q) => q.questionId)
         .filter((qid): qid is string => !!qid);
 
-      let dbQuestions: Question[] = [];
-      if (questionIds.length > 0) {
-        dbQuestions = await this.questionsEntityManager.find(Question, {
-          where: { id: In(questionIds) },
-          relations: ['alternatives'],
-        });
+      let flatQuestions: any[] = [];
+      const dbQuestions = questionIds.map((qid) => Number(qid));
+      if (dbQuestions.length > 0) {
+        flatQuestions = await this.questionsEntityManager.query(
+          `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
+          [dbQuestions],
+        );
       }
-      const dbQuestionsMap = new Map(dbQuestions.map((q) => [String(q.id), q]));
+      const dbQuestionsMap = new Map(
+        flatQuestions.map((q) => [String(q.question_id), q]),
+      );
 
-      const questionsResponse = questions.map((q) => {
-        const topic = topicMap.get(q.topicId);
-        const subtopic = subtopicMap.get(q.subtopicId);
-        const dbQ = q.questionId
-          ? dbQuestionsMap.get(String(q.questionId))
-          : null;
-
-        return {
-          id: q.id,
-          questionId: q.questionId,
-          courseId: topic?.courseId || '',
-          topicName: topic?.name || 'Desconocido',
-          subtopicName: subtopic?.name || 'Desconocido',
-          position: q.position,
-          status: q.status,
-          htmlContent: dbQ?.htmlContent || null,
-          options: dbQ?.options || [],
-        };
-      });
+      const missingIds = questionIds.filter(qid => !dbQuestionsMap.has(String(qid)));
+      if (missingIds.length > 0) {
+        const fallbackDbQuestions = await this.questionsEntityManager.query(
+          `SELECT q.id as question_id, q.code, q.level_id, l.name as level_name, q.type, q.description as html_content,
+             (SELECT json_agg(json_build_object('id', a.id, 'description', a.description, 'is_correct', a.id = q.answer_id)) 
+              FROM odiseo.alternative a WHERE a.question_id = q.id AND a.fl_status = true) as alternatives,
+             (SELECT json_agg(json_build_object('id', qi.id, 'code', qi.code, 'gcs_key', qi.image)) 
+              FROM odiseo.question_image qi WHERE qi.question_id = q.id AND qi.fl_status = true) as images
+           FROM odiseo.question q
+           LEFT JOIN odiseo.level l ON q.level_id = l.id
+           WHERE q.id = ANY($1)`,
+          [missingIds.map((qid) => BigInt(qid))],
+        );
+        for (const fq of fallbackDbQuestions) {
+          const alts = fq.alternatives || [];
+          dbQuestionsMap.set(String(fq.question_id), {
+            question_id: fq.question_id,
+            code: fq.code,
+            level_id: fq.level_id,
+            level_name: fq.level_name,
+            type: fq.type,
+            html_content: fq.html_content,
+            alternatives: alts.map((alt: any, idx: number) => ({
+              id: alt.id,
+              label: String.fromCharCode(65 + idx),
+              text: alt.description,
+              is_correct: alt.is_correct
+            })),
+            images: fq.images || [],
+            solution: null // Solucionario can be added later if needed
+          });
+        }
+      }
 
       const cycle = await manager.findOne(Cycle, {
         where: { id: request.cycleId },
       });
+      const universityId = cycle?.universityId;
+
+      const questionsResponse = await Promise.all(
+        questions.map(async (q) => {
+          const topic = topicMap.get(q.topicId);
+          const subtopic = subtopicMap.get(q.subtopicId);
+          const flatQ = q.questionId
+            ? dbQuestionsMap.get(String(q.questionId))
+            : null;
+
+          if (!flatQ) {
+            return {
+              id: q.id,
+              questionId: q.questionId,
+              courseId: topic?.courseId || '',
+              topicId: q.topicId,
+              topicName: topic?.name || 'Desconocido',
+              subtopicId: q.subtopicId,
+              subtopicName: subtopic?.name || 'Desconocido',
+              expectedLevel: q.expectedLevel,
+              position: q.position,
+              status: q.status,
+              htmlContent: null,
+              options: [],
+            };
+          }
+
+          // Dynamically sign question images
+          const signedImages = await Promise.all(
+            (flatQ.images || []).map(async (img: any) => ({
+              id: img.id,
+              code: img.code,
+              url: await this.gcsService.getSignedUrl(img.gcs_key),
+            })),
+          );
+
+          // Dynamically sign solution images
+          let parsedSolution: any = {};
+          if (flatQ.solution) {
+            try {
+              parsedSolution = typeof flatQ.solution === 'string' ? JSON.parse(flatQ.solution) : flatQ.solution;
+              if (typeof parsedSolution !== 'object' || parsedSolution === null) {
+                parsedSolution = {};
+              }
+            } catch(e) {
+              parsedSolution = {};
+            }
+          }
+
+          const signedDiagImages = await Promise.all(
+            (parsedSolution.diagrammed_images || []).map(async (img: any) => ({
+              id: img.id,
+              code: img.code,
+              url: await this.gcsService.getSignedUrl(img.gcs_key),
+            })),
+          );
+
+          // Resolve university specific origin label
+          const textOrigin = universityId && flatQ.origins ? flatQ.origins[universityId] : null;
+
+          return {
+            id: q.id,
+            questionId: q.questionId,
+            courseId: topic?.courseId || '',
+            topicId: q.topicId,
+            topicName: topic?.name || 'Desconocido',
+            subtopicId: q.subtopicId,
+            subtopicName: subtopic?.name || 'Desconocido',
+            expectedLevel: q.expectedLevel,
+            position: q.position,
+            status: q.status,
+            code: flatQ.code,
+            levelId: flatQ.level_id,
+            levelName: flatQ.level_name,
+            type: flatQ.type,
+            htmlContent: flatQ.html_content,
+            configAlternative: flatQ.config_alternative,
+            options: (flatQ.alternatives || []).map((alt: any) => ({
+              label: alt.label,
+              text: alt.text,
+              isCorrect: alt.is_correct,
+            })),
+            images: signedImages,
+            mathFormulas: flatQ.math_formulas || [],
+            alternativeMaths: flatQ.alternative_maths || [],
+            solution: {
+              diagrammed: parsedSolution.diagrammed || [],
+              diagrammedImages: signedDiagImages,
+              didiMaths: parsedSolution.didi_maths || [],
+            },
+            textOrigin: textOrigin || null,
+          };
+        }),
+      );
+
       const template = await manager.findOne(CycleMaterialTemplate, {
         where: { id: request.profileId },
       });
@@ -320,6 +435,31 @@ export class MaterialsService {
 
       if (hasEmpty && !dto.continueWithWarnings) {
         throw new BadRequestException('Existen slots vacíos no resueltos');
+      }
+
+      const alreadyGenerated = request.courses.some(c => c.downloadUrl != null);
+      const noChanges = dto.replacements.length === 0 && dto.removals.length === 0;
+
+      if (alreadyGenerated && noChanges) {
+        const finalStatus = hasEmpty ? MaterialRequestStatus.COMPLETED_WITH_WARNINGS : MaterialRequestStatus.COMPLETED;
+        request.status = finalStatus;
+        request.version += 1;
+        await manager.save(request);
+
+        if (request.materialId) {
+          await manager.update(Material, request.materialId, { status: finalStatus });
+        }
+        
+        for (const courseReq of request.courses) {
+          const courseStatus = courseReq.warnings ? CourseMaterialStatus.COMPLETED_WITH_WARNINGS : CourseMaterialStatus.COMPLETED;
+          await manager.update(MaterialRequestCourse, courseReq.id, { status: courseStatus });
+        }
+
+        this.logger.log(`Curation approved for MaterialRequest ${id} without changes. Bypassing regeneration.`);
+        return {
+          status: finalStatus,
+          message: 'Revisión aprobada sin cambios. El documento existente se mantiene.',
+        };
       }
 
       // 3. Update parent request status
@@ -610,5 +750,143 @@ export class MaterialsService {
         order: { createdAt: 'DESC' },
       });
     });
+  }
+
+  async getQuestionPreview(questionId: string): Promise<any> {
+    const dbQuestionId = Number(questionId);
+    if (isNaN(dbQuestionId)) {
+      throw new BadRequestException('ID de pregunta inválido');
+    }
+
+    let flatQ: any = null;
+    const flatQuestions = await this.questionsEntityManager.query(
+      `SELECT * FROM odiseo.flat_questions WHERE question_id = $1`,
+      [dbQuestionId],
+    );
+
+    if (flatQuestions.length > 0) {
+      flatQ = flatQuestions[0];
+    } else {
+      const fallbackDbQuestions = await this.questionsEntityManager.query(
+        `SELECT q.id as question_id, q.code, q.level_id, l.name as level_name, q.type, q.description as html_content,
+           (SELECT json_agg(json_build_object('id', a.id, 'description', a.description, 'is_correct', a.id = q.answer_id)) 
+            FROM odiseo.alternative a WHERE a.question_id = q.id AND a.fl_status = true) as alternatives,
+           (SELECT json_agg(json_build_object('id', qi.id, 'code', qi.code, 'gcs_key', qi.image)) 
+            FROM odiseo.question_image qi WHERE qi.question_id = q.id AND qi.fl_status = true) as images
+         FROM odiseo.question q
+         LEFT JOIN odiseo.level l ON q.level_id = l.id
+         WHERE q.id = $1 AND q.fl_status = true`,
+        [dbQuestionId],
+      );
+
+      if (fallbackDbQuestions.length === 0) {
+        throw new NotFoundException('Pregunta no encontrada');
+      }
+
+      const fq = fallbackDbQuestions[0];
+      const alts = fq.alternatives || [];
+      flatQ = {
+        question_id: fq.question_id,
+        code: fq.code,
+        level_id: fq.level_id,
+        level_name: fq.level_name,
+        type: fq.type,
+        html_content: fq.html_content,
+        alternatives: alts.map((alt: any, idx: number) => ({
+          id: alt.id,
+          label: String.fromCharCode(65 + idx),
+          text: alt.description,
+          is_correct: alt.is_correct
+        })),
+        images: fq.images || [],
+        solution: null
+      };
+    }
+    return this.mapFlatQuestion(flatQ);
+  }
+
+  async getQuestionAlternatives(
+    topicId: string,
+    subtopicId: string,
+    levelIdOrExpectedLevel?: string,
+    limit: number = 3,
+  ): Promise<any[]> {
+    let query = `SELECT * FROM odiseo.flat_questions WHERE topic_id = $1 AND subtopic_id = $2`;
+    const params: any[] = [topicId, subtopicId];
+    
+    if (levelIdOrExpectedLevel) {
+      if (levelIdOrExpectedLevel === 'EASY') {
+        query += ` AND level_id IN (43, 44)`;
+      } else if (levelIdOrExpectedLevel === 'MEDIUM') {
+        query += ` AND level_id = 45`;
+      } else if (levelIdOrExpectedLevel === 'HARD') {
+        query += ` AND level_id IN (46, 47, 48, 49, 50, 51, 52)`;
+      } else {
+        query += ` AND level_id = $3`;
+        params.push(Number(levelIdOrExpectedLevel));
+      }
+    }
+    
+    query += ` ORDER BY RANDOM() LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const flatQuestions = await this.questionsEntityManager.query(query, params);
+
+    return await Promise.all(
+      flatQuestions.map((flatQ: any) => this.mapFlatQuestion(flatQ))
+    );
+  }
+
+  private async mapFlatQuestion(flatQ: any): Promise<any> {
+    const signedImages = await Promise.all(
+      (flatQ.images || []).map(async (img: any) => ({
+        id: img.id,
+        code: img.code,
+        url: await this.gcsService.getSignedUrl(img.gcs_key),
+      })),
+    );
+
+    let parsedSolution: any = {};
+    if (flatQ.solution) {
+      try {
+        parsedSolution = typeof flatQ.solution === 'string' ? JSON.parse(flatQ.solution) : flatQ.solution;
+        if (typeof parsedSolution !== 'object' || parsedSolution === null) {
+          parsedSolution = {};
+        }
+      } catch(e) {
+        parsedSolution = {};
+      }
+    }
+
+    const signedDiagImages = await Promise.all(
+      (parsedSolution.diagrammed_images || []).map(async (img: any) => ({
+        id: img.id,
+        code: img.code,
+        url: await this.gcsService.getSignedUrl(img.gcs_key),
+      })),
+    );
+
+    return {
+      questionId: String(flatQ.question_id),
+      code: flatQ.code,
+      levelId: flatQ.level_id,
+      levelName: flatQ.level_name || 'Desconocido',
+      type: flatQ.type,
+      htmlContent: flatQ.html_content,
+      configAlternative: flatQ.config_alternative,
+      options: (flatQ.alternatives || []).map((alt: any) => ({
+        label: alt.label,
+        text: alt.text,
+        isCorrect: alt.is_correct,
+      })),
+      images: signedImages,
+      mathFormulas: flatQ.math_formulas || [],
+      alternativeMaths: flatQ.alternative_maths || [],
+      solution: {
+        diagrammed: parsedSolution.diagrammed || [],
+        diagrammedImages: signedDiagImages,
+        didiMaths: parsedSolution.didi_maths || [],
+      },
+    };
   }
 }

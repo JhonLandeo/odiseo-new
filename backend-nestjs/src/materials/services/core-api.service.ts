@@ -1,19 +1,52 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QuestionBankService } from '../../question-bank/question-bank.service';
+import { InjectEntityManager } from '@nestjs/typeorm';
+import { EntityManager } from 'typeorm';
+import { GcsService } from '../../gcs/gcs.service';
+import { Cycle } from '../../academic-time/entities/cycle.entity';
 
 export interface ExtractedQuestion {
   id: string;
   topicId: string;
   subtopicId: string;
+  code?: string;
   content: string;
-  options: string[];
+  options: {
+    label: string;
+    text: string;
+    isCorrect: boolean;
+  }[];
+  levelId?: number;
+  levelName?: string;
+  type?: string;
+  configAlternative?: {
+    columns: number;
+    styles: string;
+    flImage: boolean;
+  };
+  images?: { id: string; url: string }[];
+  mathFormulas?: { id: string; code: string; path: string; properties: any }[];
+  alternativeMaths?: { id: string; code: string; path: string; properties: any }[];
+  solution?: {
+    diagrammed: { id: string; value: string; position: number; field_diagram: string }[];
+    diagrammedImages: { id: string; url: string }[];
+    didiMaths: { id: string; code: string; path: string; properties: any }[];
+  };
+  textOrigin?: string;
 }
 
 @Injectable()
 export class CoreApiService {
   private readonly logger = new Logger(CoreApiService.name);
 
-  constructor(private readonly questionBankService: QuestionBankService) {}
+  constructor(
+    private readonly questionBankService: QuestionBankService,
+    @InjectEntityManager('questionsConnection')
+    private readonly questionsEntityManager: EntityManager,
+    private readonly gcsService: GcsService,
+    @InjectEntityManager()
+    private readonly defaultEntityManager: EntityManager,
+  ) {}
 
   async fetchQuestions(
     topicId: string,
@@ -39,12 +72,69 @@ export class CoreApiService {
       (q) => !excludeIds.includes(q.id),
     );
 
-    return filteredQuestions.map((q) => ({
-      id: q.id,
-      topicId: q.topicId || topicId,
-      subtopicId: q.subtopicId || subtopicId,
-      content: q.htmlContent,
-      options: q.options.map((opt) => `${opt.label}) ${opt.text}`),
-    }));
+    if (filteredQuestions.length === 0) return [];
+
+    const questionIds = filteredQuestions.map((q) => q.id);
+    const flatQuestions = await this.questionsEntityManager.query(
+      `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
+      [questionIds.map((id) => BigInt(id))],
+    );
+
+    const cycle = cycleId
+      ? await this.defaultEntityManager.findOne(Cycle, { where: { id: cycleId } })
+      : null;
+    const universityId = cycle?.universityId;
+
+    const results: ExtractedQuestion[] = [];
+    const flatQuestionMap = new Map<string, any>(
+      flatQuestions.map((q: any) => [String(q.question_id), q]),
+    );
+
+    for (const q of filteredQuestions) {
+      const flatQ: any = flatQuestionMap.get(String(q.id));
+      if (!flatQ) continue;
+
+      const signedImages = await Promise.all(
+        (flatQ.images || []).map(async (img: any) => ({
+          id: img.id,
+          url: await this.gcsService.getSignedUrl(img.gcs_key),
+        })),
+      );
+
+      const signedDiagImages = await Promise.all(
+        (flatQ.solution?.diagrammed_images || []).map(async (img: any) => ({
+          id: img.id,
+          url: await this.gcsService.getSignedUrl(img.gcs_key),
+        })),
+      );
+
+      const textOrigin =
+        universityId && flatQ.origins ? flatQ.origins[universityId] : null;
+
+      results.push({
+        id: String(flatQ.question_id),
+        topicId: q.topicId || topicId,
+        subtopicId: q.subtopicId || subtopicId,
+        code: flatQ.code,
+        content: flatQ.html_content,
+        options: (flatQ.alternatives || []).map((alt: any) => ({
+          label: alt.label,
+          text: alt.text,
+          isCorrect: alt.is_correct,
+        })),
+        configAlternative: flatQ.config_alternative,
+        images: signedImages,
+        mathFormulas: flatQ.math_formulas || [],
+        alternativeMaths: flatQ.alternative_maths || [],
+        solution: {
+          diagrammed: flatQ.solution?.diagrammed || [],
+          diagrammedImages: signedDiagImages,
+          didiMaths: flatQ.solution?.didi_maths || [],
+        },
+        textOrigin: textOrigin || 'Desconocido',
+      });
+    }
+
+    return results;
   }
 }

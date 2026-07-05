@@ -18,3 +18,4 @@ coverage/
 *.tsbuildinfo
 frontend-vue/.nuxt/
 frontend-vue/.output/
+google-cloud-credentials.json

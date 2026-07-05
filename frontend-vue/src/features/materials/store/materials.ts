@@ -17,12 +17,22 @@ export interface ReviewQuestion {
   id: string;
   questionId: string | null;
   courseId: string;
+  topicId: string;
   topicName: string;
+  subtopicId: string;
   subtopicName: string;
   position: number;
+  expectedLevel?: string;
   status: 'FOUND' | 'EMPTY' | 'REPLACED' | 'REMOVED';
   htmlContent?: string | null;
   options?: ReviewQuestionOption[];
+  code?: string;
+  levelName?: string;
+  type?: string;
+  textOrigin?: string;
+  images?: any[];
+  solution?: any;
+  configAlternative?: number;
 }
 
 export interface ReviewData {
@@ -212,6 +222,54 @@ export const useMaterialsStore = defineStore('materials', () => {
     }
   }
 
+  async function fetchQuestionPreview(questionId: string) {
+    isLoading.value = true
+    error.value = null
+    try {
+      const authStore = useAuthStore()
+      const subdomain = authStore.getSubdomain()
+      // @ts-ignore
+      const res = await $fetch(`/api/v1/materials/question/${questionId}/preview`, {
+        method: 'GET',
+        headers: { 'x-subdomain': subdomain },
+      })
+      return res as any
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error al cargar la vista previa de la pregunta'
+      throw e
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  async function fetchQuestionAlternatives(topicId: string, subtopicId: string, levelId: string, limit: number = 3) {
+    isLoading.value = true
+    error.value = null
+    try {
+      const authStore = useAuthStore()
+      const subdomain = authStore.getSubdomain()
+      
+      const queryParams = new URLSearchParams({
+        topicId,
+        subtopicId,
+        levelId,
+        limit: limit.toString(),
+      });
+
+      // @ts-ignore
+      const res = await $fetch(`/api/v1/materials/question/alternatives/search?${queryParams.toString()}`, {
+        method: 'GET',
+        headers: { 'x-subdomain': subdomain },
+      })
+      return res as any[]
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error al cargar alternativas'
+      throw e
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     isLoading,
     error,
@@ -222,6 +280,8 @@ export const useMaterialsStore = defineStore('materials', () => {
     fetchDownloadUrl,
     fetchMergedDownloadUrl,
     fetchHistory,
-    fetchAttempts
+    fetchAttempts,
+    fetchQuestionPreview,
+    fetchQuestionAlternatives
   }
 })

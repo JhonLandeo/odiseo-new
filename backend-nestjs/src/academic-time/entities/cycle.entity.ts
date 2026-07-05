@@ -35,6 +35,9 @@ export class Cycle {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ name: 'university_id', type: 'uuid', nullable: true })
+  universityId: string | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 

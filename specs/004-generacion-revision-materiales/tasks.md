@@ -122,10 +122,10 @@ description: "Task list for Generación y Revisión de Materiales PDF"
 
 ### Implementation for User Story 5
 
-- [ ] T029 [US5] Crear webhook en NestJS para recibir confirmación de completitud del Processor e insertar registros en `material_question_usage`
-- [ ] T030 [P] [US5] Implementar endpoint `GET /api/v1/materials` con filtros para historial
+- [ ] T029 [US5] (PENDING EVALUATION) Crear webhook en NestJS para recibir confirmación de completitud del Processor e insertar registros en `material_question_usage`
+- [ ] T030 [US5] (CANCELLED) Implementar endpoint `GET /api/v1/materials` con filtros para historial
 - [ ] T031 [P] [US5] Implementar endpoint `GET /api/v1/materials/:courseId/download` para regenerar URL S3
-- [ ] T032 [P] [US5] Crear vista `history.vue` en `frontend-vue/src/pages/materials/`
+- [ ] T032 [US5] (CANCELLED) Crear vista `history.vue` en `frontend-vue/src/pages/materials/`
 - [ ] T033 [P] [US5] Integrar despliegue de advertencias (Warnings) en la UI del historial
 
 ---
