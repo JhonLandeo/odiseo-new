@@ -220,16 +220,19 @@ export class MaterialsController {
     description: 'Lista de 3 preguntas alternativas.',
   })
   async getQuestionAlternatives(
-    @Query('topicId') topicId: string,
-    @Query('subtopicId') subtopicId: string,
+    @Query('topicId') topicId?: string,
+    @Query('subtopicId') subtopicId?: string,
     @Query('levelId') levelId?: string,
     @Query('limit') limit?: number,
+    @Query('excludeIds') excludeIds?: string,
   ) {
+    const parsedExclude = excludeIds ? excludeIds.split(',') : [];
     return await this.materialsService.getQuestionAlternatives(
       topicId,
       subtopicId,
       levelId,
       limit ? Number(limit) : 3,
+      parsedExclude,
     );
   }
 }

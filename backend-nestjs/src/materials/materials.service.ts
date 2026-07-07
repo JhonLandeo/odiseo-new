@@ -366,6 +366,50 @@ export class MaterialsService {
 
       const template = await manager.findOne(CycleMaterialTemplate, {
         where: { id: request.profileId },
+        relations: ['courses'],
+      });
+
+      const allowedSyllabusUnits: any[] = [];
+      const courseIds = [...new Set(questionsResponse.map((q) => q.courseId).filter(Boolean))];
+      if (template) {
+        for (const courseId of courseIds) {
+          const syllabus = await manager.findOne(Syllabus, {
+            where: { courseId, cycleId: request.cycleId, isActive: true },
+          });
+          if (!syllabus) {
+            continue;
+          }
+
+          const distributions = await manager.find(SyllabusDistribution, {
+            where: { syllabusId: syllabus.id, weekNumber: request.weekNumber },
+          });
+
+          for (const dist of distributions) {
+            const topic = topicMap.get(dist.topicId);
+            const subtopic = subtopicMap.get(dist.subtopicId);
+            allowedSyllabusUnits.push({
+              courseId,
+              topicId: dist.topicId,
+              topicName: topic?.name || 'Desconocido',
+              subtopicId: dist.subtopicId,
+              subtopicName: subtopic?.name || 'Desconocido',
+            });
+          }
+        }
+      }
+
+      const difficultyLimits = courseIds.map((courseId) => {
+        const tc = template?.courses?.find((c) => c.courseId === courseId);
+        const targetQuantity = tc?.questionsQuantity || 35;
+        const easy = tc?.easyCount !== undefined && tc?.easyCount !== null ? tc.easyCount : Math.floor(targetQuantity * 0.4);
+        const medium = tc?.mediumCount !== undefined && tc?.mediumCount !== null ? tc.mediumCount : Math.floor(targetQuantity * 0.4);
+        const hard = tc?.hardCount !== undefined && tc?.hardCount !== null ? tc.hardCount : (targetQuantity - easy - medium);
+        return {
+          courseId,
+          easy,
+          medium,
+          hard,
+        };
       });
 
       return {
@@ -376,6 +420,8 @@ export class MaterialsService {
         cycleName: cycle?.name || 'Desconocido',
         templateName: template?.name || 'Desconocido',
         questions: questionsResponse,
+        allowedSyllabusUnits,
+        difficultyLimits,
       };
     });
   }
@@ -806,36 +852,94 @@ export class MaterialsService {
   }
 
   async getQuestionAlternatives(
-    topicId: string,
-    subtopicId: string,
+    topicId?: string,
+    subtopicId?: string,
     levelIdOrExpectedLevel?: string,
     limit: number = 3,
+    excludeIds: string[] = [],
   ): Promise<any[]> {
-    let query = `SELECT * FROM odiseo.flat_questions WHERE topic_id = $1 AND subtopic_id = $2`;
-    const params: any[] = [topicId, subtopicId];
-    
-    if (levelIdOrExpectedLevel) {
-      if (levelIdOrExpectedLevel === 'EASY') {
-        query += ` AND level_id IN (43, 44)`;
-      } else if (levelIdOrExpectedLevel === 'MEDIUM') {
-        query += ` AND level_id = 45`;
-      } else if (levelIdOrExpectedLevel === 'HARD') {
-        query += ` AND level_id IN (46, 47, 48, 49, 50, 51, 52)`;
-      } else {
-        query += ` AND level_id = $3`;
-        params.push(Number(levelIdOrExpectedLevel));
-      }
-    }
-    
-    query += ` ORDER BY RANDOM() LIMIT $${params.length + 1}`;
-    params.push(limit);
+    const buildQuery = (levelFilter: string | null, excludedQuestionIds: string[]) => {
+      let sql = `
+        SELECT fq.* 
+        FROM odiseo.flat_questions fq
+        INNER JOIN odiseo.question_subtopic qs ON fq.question_id = qs.question_id
+        INNER JOIN odiseo.subtopic s ON qs.subtopic_id = s.id
+        WHERE qs.fl_status = true
+      `;
+      const queryParams: any[] = [];
 
-    const flatQuestions = await this.questionsEntityManager.query(query, params);
+      if (subtopicId) {
+        const subtopicIds = subtopicId.split(',').filter(Boolean);
+        if (subtopicIds.length > 0) {
+          const numericSubtopicIds = subtopicIds.map(convertUuidToIntegerId);
+          sql += ` AND s.id IN (${numericSubtopicIds.map((_, i) => `$${queryParams.length + 1 + i}`).join(', ')})`;
+          queryParams.push(...numericSubtopicIds);
+        }
+      } else if (topicId) {
+        const topicIds = topicId.split(',').filter(Boolean);
+        if (topicIds.length > 0) {
+          const numericTopicIds = topicIds.map(convertUuidToIntegerId);
+          sql += ` AND s.topic_id IN (${numericTopicIds.map((_, i) => `$${queryParams.length + 1 + i}`).join(', ')})`;
+          queryParams.push(...numericTopicIds);
+        }
+      }
+
+      if (levelFilter) {
+        const upperDiff = String(levelFilter).toUpperCase();
+        if (upperDiff === 'EASY' || upperDiff === 'FACIL') {
+          sql += ` AND fq.level_id IN (43, 44)`;
+        } else if (upperDiff === 'MEDIUM' || upperDiff === 'INTERMEDIO') {
+          sql += ` AND fq.level_id = 45`;
+        } else if (upperDiff === 'HARD' || upperDiff === 'DIFICIL') {
+          sql += ` AND fq.level_id IN (46, 47, 48, 49, 50, 51, 52)`;
+        } else {
+          sql += ` AND fq.level_id = $${queryParams.length + 1}`;
+          queryParams.push(Number(levelFilter));
+        }
+      }
+
+      if (excludedQuestionIds.length > 0) {
+        const numericExcludeIds = excludedQuestionIds
+          .map(id => {
+            const num = Number(id);
+            return isNaN(num) ? convertUuidToIntegerId(id) : num;
+          })
+          .filter(id => !isNaN(id));
+        if (numericExcludeIds.length > 0) {
+          sql += ` AND fq.question_id NOT IN (${numericExcludeIds.map((_, i) => `$${queryParams.length + 1 + i}`).join(', ')})`;
+          queryParams.push(...numericExcludeIds);
+        }
+      }
+
+      sql += ` ORDER BY RANDOM() LIMIT $${queryParams.length + 1}`;
+      queryParams.push(limit);
+
+      return { sql, queryParams };
+    };
+
+    // 1. Try to fetch with the requested level filter first
+    const primarySearch = buildQuery(levelIdOrExpectedLevel || null, excludeIds);
+    let flatQuestions = await this.questionsEntityManager.query(primarySearch.sql, primarySearch.queryParams);
+
+    // 2. If we don't have enough results and a level filter was specified, fetch fallback questions from the same subtopic (any difficulty)
+    if (flatQuestions.length < limit && levelIdOrExpectedLevel) {
+      const remainingLimit = limit - flatQuestions.length;
+      const alreadyFoundIds = flatQuestions.map((q: any) => String(q.question_id));
+      const combinedExcludeIds = [...excludeIds, ...alreadyFoundIds];
+      
+      const fallbackSearch = buildQuery(null, combinedExcludeIds);
+      // Adjust limit in parameters
+      fallbackSearch.queryParams[fallbackSearch.queryParams.length - 1] = remainingLimit;
+
+      const fallbackQuestions = await this.questionsEntityManager.query(fallbackSearch.sql, fallbackSearch.queryParams);
+      flatQuestions = [...flatQuestions, ...fallbackQuestions];
+    }
 
     return await Promise.all(
       flatQuestions.map((flatQ: any) => this.mapFlatQuestion(flatQ))
     );
   }
+
 
   private async mapFlatQuestion(flatQ: any): Promise<any> {
     const signedImages = await Promise.all(

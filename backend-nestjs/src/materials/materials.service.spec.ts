@@ -33,6 +33,7 @@ describe('MaterialsService', () => {
       create: jest.fn((entityClass, data) => data),
       save: jest.fn((entityClass, data) => Promise.resolve(data)),
       update: jest.fn(),
+      query: jest.fn().mockResolvedValue([{ topic_id: 't-1', subtopic_id: 's-1' }]),
     };
 
     materialsQueue = {
@@ -179,6 +180,15 @@ describe('MaterialsService', () => {
           return Promise.resolve(mockRequest);
         if (options.where && options.where.courseId === 'course-1')
           return Promise.resolve(mockSyllabus);
+        if (entityClass.name === 'MaterialReviewQuestion' || (options.where && options.where.id === 'q-1')) {
+          return Promise.resolve({
+            id: 'q-1',
+            materialRequestId: 'req-id',
+            topicId: 't-1',
+            subtopicId: 's-1',
+            status: ReviewQuestionStatus.FOUND,
+          });
+        }
         return Promise.resolve(null);
       });
 
@@ -193,7 +203,7 @@ describe('MaterialsService', () => {
       const result = await service.approveCuration('req-id', {
         version: 1,
         continueWithWarnings: false,
-        replacements: [{ reviewQuestionId: 'q-1', questionId: 'new-q-1' }],
+        replacements: [{ reviewQuestionId: 'q-1', questionId: '999' }],
         removals: [],
       }, 'test-user');
 

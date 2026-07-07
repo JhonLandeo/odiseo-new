@@ -35,6 +35,21 @@ export interface ReviewQuestion {
   configAlternative?: number;
 }
 
+export interface AllowedSyllabusUnit {
+  courseId: string;
+  topicId: string;
+  topicName: string;
+  subtopicId: string;
+  subtopicName: string;
+}
+
+export interface DifficultyLimit {
+  courseId: string;
+  easy: number;
+  medium: number;
+  hard: number;
+}
+
 export interface ReviewData {
   materialId: string;
   status: string;
@@ -43,6 +58,8 @@ export interface ReviewData {
   cycleName: string;
   templateName: string;
   questions: ReviewQuestion[];
+  allowedSyllabusUnits?: AllowedSyllabusUnit[];
+  difficultyLimits?: DifficultyLimit[];
 }
 
 export const useMaterialsStore = defineStore('materials', () => {
@@ -242,7 +259,7 @@ export const useMaterialsStore = defineStore('materials', () => {
     }
   }
 
-  async function fetchQuestionAlternatives(topicId: string, subtopicId: string, levelId: string, limit: number = 3) {
+  async function fetchQuestionAlternatives(topicId: string, subtopicId: string, levelId: string, limit: number = 3, excludeIds: string[] = []) {
     isLoading.value = true
     error.value = null
     try {
@@ -255,6 +272,10 @@ export const useMaterialsStore = defineStore('materials', () => {
         levelId,
         limit: limit.toString(),
       });
+
+      if (excludeIds.length > 0) {
+        queryParams.append('excludeIds', excludeIds.join(','));
+      }
 
       // @ts-ignore
       const res = await $fetch(`/api/v1/materials/question/alternatives/search?${queryParams.toString()}`, {
