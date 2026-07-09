@@ -259,28 +259,28 @@ export const useMaterialsStore = defineStore('materials', () => {
     }
   }
 
-  async function fetchQuestionAlternatives(topicId: string, subtopicId: string, levelId: string, limit: number = 3, excludeIds: string[] = []) {
+  async function fetchQuestionAlternatives(courseId: string, topicId: string, subtopicId: string, levelId: string, limit: number = 3, excludeIds: string[] = []) {
     isLoading.value = true
     error.value = null
     try {
       const authStore = useAuthStore()
       const subdomain = authStore.getSubdomain()
       
-      const queryParams = new URLSearchParams({
-        topicId,
-        subtopicId,
-        levelId,
-        limit: limit.toString(),
-      });
-
-      if (excludeIds.length > 0) {
-        queryParams.append('excludeIds', excludeIds.join(','));
-      }
+      const payload: Record<string, any> = {
+        limit: limit,
+      };
+      
+      if (courseId) payload.courseId = courseId;
+      if (topicId) payload.topicId = topicId;
+      if (subtopicId) payload.subtopicId = subtopicId;
+      if (levelId) payload.levelId = levelId;
+      if (excludeIds && excludeIds.length > 0) payload.excludeIds = excludeIds;
 
       // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/question/alternatives/search?${queryParams.toString()}`, {
-        method: 'GET',
+      const res = await $fetch(`/api/v1/materials/question/alternatives/search`, {
+        method: 'POST',
         headers: { 'x-subdomain': subdomain },
+        body: payload
       })
       return res as any[]
     } catch (e: any) {

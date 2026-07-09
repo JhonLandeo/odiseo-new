@@ -852,6 +852,7 @@ export class MaterialsService {
   }
 
   async getQuestionAlternatives(
+    courseId?: string,
     topicId?: string,
     subtopicId?: string,
     levelIdOrExpectedLevel?: string,
@@ -864,6 +865,7 @@ export class MaterialsService {
         FROM odiseo.flat_questions fq
         INNER JOIN odiseo.question_subtopic qs ON fq.question_id = qs.question_id
         INNER JOIN odiseo.subtopic s ON qs.subtopic_id = s.id
+        ${courseId ? 'INNER JOIN odiseo.topic t ON s.topic_id = t.id' : ''}
         WHERE qs.fl_status = true
       `;
       const queryParams: any[] = [];
@@ -881,6 +883,13 @@ export class MaterialsService {
           const numericTopicIds = topicIds.map(convertUuidToIntegerId);
           sql += ` AND s.topic_id IN (${numericTopicIds.map((_, i) => `$${queryParams.length + 1 + i}`).join(', ')})`;
           queryParams.push(...numericTopicIds);
+        }
+      } else if (courseId) {
+        const courseIds = courseId.split(',').filter(Boolean);
+        if (courseIds.length > 0) {
+          const numericCourseIds = courseIds.map(convertUuidToIntegerId);
+          sql += ` AND t.course_id IN (${numericCourseIds.map((_, i) => `$${queryParams.length + 1 + i}`).join(', ')})`;
+          queryParams.push(...numericCourseIds);
         }
       }
 

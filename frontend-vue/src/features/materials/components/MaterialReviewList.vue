@@ -16,8 +16,8 @@ const catalogsStore = useCatalogsStore();
 const continueWithWarnings = ref(false);
 const localReplacements = ref<Record<string, string>>({}); // reviewQuestionId -> newQuestionId
 const localRemovals = ref<Set<string>>(new Set()); // set of reviewQuestionId
-import MaterialQuestionSearchModal from './MaterialQuestionSearchModal.vue';
-import MaterialQuestionPreviewModal from './MaterialQuestionPreviewModal.vue';
+import MaterialQuestionSearchView from './MaterialQuestionSearchView.vue';
+import MaterialQuestionPreviewView from './MaterialQuestionPreviewView.vue';
 
 const expandedSolutions = ref<Set<string>>(new Set());
 const toggleSolution = (id: string) => {
@@ -28,7 +28,7 @@ const toggleSolution = (id: string) => {
   }
 };
 
-const isSearchModalOpen = ref(false);
+const activeView = ref<'list' | 'search' | 'preview'>('list');
 const activeSearchQuestion = ref<any>(null);
 
 const expandedCards = ref<Set<string>>(new Set());
@@ -46,16 +46,15 @@ const toggleCard = (id: string) => {
   }
 };
 
-const isPreviewModalOpen = ref(false);
 const activePreviewQuestion = ref<any>(null);
 const openPreview = (q: any) => {
   activePreviewQuestion.value = q;
-  isPreviewModalOpen.value = true;
+  activeView.value = 'preview';
 };
 
 const openSearch = (q: any) => {
   activeSearchQuestion.value = q;
-  isSearchModalOpen.value = true;
+  activeView.value = 'search';
 };
 
 const handleQuestionSelected = (newQuestionId: string) => {
@@ -63,8 +62,14 @@ const handleQuestionSelected = (newQuestionId: string) => {
     localReplacements.value[activeSearchQuestion.value.id] = newQuestionId;
     localRemovals.value.delete(activeSearchQuestion.value.id);
   }
-  isSearchModalOpen.value = false;
+  activeView.value = 'list';
   activeSearchQuestion.value = null;
+};
+
+const closeSubView = () => {
+  activeView.value = 'list';
+  activeSearchQuestion.value = null;
+  activePreviewQuestion.value = null;
 };
 
 const activeTab = ref<'all' | 'empty' | 'replaced' | 'removed'>('all');
@@ -261,7 +266,10 @@ const handleApprove = async () => {
 </script>
 
 <template>
-  <div v-if="store.isLoading && !reviewData" class="space-y-4 pt-4">
+  <div class="relative w-full h-full flex flex-col min-h-[60vh]">
+    <Transition name="slide-fade" mode="out-in">
+      <div v-if="activeView === 'list'" key="list" class="w-full flex-1 flex flex-col">
+        <div v-if="store.isLoading && !reviewData" class="space-y-4 pt-4">
     <div class="bg-white dark:bg-[#2b2b3f] p-5 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm">
       <div class="flex justify-between items-center">
         <USkeleton class="h-8 w-64 rounded-xl" />
@@ -316,12 +324,12 @@ const handleApprove = async () => {
           <UInput v-model="searchQuery" icon="i-heroicons-magnifying-glass" placeholder="Buscar tema, reactivo..."
             class="w-full sm:w-64" size="md">
             <template #trailing>
-              <UButton v-show="searchQuery !== ''" color="neutral" variant="link" icon="i-heroicons-x-mark-20-solid"
+              <UButton v-if="searchQuery !== ''" color="neutral" variant="link" icon="i-heroicons-x-mark-20-solid"
                 :padded="false" @click="searchQuery = ''" />
             </template>
           </UInput>
           <USelectMenu v-model="selectedCourseId" :items="courseFilterOptions" value-key="id" label-key="name"
-            class="w-full sm:w-56" size="md" :ui="{ content: 'z-[9999]' }">
+            class="w-full sm:w-56" size="md" :ui="{ content: 'z-popover' }">
             <template #default>
               {{courseFilterOptions.find(c => c.id === selectedCourseId)?.name || 'Todos los cursos'}}
             </template>
@@ -458,10 +466,10 @@ const handleApprove = async () => {
                   Previa PDF
                 </UButton>
                 <UButton v-if="q.status !== 'REMOVED'" color="neutral" variant="soft" size="xs"
-                  icon="i-heroicons-magnifying-glass-circle"
+                  icon="i-heroicons-plus-circle"
                   class="font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
                   @click="openSearch(q)">
-                  {{ q.status === 'EMPTY' ? 'Agregar Pregunta' : 'Reemplazar' }}
+                  Agregar Pregunta
                 </UButton>
                 <UButton v-if="q.status !== 'REMOVED'" color="error" variant="ghost" size="xs" icon="i-heroicons-trash"
                   class="font-bold" @click="handleRemove(q.id)">
@@ -607,20 +615,41 @@ const handleApprove = async () => {
         </UButton>
       </div>
     </div>
+  </div>
+  </div>
+
+  <!-- Search View -->
+  <div v-else-if="activeView === 'search'" key="search" class="w-full h-full absolute inset-0 bg-slate-50 dark:bg-[#15151e] z-10 flex flex-col">
+    <MaterialQuestionSearchView
+      :original-question="activeSearchQuestion"
+      :all-questions="questions"
+      @selected="handleQuestionSelected"
+      @cancel="closeSubView"
+    />
+  </div>
+
+  <!-- Preview View -->
+  <div v-else-if="activeView === 'preview'" key="preview" class="w-full h-full absolute inset-0 bg-slate-50 dark:bg-[#15151e] z-10 flex flex-col">
+    <MaterialQuestionPreviewView
+      :question="activePreviewQuestion"
+      @cancel="closeSubView"
+    />
+  </div>
+  </Transition>
 
     <!-- Confirm Remove Modal -->
     <Teleport to="body">
       <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
         enter-to-class="opacity-100" leave-active-class="transition-opacity duration-150"
         leave-from-class="opacity-100" leave-to-class="opacity-0">
-        <div v-if="isRemoveModalOpen" class="fixed inset-0 bg-slate-900/40 dark:bg-black/40 backdrop-blur-sm z-[10005]" @click="cancelRemove" />
+        <div v-if="isRemoveModalOpen" class="fixed inset-0 bg-slate-900/40 dark:bg-black/40 backdrop-blur-sm z-[1060]" @click="cancelRemove" />
       </Transition>
 
       <Transition enter-active-class="transition-all duration-250 ease-out"
         enter-from-class="opacity-0 scale-95 translate-y-4" enter-to-class="opacity-100 scale-100 translate-y-0"
         leave-active-class="transition-all duration-150 ease-in" leave-from-class="opacity-100 scale-100 translate-y-0"
         leave-to-class="opacity-0 scale-95 translate-y-4">
-        <div v-if="isRemoveModalOpen" class="fixed inset-0 z-[10006] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+        <div v-if="isRemoveModalOpen" class="fixed inset-0 z-[1070] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
           <div class="bg-white dark:bg-[#1a1b2e] rounded-2xl shadow-2xl w-full max-w-md flex flex-col pointer-events-auto border border-slate-200 dark:border-slate-800">
             <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
               <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -650,23 +679,21 @@ const handleApprove = async () => {
       </Transition>
     </Teleport>
 
-    <!-- Question Search Modal -->
-    <MaterialQuestionSearchModal
-      v-model="isSearchModalOpen"
-      :original-question="activeSearchQuestion"
-      :all-questions="questions"
-      @selected="handleQuestionSelected"
-    />
-
-    <!-- PDF Preview Simulation Modal -->
-    <MaterialQuestionPreviewModal
-      v-model="isPreviewModalOpen"
-      :question="activePreviewQuestion"
-    />
   </div>
 </template>
 
 <style scoped>
+.slide-fade-enter-active {
+  transition: all 0.3s ease-out;
+}
+.slide-fade-leave-active {
+  transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1);
+}
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateX(20px);
+  opacity: 0;
+}
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

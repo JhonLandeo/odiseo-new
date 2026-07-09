@@ -2,16 +2,10 @@
 import { computed } from 'vue';
 
 const props = defineProps<{
-  modelValue: boolean;
   question: any | null;
 }>();
 
-const emit = defineEmits(['update:modelValue']);
-
-const isOpen = computed({
-  get: () => props.modelValue,
-  set: (val) => emit('update:modelValue', val)
-});
+const emit = defineEmits(['cancel']);
 
 const layoutClass = computed(() => {
   if (!props.question) return 'grid-cols-1';
@@ -25,30 +19,18 @@ const layoutClass = computed(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
-      enter-to-class="opacity-100" leave-active-class="transition-opacity duration-150"
-      leave-from-class="opacity-100" leave-to-class="opacity-0">
-      <div v-if="isOpen" class="fixed inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-md z-[10005]" @click="isOpen = false" />
-    </Transition>
-
-    <Transition enter-active-class="transition-all duration-250 ease-out"
-      enter-from-class="opacity-0 scale-95 translate-y-4" enter-to-class="opacity-100 scale-100 translate-y-0"
-      leave-active-class="transition-all duration-150 ease-in" leave-from-class="opacity-100 scale-100 translate-y-0"
-      leave-to-class="opacity-0 scale-95 translate-y-4">
-      <div v-if="isOpen" class="fixed inset-0 z-[10006] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
-        <div class="bg-slate-100 dark:bg-[#1a1b2e] rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col pointer-events-auto border border-slate-200 dark:border-slate-800">
+  <div class="flex flex-col h-full bg-slate-100 dark:bg-[#1a1a24] rounded-2xl overflow-hidden relative border border-slate-200 dark:border-white/5">
           
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#202136] rounded-t-2xl shrink-0">
+          <div class="flex items-center gap-4 px-6 py-4 border-b border-slate-200 dark:border-white/5 bg-white dark:bg-[#20202b] rounded-t-2xl shrink-0 z-20 shadow-sm">
+            <UButton color="neutral" variant="soft" icon="i-heroicons-arrow-left-20-solid" class="rounded-xl" @click="emit('cancel')" />
             <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <UIcon name="i-heroicons-printer" class="text-slate-500 w-5 h-5" />
               Simulador de Impresión (PDF)
             </h3>
-            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark-20-solid" class="-my-1" @click="isOpen = false" />
           </div>
 
       <!-- Simulated Paper Canvas -->
-      <div class="py-6 flex justify-center bg-slate-200 dark:bg-[#0f1019] overflow-y-auto max-h-[70vh] rounded-xl inner-shadow">
+      <div class="py-6 flex-1 flex justify-center bg-slate-200 dark:bg-[#0f1019] overflow-y-auto custom-scrollbar inner-shadow">
         <div class="bg-white text-black w-full max-w-[210mm] min-h-[297mm] shadow-xl p-10 font-serif text-[13px] leading-relaxed relative mx-4 shrink-0">
           
           <div v-if="!question" class="text-center text-slate-400 py-20">
@@ -85,13 +67,10 @@ const layoutClass = computed(() => {
         </div>
       </div>
       
-      <div class="text-center text-xs text-slate-500 py-4 font-medium shrink-0 bg-white dark:bg-[#202136] border-t border-slate-200 dark:border-slate-800 rounded-b-2xl">
+      <div class="text-center text-xs text-slate-500 py-4 font-medium shrink-0 bg-white dark:bg-[#20202b] border-t border-slate-200 dark:border-white/5 rounded-b-2xl">
         Nota: Esta es una simulación visual. Las proporciones y saltos de página reales dependerán del motor PDF final.
       </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>

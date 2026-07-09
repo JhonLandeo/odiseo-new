@@ -25,7 +25,7 @@
               value-key="id"
               label-key="name"
               placeholder="Seleccione un curso"
-              :ui="{ content: 'z-[9999]' }"
+              :ui="{ content: 'z-popover' }"
               class="w-full"
             >
               <template #default>

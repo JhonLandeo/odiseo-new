@@ -410,7 +410,7 @@ defineExpose({ isOpen, openWithContext });
                   <label class="block text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1.5">Ciclo
                     Operativo</label>
                   <USelectMenu v-model="selectedCycleId" :items="cycles" value-key="id" label-key="name"
-                    :search-input="false" :ui="{ content: 'z-[9999]' }" placeholder="Seleccionar ciclo..."
+                    :search-input="false" :ui="{ content: 'z-popover' }" placeholder="Seleccionar ciclo..."
                     class="w-full shadow-sm" size="lg">
                     <template #default>
                       {{ currentCycle ? currentCycle.name : 'Seleccionar ciclo...' }}
@@ -758,12 +758,12 @@ defineExpose({ isOpen, openWithContext });
       <!-- Curation Audit Modal — UModal estándar -->
     </Teleport>
 
-    <!-- Curation Audit Modal: teleport propio con z-[9999] para garantizar estar sobre el sidebar -->
+    <!-- Curation Audit Modal: teleport propio con z-[1050] para garantizar estar sobre el sidebar -->
     <Teleport to="body">
       <Transition enter-active-class="transition-opacity duration-200 ease-out" enter-from-class="opacity-0"
         enter-to-class="opacity-100" leave-active-class="transition-opacity duration-150 ease-in"
         leave-from-class="opacity-100" leave-to-class="opacity-0">
-        <div v-if="isReviewModalOpen" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998]"
+        <div v-if="isReviewModalOpen" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[1040]"
           @click="isReviewModalOpen = false" />
       </Transition>
       <Transition enter-active-class="transition-all duration-250 ease-out"
@@ -771,54 +771,64 @@ defineExpose({ isOpen, openWithContext });
         leave-active-class="transition-all duration-150 ease-in" leave-from-class="opacity-100 scale-100 translate-y-0"
         leave-to-class="opacity-0 scale-95 translate-y-2">
         <div v-if="isReviewModalOpen"
-          class="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+          class="fixed inset-0 z-[1050] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
           <div
-            class="bg-white dark:bg-[#1a1a24] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col border border-slate-200 dark:border-white/5 pointer-events-auto overflow-hidden">
+            class="bg-white dark:bg-[#1a1a24] rounded-2xl shadow-2xl w-full max-w-[95vw] xl:max-w-[90vw] 2xl:max-w-screen-2xl h-[85vh] max-h-[85vh] flex flex-col border border-slate-200 dark:border-white/5 pointer-events-auto overflow-hidden">
             <!-- Header -->
-            <div class="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-200 dark:border-white/10 shrink-0">
+            <div
+              class="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-200 dark:border-white/10 shrink-0">
               <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 w-full mr-6">
                 <div class="flex items-center gap-4">
-                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 border border-indigo-500/20 shadow-inner">
+                  <div
+                    class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 border border-indigo-500/20 shadow-inner">
                     <UIcon name="i-heroicons-document-magnifying-glass" class="w-6 h-6" />
                   </div>
                   <div>
-                    <h2 class="text-xl font-black tracking-tight text-slate-900 dark:text-white">Auditoría de Preguntas</h2>
-                    <p class="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Revisa y audita las preguntas seleccionadas antes de generar el documento final.
-                    </p>
-                    <div v-if="materialsStore.currentReview" class="flex flex-wrap items-center gap-3 mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <h2 class="text-xl font-black tracking-tight text-slate-900 dark:text-white">Auditoría de Preguntas
+                    </h2>
+                    <div v-if="materialsStore.currentReview"
+                      class="flex flex-wrap items-center gap-3 mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
                       <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                        <UIcon name="i-heroicons-calendar" class="w-4 h-4 text-indigo-400"/> {{ materialsStore.currentReview.cycleName }}
+                        <UIcon name="i-heroicons-calendar" class="w-4 h-4 text-indigo-400" /> {{
+                          materialsStore.currentReview.cycleName }}
                       </div>
                       <div class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></div>
                       <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                        <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-indigo-400"/> {{ materialsStore.currentReview.templateName }}
+                        <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-indigo-400" /> {{
+                          materialsStore.currentReview.templateName }}
                       </div>
                       <div class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></div>
                       <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                        <UIcon name="i-heroicons-clock" class="w-4 h-4 text-indigo-400"/> Semana {{ materialsStore.currentReview.weekNumber }}
+                        <UIcon name="i-heroicons-clock" class="w-4 h-4 text-indigo-400" /> Semana {{
+                          materialsStore.currentReview.weekNumber }}
                       </div>
                     </div>
                   </div>
                 </div>
-                
+
                 <!-- Status Badge -->
-                <div v-if="materialsStore.currentReview" class="flex items-center gap-2.5 px-4 py-2 rounded-2xl border bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm shadow-sm"
-                     :class="{
-                       'border-emerald-200/60 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400': materialsStore.currentReview.status === 'COMPLETED' || materialsStore.currentReview.status === 'IN_REVIEW',
-                       'border-amber-200/60 dark:border-amber-800/50 text-amber-700 dark:text-amber-400': materialsStore.currentReview.status === 'REVIEW_REQUIRED',
-                     }">
-                  <div class="w-2.5 h-2.5 rounded-full shadow-sm"
-                       :class="{
-                         'bg-emerald-500 animate-pulse': materialsStore.currentReview.status === 'COMPLETED' || materialsStore.currentReview.status === 'IN_REVIEW',
-                         'bg-amber-500 animate-bounce': materialsStore.currentReview.status === 'REVIEW_REQUIRED',
-                       }"></div>
+                <div v-if="materialsStore.currentReview"
+                  class="flex items-center gap-2.5 px-4 py-2 rounded-2xl border bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm shadow-sm"
+                  :class="{
+                    'border-emerald-200/60 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400': materialsStore.currentReview.status === 'COMPLETED' || materialsStore.currentReview.status === 'IN_REVIEW',
+                    'border-amber-200/60 dark:border-amber-800/50 text-amber-700 dark:text-amber-400': materialsStore.currentReview.status === 'REVIEW_REQUIRED',
+                  }">
+                  <div class="w-2.5 h-2.5 rounded-full shadow-sm" :class="{
+                    'bg-emerald-500 animate-pulse': materialsStore.currentReview.status === 'COMPLETED' || materialsStore.currentReview.status === 'IN_REVIEW',
+                    'bg-amber-500 animate-bounce': materialsStore.currentReview.status === 'REVIEW_REQUIRED',
+                  }"></div>
                   <span class="text-[11px] font-black uppercase tracking-widest">
-                    {{ materialsStore.currentReview.status === 'COMPLETED' ? 'Completado' : materialsStore.currentReview.status === 'IN_REVIEW' ? 'En Revisión' : materialsStore.currentReview.status === 'REVIEW_REQUIRED' ? 'Revisión Requerida' : materialsStore.currentReview.status }}
+                    {{ materialsStore.currentReview.status === 'COMPLETED' ? 'Completado' :
+                      materialsStore.currentReview.status === 'IN_REVIEW' ? 'En Revisión' :
+                        materialsStore.currentReview.status === 'REVIEW_REQUIRED' ? 'Revisión Requerida' :
+                    materialsStore.currentReview.status }}
                   </span>
                 </div>
               </div>
-              <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isReviewModalOpen = false" class="shrink-0" />
+              <div class="relative z-[1060]">
+                <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isReviewModalOpen = false"
+                  class="shrink-0 cursor-pointer pointer-events-auto" />
+              </div>
             </div>
             <!-- Body -->
             <div class="overflow-y-auto custom-scrollbar flex-1 px-6 pb-6">

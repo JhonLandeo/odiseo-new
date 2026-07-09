@@ -211,7 +211,8 @@ export class MaterialsController {
     return await this.materialsService.getQuestionPreview(questionId);
   }
 
-  @Get('question/alternatives/search')
+  @Post('question/alternatives/search')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener alternativas de preguntas para curaduría',
   })
@@ -220,19 +221,22 @@ export class MaterialsController {
     description: 'Lista de 3 preguntas alternativas.',
   })
   async getQuestionAlternatives(
-    @Query('topicId') topicId?: string,
-    @Query('subtopicId') subtopicId?: string,
-    @Query('levelId') levelId?: string,
-    @Query('limit') limit?: number,
-    @Query('excludeIds') excludeIds?: string,
+    @Body() body: {
+      courseId?: string;
+      topicId?: string;
+      subtopicId?: string;
+      levelId?: string;
+      limit?: number;
+      excludeIds?: string[];
+    }
   ) {
-    const parsedExclude = excludeIds ? excludeIds.split(',') : [];
     return await this.materialsService.getQuestionAlternatives(
-      topicId,
-      subtopicId,
-      levelId,
-      limit ? Number(limit) : 3,
-      parsedExclude,
+      body.courseId,
+      body.topicId,
+      body.subtopicId,
+      body.levelId,
+      body.limit ? Number(body.limit) : 3,
+      body.excludeIds || [],
     );
   }
 }

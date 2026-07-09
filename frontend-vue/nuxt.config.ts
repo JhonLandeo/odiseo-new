@@ -1,3 +1,4 @@
+// Trigger restart to load new tailwind.config.ts
 export default defineNuxtConfig({
   compatibilityDate: '2026-06-15',
   srcDir: 'src/',
