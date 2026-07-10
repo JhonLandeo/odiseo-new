@@ -72,8 +72,8 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
 
       // If weeks are provided, it means we are recalculating
       if (weeks && weeks.length > 0) {
-        // Delete old weeks (hard delete to prevent orphaned soft-deleted records piling up)
-        await manager.delete(CycleWeek, { cycle: { id } });
+        // Delete old weeks (soft delete to prevent orphaned records or breaking foreign keys)
+        await manager.softDelete(CycleWeek, { cycle: { id } });
 
         // Save new weeks
         const cycleWeeks = weeks.map((w: any) => manager.create(CycleWeek, w));

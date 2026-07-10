@@ -50,6 +50,7 @@ export class AuthController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
+      domain: process.env.COOKIE_DOMAIN || undefined, // Soporte para multi-tenant (ej. '.odiseo.com')
       path: '/',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
     });
@@ -81,6 +82,7 @@ export class AuthController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
+      domain: process.env.COOKIE_DOMAIN || undefined,
       path: '/',
     });
     return { message: 'Logged out successfully' };

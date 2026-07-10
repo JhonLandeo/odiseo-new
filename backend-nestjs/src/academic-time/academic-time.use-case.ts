@@ -1,6 +1,8 @@
 import { Injectable, Inject, ConflictException, BadRequestException } from '@nestjs/common';
 import { IAcademicTimeRepository } from './repositories/i-academic-time.repository';
 import { v4 as uuidv4 } from 'uuid';
+import { CreateCycleMaterialTemplateDto, CreateTemplateCourseDto } from './dtos/create-material-template.dto';
+import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
 
 @Injectable()
 export class AcademicTimeUseCase {
@@ -40,13 +42,9 @@ export class AcademicTimeUseCase {
     };
 
     for (let i = 1; i <= totalWeeks; i++) {
-      const currentWeekStart = new Date(start);
-      currentWeekStart.setUTCDate(start.getUTCDate() + (i - 1) * 7);
-
-      const currentWeekEnd = new Date(currentWeekStart);
-      currentWeekEnd.setUTCDate(
-        currentWeekStart.getUTCDate() + (daysPerWeek - 1),
-      );
+      // 86400000 = 24 * 60 * 60 * 1000 (ms in a day)
+      const currentWeekStart = new Date(start.getTime() + (i - 1) * 7 * 86400000);
+      const currentWeekEnd = new Date(currentWeekStart.getTime() + (daysPerWeek - 1) * 86400000);
 
       cycle.weeks.push({
         id: uuidv4(),
@@ -133,13 +131,9 @@ export class AcademicTimeUseCase {
 
       cycleUpdate.weeks = [];
       for (let i = 1; i <= finalTotalWeeks; i++) {
-        const currentWeekStart = new Date(start);
-        currentWeekStart.setUTCDate(start.getUTCDate() + (i - 1) * 7);
-
-        const currentWeekEnd = new Date(currentWeekStart);
-        currentWeekEnd.setUTCDate(
-          currentWeekStart.getUTCDate() + (finalDaysPerWeek - 1),
-        );
+        // 86400000 = 24 * 60 * 60 * 1000 (ms in a day)
+        const currentWeekStart = new Date(start.getTime() + (i - 1) * 7 * 86400000);
+        const currentWeekEnd = new Date(currentWeekStart.getTime() + (finalDaysPerWeek - 1) * 86400000);
 
         cycleUpdate.weeks.push({
           id: uuidv4(),
@@ -185,7 +179,7 @@ export class AcademicTimeUseCase {
     return this.repository.getTemplatesByCycle(cycleId);
   }
 
-  async createTemplate(cycleId: string, dto: any) {
+  async createTemplate(cycleId: string, dto: CreateCycleMaterialTemplateDto) {
     // Optionally check if cycle exists
     const cycle = await this.repository.getCycleWithSyllabus(cycleId);
     if (!cycle) {
@@ -199,32 +193,14 @@ export class AcademicTimeUseCase {
       name: dto.name,
       scope: dto.scope,
       accumulationWeeks: dto.accumulationWeeks ?? null,
-      courses:
-        dto.courses?.map((c: any) => {
-          const easy = c.easyCount ?? 0;
-          const medium = c.mediumCount ?? 0;
-          const hard = c.hardCount ?? 0;
-          if (easy + medium + hard !== c.questionsQuantity) {
-            throw new BadRequestException(
-              `La suma de preguntas fáciles (${easy}), intermedias (${medium}) y difíciles (${hard}) debe ser igual a la cantidad total (${c.questionsQuantity}) para el curso ${c.courseId}`,
-            );
-          }
-          return {
-            id: uuidv4(),
-            courseId: c.courseId,
-            questionsQuantity: c.questionsQuantity,
-            easyCount: easy,
-            mediumCount: medium,
-            hardCount: hard,
-          };
-        }) || [],
+      courses: this.validateAndMapCourses(dto.courses),
     };
 
     await this.repository.createTemplate(templateData);
     return { id: templateId };
   }
 
-  async updateTemplate(cycleId: string, templateId: string, dto: any) {
+  async updateTemplate(cycleId: string, templateId: string, dto: UpdateCycleMaterialTemplateDto) {
     // Note: In a real scenario, we might verify template belongs to cycleId
     const templateData: any = {};
     if (dto.name !== undefined) templateData.name = dto.name;
@@ -233,24 +209,7 @@ export class AcademicTimeUseCase {
       templateData.accumulationWeeks = dto.accumulationWeeks;
 
     if (dto.courses) {
-      templateData.courses = dto.courses.map((c: any) => {
-        const easy = c.easyCount ?? 0;
-        const medium = c.mediumCount ?? 0;
-        const hard = c.hardCount ?? 0;
-        if (easy + medium + hard !== c.questionsQuantity) {
-          throw new BadRequestException(
-            `La suma de preguntas fáciles (${easy}), intermedias (${medium}) y difíciles (${hard}) debe ser igual a la cantidad total (${c.questionsQuantity}) para el curso ${c.courseId}`,
-          );
-        }
-        return {
-          id: uuidv4(),
-          courseId: c.courseId,
-          questionsQuantity: c.questionsQuantity,
-          easyCount: easy,
-          mediumCount: medium,
-          hardCount: hard,
-        };
-      });
+      templateData.courses = this.validateAndMapCourses(dto.courses);
     }
 
     await this.repository.updateTemplate(templateId, templateData);
@@ -260,5 +219,27 @@ export class AcademicTimeUseCase {
   async deleteTemplate(cycleId: string, templateId: string) {
     await this.repository.deleteTemplate(templateId);
     return { success: true };
+  }
+
+  private validateAndMapCourses(courses?: CreateTemplateCourseDto[]) {
+    if (!courses) return [];
+    return courses.map((c) => {
+      const easy = c.easyCount ?? 0;
+      const medium = c.mediumCount ?? 0;
+      const hard = c.hardCount ?? 0;
+      if (easy + medium + hard !== c.questionsQuantity) {
+        throw new BadRequestException(
+          `La suma de preguntas fáciles (${easy}), intermedias (${medium}) y difíciles (${hard}) debe ser igual a la cantidad total (${c.questionsQuantity}) para el curso ${c.courseId}`,
+        );
+      }
+      return {
+        id: uuidv4(),
+        courseId: c.courseId,
+        questionsQuantity: c.questionsQuantity,
+        easyCount: easy,
+        mediumCount: medium,
+        hardCount: hard,
+      };
+    });
   }
 }

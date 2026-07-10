@@ -93,99 +93,88 @@ export class SyllabusUseCase {
     targetActiveWeeks?: number[],
   ) {
     const targetSyllabus = await this.syllabusRepo.findById(syllabusId);
-    if (!targetSyllabus) {
-      throw new BadRequestException('Syllabus destino no encontrado.');
-    }
+    if (!targetSyllabus) throw new BadRequestException('Syllabus destino no encontrado.');
 
     const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
-    if (!sourceSyllabus) {
-      throw new BadRequestException('Syllabus origen no encontrado.');
+    if (!sourceSyllabus) throw new BadRequestException('Syllabus origen no encontrado.');
+
+    const activeWeeks = targetActiveWeeks || await this.syllabusRepo.findActiveWeeksByCycle(targetSyllabus.cycleId);
+    const sourceDistributions = await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
+
+    const templateMap = await this.buildTemplateMapping(sourceSyllabus, targetSyllabus, sourceDistributions);
+
+    await this.clearExistingDistributions(syllabusId);
+    await this.copyDistributions(syllabusId, sourceDistributions, activeWeeks, sourceSyllabus, targetSyllabus, templateMap);
+    await this.setDefaultTemplate(syllabusId, sourceSyllabus, targetSyllabus, templateMap);
+
+    return await this.getSummary(syllabusId);
+  }
+
+  private async buildTemplateMapping(sourceSyllabus: any, targetSyllabus: any, sourceDistributions: any[]) {
+    const templateMap: Record<string, string | null> = {};
+    if (sourceSyllabus.cycleId === targetSyllabus.cycleId) return templateMap;
+
+    const referencedTemplateIds = new Set<string>();
+    if (sourceSyllabus.templateId) referencedTemplateIds.add(sourceSyllabus.templateId);
+    sourceDistributions.forEach(dist => {
+      if (dist.templateId) referencedTemplateIds.add(dist.templateId);
+    });
+
+    if (referencedTemplateIds.size === 0) return templateMap;
+
+    const sourceTemplates = await this.syllabusRepo.findTemplatesByCycle(sourceSyllabus.cycleId);
+    const targetTemplates = await this.syllabusRepo.findTemplatesByCycle(targetSyllabus.cycleId);
+
+    if (targetTemplates.length === 0) {
+      referencedTemplateIds.forEach(id => (templateMap[id] = null));
+      return templateMap;
     }
 
-    let activeWeeks = targetActiveWeeks;
-    if (!activeWeeks) {
-      activeWeeks = await this.syllabusRepo.findActiveWeeksByCycle(
-        targetSyllabus.cycleId,
+    const missingTemplateNames: string[] = [];
+    referencedTemplateIds.forEach(srcTempId => {
+      const srcTemplate = sourceTemplates.find((t) => t.id === srcTempId);
+      if (!srcTemplate) return;
+
+      const match = targetTemplates.find((tgtT) => tgtT.name.trim().toLowerCase() === srcTemplate.name.trim().toLowerCase());
+      if (match) {
+        templateMap[srcTempId] = match.id;
+      } else {
+        missingTemplateNames.push(srcTemplate.name);
+      }
+    });
+
+    if (missingTemplateNames.length > 0) {
+      throw new BadRequestException(
+        `No se puede realizar la clonación. Las siguientes plantillas de evaluación usadas en el origen no existen en el ciclo destino: [${missingTemplateNames.join(', ')}]. Por favor, configúrelas en el ciclo destino antes de continuar.`,
       );
     }
 
-    const sourceDistributions =
-      await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
+    return templateMap;
+  }
 
-    // Build template mapping and validate that all used templates exist in target cycle
-    const templateMap: Record<string, string | null> = {};
-    if (sourceSyllabus.cycleId !== targetSyllabus.cycleId) {
-      const referencedTemplateIds = new Set<string>();
-      if (sourceSyllabus.templateId) {
-        referencedTemplateIds.add(sourceSyllabus.templateId);
-      }
-      for (const dist of sourceDistributions) {
-        if (dist.templateId) {
-          referencedTemplateIds.add(dist.templateId);
-        }
-      }
-
-      if (referencedTemplateIds.size > 0) {
-        const sourceTemplates = await this.syllabusRepo.findTemplatesByCycle(
-          sourceSyllabus.cycleId,
-        );
-        const targetTemplates = await this.syllabusRepo.findTemplatesByCycle(
-          targetSyllabus.cycleId,
-        );
-
-        if (targetTemplates.length > 0) {
-          const missingTemplateNames: string[] = [];
-          for (const srcTempId of referencedTemplateIds) {
-            const srcTemplate = sourceTemplates.find((t) => t.id === srcTempId);
-            if (!srcTemplate) continue;
-
-            const match = targetTemplates.find(
-              (tgtT) =>
-                tgtT.name.trim().toLowerCase() ===
-                srcTemplate.name.trim().toLowerCase(),
-            );
-
-            if (match) {
-              templateMap[srcTempId] = match.id;
-            } else {
-              missingTemplateNames.push(srcTemplate.name);
-            }
-          }
-
-          if (missingTemplateNames.length > 0) {
-            throw new BadRequestException(
-              `No se puede realizar la clonación. Las siguientes plantillas de evaluación usadas en el origen no existen en el ciclo destino: [${missingTemplateNames.join(', ')}]. Por favor, configúrelas en el ciclo destino antes de continuar.`,
-            );
-          }
-        } else {
-          // If no templates exist in target cycle at all, bypass strict check and map everything to null
-          for (const srcTempId of referencedTemplateIds) {
-            templateMap[srcTempId] = null;
-          }
-        }
-      }
-    }
-
-    // Clean existing
-    const currentDistributions =
-      await this.syllabusRepo.getSummaryBySyllabus(syllabusId);
+  private async clearExistingDistributions(syllabusId: string) {
+    const currentDistributions = await this.syllabusRepo.getSummaryBySyllabus(syllabusId);
     for (const dist of currentDistributions) {
       await this.syllabusRepo.deleteDistribution(dist.id);
     }
+  }
 
-    // Copy new
+  private async copyDistributions(
+    syllabusId: string, 
+    sourceDistributions: any[], 
+    activeWeeks: number[], 
+    sourceSyllabus: any, 
+    targetSyllabus: any, 
+    templateMap: Record<string, string | null>
+  ) {
     for (const dist of sourceDistributions) {
-      if (!activeWeeks.includes(dist.weekNumber)) {
-        continue;
-      }
+      if (!activeWeeks.includes(dist.weekNumber)) continue;
 
       let targetTemplateId: string | null = null;
       if (dist.templateId) {
-        if (sourceSyllabus.cycleId === targetSyllabus.cycleId) {
-          targetTemplateId = dist.templateId;
-        } else {
-          targetTemplateId = templateMap[dist.templateId] || null;
-        }
+        targetTemplateId = sourceSyllabus.cycleId === targetSyllabus.cycleId 
+          ? dist.templateId 
+          : (templateMap[dist.templateId] || null);
       }
 
       await this.syllabusRepo.createDistribution({
@@ -197,21 +186,23 @@ export class SyllabusUseCase {
         templateId: targetTemplateId,
       });
     }
+  }
 
-    // Set syllabus-level default templateId if mapped
-    if (sourceSyllabus.templateId) {
-      let targetSyllabusTemplateId: string | null = null;
-      if (sourceSyllabus.cycleId === targetSyllabus.cycleId) {
-        targetSyllabusTemplateId = sourceSyllabus.templateId;
-      } else {
-        targetSyllabusTemplateId = templateMap[sourceSyllabus.templateId] || null;
-      }
-      if (targetSyllabusTemplateId) {
-        await this.syllabusRepo.setTemplate(syllabusId, targetSyllabusTemplateId);
-      }
+  private async setDefaultTemplate(
+    syllabusId: string, 
+    sourceSyllabus: any, 
+    targetSyllabus: any, 
+    templateMap: Record<string, string | null>
+  ) {
+    if (!sourceSyllabus.templateId) return;
+
+    const targetSyllabusTemplateId = sourceSyllabus.cycleId === targetSyllabus.cycleId 
+      ? sourceSyllabus.templateId 
+      : (templateMap[sourceSyllabus.templateId] || null);
+
+    if (targetSyllabusTemplateId) {
+      await this.syllabusRepo.setTemplate(syllabusId, targetSyllabusTemplateId);
     }
-
-    return await this.getSummary(syllabusId);
   }
 
   async cloneCycleSyllabuses(targetCycleId: string, sourceCycleId: string) {

@@ -6,14 +6,12 @@ import { SyllabusController } from './syllabus.controller';
 import { SyllabusRepositoryImpl } from './repositories/syllabus.repository';
 import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import { SyllabusUseCase } from './syllabus.use-case';
-import { CycleSubscriber } from './cycle.subscriber';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Syllabus, SyllabusDistribution])],
   controllers: [SyllabusController],
   providers: [
     SyllabusUseCase,
-    CycleSubscriber,
     {
       provide: I_SYLLABUS_REPOSITORY,
       useClass: SyllabusRepositoryImpl,
