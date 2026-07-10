@@ -154,6 +154,8 @@ export class PdfGenerationProcessor extends WorkerHost {
         const results: {
           courseId: string;
           pdfBuffer: Buffer;
+          keysPdfBuffer: Buffer;
+          solutionPdfBuffer: Buffer;
           warnings: string[];
         }[] = [];
 
@@ -290,6 +292,7 @@ export class PdfGenerationProcessor extends WorkerHost {
               continue; // Skip to next course
             }
 
+            // 1. Student PDF (standard)
             const pdfBuffer = await this.pdfGeneratorService.generatePdf(
               tenantMock,
               courseId,
@@ -297,6 +300,8 @@ export class PdfGenerationProcessor extends WorkerHost {
               design,
               week_number,
               template_name,
+              false,
+              false,
             );
 
             const safeName =
@@ -308,6 +313,42 @@ export class PdfGenerationProcessor extends WorkerHost {
             const downloadUrl = await this.s3Service.uploadBuffer(
               s3Key,
               pdfBuffer,
+              'application/pdf',
+            );
+
+            // 2. Keys PDF (answer key table at the end)
+            const keysPdfBuffer = await this.pdfGeneratorService.generatePdf(
+              tenantMock,
+              courseId,
+              allQuestions,
+              design,
+              week_number,
+              template_name,
+              false,
+              true,
+            );
+            const keysS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_keys.pdf`;
+            const keyDownloadUrl = await this.s3Service.uploadBuffer(
+              keysS3Key,
+              keysPdfBuffer,
+              'application/pdf',
+            );
+
+            // 3. Solutions PDF (step-by-step resolution)
+            const solutionPdfBuffer = await this.pdfGeneratorService.generatePdf(
+              tenantMock,
+              courseId,
+              allQuestions,
+              design,
+              week_number,
+              template_name,
+              true,
+              false,
+            );
+            const solutionS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
+            const solutionDownloadUrl = await this.s3Service.uploadBuffer(
+              solutionS3Key,
+              solutionPdfBuffer,
               'application/pdf',
             );
 
@@ -324,6 +365,8 @@ export class PdfGenerationProcessor extends WorkerHost {
                     ? 'completed'
                     : 'completed_with_warnings',
                 download_url: downloadUrl,
+                key_download_url: keyDownloadUrl,
+                solution_download_url: solutionDownloadUrl,
                 error_message:
                   missingDesglose.length > 0
                     ? missingDesglose.join(', ')
@@ -348,7 +391,13 @@ export class PdfGenerationProcessor extends WorkerHost {
               await manager.save(MaterialQuestionUsage, usages);
             }
 
-            results.push({ courseId, pdfBuffer, warnings: missingDesglose });
+            results.push({
+              courseId,
+              pdfBuffer,
+              keysPdfBuffer,
+              solutionPdfBuffer,
+              warnings: missingDesglose,
+            });
           } catch (error: any) {
             this.logger.error(
               `Error generating PDF for course ${courseId}: ${error.message}`,
@@ -369,6 +418,13 @@ export class PdfGenerationProcessor extends WorkerHost {
         // Generate merged PDF after all courses are processed
         if (results.length > 1) {
           try {
+            const safeName =
+              `${template_name || 'Material'}_Semana${week_number || ''}_Completo`.replace(
+                /[^a-zA-Z0-9_\-]/g,
+                '_',
+              );
+
+            // Merge Student PDFs
             const mergedPdf = await PDFDocument.create();
             for (const result of results) {
               const pdfDoc = await PDFDocument.load(result.pdfBuffer);
@@ -379,12 +435,6 @@ export class PdfGenerationProcessor extends WorkerHost {
               pages.forEach((page) => mergedPdf.addPage(page));
             }
             const mergedBuffer = Buffer.from(await mergedPdf.save());
-
-            const safeName =
-              `${template_name || 'Material'}_Semana${week_number || ''}_Completo`.replace(
-                /[^a-zA-Z0-9_\-]/g,
-                '_',
-              );
             const mergedKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}.pdf`;
             const mergedUrl = await this.s3Service.uploadBuffer(
               mergedKey,
@@ -392,13 +442,51 @@ export class PdfGenerationProcessor extends WorkerHost {
               'application/pdf',
             );
 
+            // Merge Keys PDFs
+            const mergedKeysPdf = await PDFDocument.create();
+            for (const result of results) {
+              const pdfDoc = await PDFDocument.load(result.keysPdfBuffer);
+              const pages = await mergedKeysPdf.copyPages(
+                pdfDoc,
+                pdfDoc.getPageIndices(),
+              );
+              pages.forEach((page) => mergedKeysPdf.addPage(page));
+            }
+            const mergedKeysBuffer = Buffer.from(await mergedKeysPdf.save());
+            const mergedKeysKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_keys.pdf`;
+            const mergedKeysUrl = await this.s3Service.uploadBuffer(
+              mergedKeysKey,
+              mergedKeysBuffer,
+              'application/pdf',
+            );
+
+            // Merge Solutions PDFs
+            const mergedSolutionsPdf = await PDFDocument.create();
+            for (const result of results) {
+              const pdfDoc = await PDFDocument.load(result.solutionPdfBuffer);
+              const pages = await mergedSolutionsPdf.copyPages(
+                pdfDoc,
+                pdfDoc.getPageIndices(),
+              );
+              pages.forEach((page) => mergedSolutionsPdf.addPage(page));
+            }
+            const mergedSolutionsBuffer = Buffer.from(await mergedSolutionsPdf.save());
+            const mergedSolutionsKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
+            const mergedSolutionsUrl = await this.s3Service.uploadBuffer(
+              mergedSolutionsKey,
+              mergedSolutionsBuffer,
+              'application/pdf',
+            );
+
             await this.materialsService.updateMergedDownloadUrl(
               material_request_id,
               mergedUrl,
+              mergedKeysUrl,
+              mergedSolutionsUrl,
             );
 
             this.logger.log(
-              `Merged PDF uploaded for request ${material_request_id}: ${mergedUrl}`,
+              `Merged PDFs uploaded for request ${material_request_id}: ${mergedUrl}`,
             );
           } catch (error: any) {
             this.logger.error(

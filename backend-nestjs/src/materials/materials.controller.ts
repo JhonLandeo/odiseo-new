@@ -131,9 +131,10 @@ export class MaterialsController {
   async downloadCoursePdf(
     @Param('id') id: string,
     @Param('courseId') courseId: string,
+    @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
     @Res() res: Response,
   ) {
-    const result = await this.materialsService.getDownloadUrl(id, courseId);
+    const result = await this.materialsService.getDownloadUrl(id, courseId, type);
     try {
       const buffer = await this.materialsService.streamDownload(result.s3Key);
       res.setHeader('Content-Type', 'application/pdf');
@@ -158,8 +159,12 @@ export class MaterialsController {
     description: 'Archivo PDF combinado devuelto como stream.',
   })
   @ApiResponse({ status: 404, description: 'La solicitud no existe.' })
-  async downloadMergedPdf(@Param('id') id: string, @Res() res: Response) {
-    const result = await this.materialsService.getMergedDownloadUrl(id);
+  async downloadMergedPdf(
+    @Param('id') id: string,
+    @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
+    @Res() res: Response,
+  ) {
+    const result = await this.materialsService.getMergedDownloadUrl(id, type);
     try {
       const buffer = await this.materialsService.streamDownload(result.s3Key);
       res.setHeader('Content-Type', 'application/pdf');

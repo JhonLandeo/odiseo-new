@@ -239,11 +239,12 @@ const handleReviewApproved = (result: any) => {
   emit('success', result);
 };
 
-const downloadPdf = async (course: any) => {
+const downloadPdf = async (course: any, type: any = 'student') => {
   if (!currentRequest.value) return;
+  const downloadType = typeof type === 'string' ? type : 'student';
   try {
     const response = await fetch(
-      `/api/v1/materials/${currentRequest.value.id}/courses/${course.courseId}/download`,
+      `/api/v1/materials/${currentRequest.value.id}/courses/${course.courseId}/download?type=${downloadType}`,
       { headers: { 'x-subdomain': authStore.getSubdomain() } }
     );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -251,7 +252,12 @@ const downloadPdf = async (course: any) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${getCourseName(course.courseId)}.pdf`;
+    
+    let suffix = '';
+    if (downloadType === 'keys') suffix = '_claves';
+    else if (downloadType === 'solutions') suffix = '_solucionario';
+    
+    a.download = `${getCourseName(course.courseId)}${suffix}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -262,17 +268,27 @@ const downloadPdf = async (course: any) => {
   }
 };
 
-const downloadMergedPdf = async () => {
+const downloadMergedPdf = async (type: any = 'student') => {
   if (!currentRequest.value) return;
+  const downloadType = typeof type === 'string' ? type : 'student';
   try {
     const response = await fetch(
-      `/api/v1/materials/${currentRequest.value.id}/download-merged`,
+      `/api/v1/materials/${currentRequest.value.id}/download-merged?type=${downloadType}`,
       { headers: { 'x-subdomain': authStore.getSubdomain() } }
     );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-    const filename = filenameMatch?.[1] || 'Completo.pdf';
+    
+    let suffix = '';
+    if (downloadType === 'keys') suffix = '_claves';
+    else if (downloadType === 'solutions') suffix = '_solucionario';
+    
+    let filename = filenameMatch?.[1] || 'Completo.pdf';
+    if (suffix && !filename.includes(suffix)) {
+      filename = filename.replace(/\.pdf$/, `${suffix}.pdf`);
+    }
+    
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -678,19 +694,42 @@ defineExpose({ isOpen, openWithContext });
                                   @click="handleReviewCourse(course.courseId)"
                                   title="Revisar preguntas de este curso" />
 
-                                <UButton
-                                  v-if="course.status === 'COMPLETED' || course.status === 'COMPLETED_WITH_WARNINGS'"
-                                  size="xs" color="primary" icon="i-heroicons-arrow-down-tray"
-                                  @click="downloadPdf(course)" />
+                                <div v-if="course.status === 'COMPLETED' || course.status === 'COMPLETED_WITH_WARNINGS'"
+                                  class="flex items-center gap-1">
+                                  <UButton
+                                    size="xs" color="primary" icon="i-heroicons-arrow-down-tray"
+                                    @click="downloadPdf(course, 'student')"
+                                    title="Descargar PDF Estudiante" />
+                                  <UButton
+                                    size="xs" color="neutral" variant="soft" icon="i-heroicons-key"
+                                    @click="downloadPdf(course, 'keys')"
+                                    title="Descargar Claves" />
+                                  <UButton
+                                    size="xs" color="neutral" variant="soft" icon="i-heroicons-academic-cap"
+                                    @click="downloadPdf(course, 'solutions')"
+                                    title="Descargar Solucionario" />
+                                </div>
                               </div>
                             </div>
                           </div>
-                          <div v-if="allCoursesCompleted" class="pt-3 border-t border-slate-200 dark:border-white/5">
-                            <button @click="downloadMergedPdf"
-                              class="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold transition-all duration-200 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/20">
+                          <div v-if="allCoursesCompleted" class="pt-3 border-t border-slate-200 dark:border-white/5 space-y-2">
+                            <button @click="downloadMergedPdf('student')"
+                              class="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-bold transition-all duration-200 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/20">
                               <UIcon name="i-heroicons-document-arrow-down" class="w-4 h-4" />
-                              Descargar PDF Combinado (Todos los cursos)
+                              PDF Combinado (Estudiante)
                             </button>
+                            <div class="grid grid-cols-2 gap-2">
+                              <button @click="downloadMergedPdf('keys')"
+                                class="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10">
+                                <UIcon name="i-heroicons-key" class="w-3.5 h-3.5" />
+                                Claves Completo
+                              </button>
+                              <button @click="downloadMergedPdf('solutions')"
+                                class="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10">
+                                <UIcon name="i-heroicons-academic-cap" class="w-3.5 h-3.5" />
+                                Solucionario Completo
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </Transition>

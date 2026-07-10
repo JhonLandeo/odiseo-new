@@ -37,6 +37,8 @@ export interface MaterialRequest {
   designTemplateId: string | null;
   materialId: string | null;
   mergedDownloadUrl: string | null;
+  mergedKeyDownloadUrl: string | null;
+  mergedSolutionDownloadUrl: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -51,6 +53,8 @@ export interface MaterialRequestCourse {
   courseId: string;
   status: string;
   downloadUrl?: string;
+  keyDownloadUrl?: string;
+  solutionDownloadUrl?: string;
   warnings?: any;
 }
 

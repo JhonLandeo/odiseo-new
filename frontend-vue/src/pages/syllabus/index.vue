@@ -131,7 +131,13 @@ const CIRCUMFERENCE = 2 * Math.PI * CIRCLE_R;
 const ringDashOffset = computed(() => CIRCUMFERENCE - (overallProgress.value / 100) * CIRCUMFERENCE);
 
 const isPageLoading = computed(() => {
-  return !initialLoadComplete.value || store.loading;
+  if (timeStore.isLoading || !timeStore.hasFetched || catalogsStore.isLoading || !catalogsStore.hasFetched) {
+    return true;
+  }
+  if (timeStore.cycles.length > 0) {
+    return !initialLoadComplete.value || store.loading;
+  }
+  return false;
 });
 
 function openCreate(courseId?: string) {
@@ -518,10 +524,28 @@ function getGeneralWeekStyle(item: SyllabusWithProgress, week: number) {
             </div>
           </div>
 
-          <!-- Estado Vacío (No hay sílabos para el ciclo) -->
+          <!-- Estado Vacío (No hay sílabos para el ciclo o no hay ciclos) -->
           <div v-else
             class="py-24 text-center bg-white dark:bg-[#1e1e2d] rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm">
-            <div class="max-w-md mx-auto space-y-4">
+            <!-- CASO 1: No hay ciclos académicos creados -->
+            <div v-if="timeStore.cycles.length === 0" class="max-w-md mx-auto space-y-4">
+              <div
+                class="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-100/50 dark:border-amber-900/50 flex items-center justify-center text-amber-500 mx-auto shadow-sm">
+                <UIcon name="i-heroicons-calendar" class="w-7 h-7" />
+              </div>
+              <div class="space-y-1">
+                <p class="text-base font-bold text-slate-800 dark:text-slate-200">No hay ciclos académicos configurados</p>
+                <p class="text-xs text-slate-400 dark:text-slate-500 leading-relaxed">
+                  Para poder gestionar sílabos, primero debes registrar al menos un ciclo académico en el sistema.
+                </p>
+              </div>
+              <UButton color="neutral" icon="i-heroicons-arrow-right" class="font-bold rounded-xl shadow btn-premium-primary" to="/academic-time">
+                Ir a Ciclos Académicos
+              </UButton>
+            </div>
+
+            <!-- CASO 2: Sí hay ciclos pero no hay sílabos para el ciclo seleccionado -->
+            <div v-else class="max-w-md mx-auto space-y-4">
               <div
                 class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100/50 dark:border-indigo-900/50 flex items-center justify-center text-indigo-500 mx-auto shadow-sm">
                 <UIcon name="i-heroicons-document-plus" class="w-7 h-7" />
@@ -532,7 +556,7 @@ function getGeneralWeekStyle(item: SyllabusWithProgress, week: number) {
                   Para comenzar a planificar este ciclo, crea un nuevo sílabo vinculando un curso del catálogo.
                 </p>
               </div>
-              <UButton color="indigo" icon="i-heroicons-plus" class="font-bold rounded-xl shadow" @click="openCreate()">
+              <UButton color="neutral" icon="i-heroicons-plus" class="font-bold rounded-xl shadow btn-premium-primary" @click="openCreate()">
                 Crear Primer Sílabo
               </UButton>
             </div>

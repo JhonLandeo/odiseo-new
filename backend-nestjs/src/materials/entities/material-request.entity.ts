@@ -30,7 +30,7 @@ export class MaterialRequest {
   @Column({ name: 'cycle_id', type: 'uuid' })
   cycleId: string;
 
-  @ManyToOne(() => Cycle, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Cycle, { onDelete: 'CASCADE', createForeignKeyConstraints: false })
   @JoinColumn({ name: 'cycle_id' })
   cycle: Cycle;
 
@@ -53,7 +53,7 @@ export class MaterialRequest {
   @Column({ name: 'design_template_id', nullable: true, type: 'uuid' })
   designTemplateId: string | null;
 
-  @ManyToOne(() => PdfDesignTemplate, { onDelete: 'SET NULL' })
+  @ManyToOne(() => PdfDesignTemplate, { onDelete: 'SET NULL', createForeignKeyConstraints: false })
   @JoinColumn({ name: 'design_template_id' })
   designTemplate: PdfDesignTemplate | null;
 
@@ -68,6 +68,12 @@ export class MaterialRequest {
 
   @Column({ name: 'merged_download_url', nullable: true, type: 'text' })
   mergedDownloadUrl: string;
+
+  @Column({ name: 'merged_key_download_url', nullable: true, type: 'text' })
+  mergedKeyDownloadUrl: string | null;
+
+  @Column({ name: 'merged_solution_download_url', nullable: true, type: 'text' })
+  mergedSolutionDownloadUrl: string | null;
 
   @Column({ name: 'created_by' })
   createdBy: string;

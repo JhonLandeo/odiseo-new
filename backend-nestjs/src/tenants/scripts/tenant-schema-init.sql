@@ -40,6 +40,61 @@ CREATE TABLE IF NOT EXISTS role_has_permissions (
   PRIMARY KEY (role_id, permission_id)
 );
 
+CREATE TABLE IF NOT EXISTS tenant_topic_visibility (
+  topic_id UUID PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS cycles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  year INTEGER NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  days_per_week INTEGER NOT NULL DEFAULT 5,
+  total_weeks INTEGER NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  university_id UUID,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS cycle_weeks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  week_number INTEGER NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS cycle_material_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  scope VARCHAR(50) NOT NULL,
+  accumulation_weeks INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS cycle_material_template_courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  template_id UUID NOT NULL REFERENCES cycle_material_templates(id) ON DELETE CASCADE,
+  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  questions_quantity INTEGER NOT NULL,
+  easy_count INTEGER NOT NULL DEFAULT 0,
+  medium_count INTEGER NOT NULL DEFAULT 0,
+  hard_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS pdf_design_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id VARCHAR(255),
@@ -66,6 +121,30 @@ CREATE TABLE IF NOT EXISTS pdf_design_templates (
   is_default BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS syllabus (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  template_id UUID REFERENCES cycle_material_templates(id) ON DELETE SET NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS syllabus_distribution (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  syllabus_id UUID NOT NULL REFERENCES syllabus(id) ON DELETE RESTRICT,
+  template_id UUID REFERENCES cycle_material_templates(id) ON DELETE SET NULL,
+  week_number INTEGER NOT NULL,
+  topic_id UUID NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
+  subtopic_id UUID NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
+  question_count INTEGER NOT NULL CHECK (question_count > 0),
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  CONSTRAINT UQ_syllabus_template_week_topic_subtopic UNIQUE (syllabus_id, template_id, week_number, topic_id, subtopic_id)
 );
 
 -- Basic Seed for new tenant

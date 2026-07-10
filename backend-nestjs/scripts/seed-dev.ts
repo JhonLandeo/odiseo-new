@@ -177,6 +177,58 @@ async function seed() {
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS "${schemaName}".pdf_design_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        banner_image_url TEXT,
+        watermark_image_url TEXT,
+        cover_image_url TEXT,
+        show_cover BOOLEAN NOT NULL DEFAULT false,
+        primary_title_color VARCHAR(20) NOT NULL DEFAULT '2, 113, 184',
+        secondary_title_color VARCHAR(20) NOT NULL DEFAULT '2, 113, 184',
+        background_highlight_color VARCHAR(20) NOT NULL DEFAULT '214, 238, 253',
+        margin_top VARCHAR(20) NOT NULL DEFAULT '3cm',
+        margin_bottom VARCHAR(20) NOT NULL DEFAULT '1.5cm',
+        margin_inside VARCHAR(20) NOT NULL DEFAULT '1cm',
+        margin_outside VARCHAR(20) NOT NULL DEFAULT '1cm',
+        is_book_mode BOOLEAN NOT NULL DEFAULT false,
+        font_family VARCHAR(50) NOT NULL DEFAULT 'Arial',
+        border_radius VARCHAR(20) NOT NULL DEFAULT '4px',
+        content_font_size VARCHAR(20) NOT NULL DEFAULT '11pt',
+        content_text_color VARCHAR(20) NOT NULL DEFAULT '#000000',
+        blocks_config JSONB,
+        header_config JSONB,
+        footer_config JSONB,
+        is_default BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS "${schemaName}".syllabus (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        cycle_id UUID NOT NULL REFERENCES "${schemaName}".cycles(id) ON DELETE CASCADE,
+        course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        template_id UUID REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE SET NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS "${schemaName}".syllabus_distribution (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        syllabus_id UUID NOT NULL REFERENCES "${schemaName}".syllabus(id) ON DELETE RESTRICT,
+        template_id UUID REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE SET NULL,
+        week_number INTEGER NOT NULL,
+        topic_id UUID NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
+        subtopic_id UUID NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
+        question_count INTEGER NOT NULL CHECK (question_count > 0),
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        CONSTRAINT UQ_syllabus_template_week_topic_subtopic UNIQUE (syllabus_id, template_id, week_number, topic_id, subtopic_id)
+      );
     `);
     console.log(`✅ Tenant tables provisioned successfully.`);
 

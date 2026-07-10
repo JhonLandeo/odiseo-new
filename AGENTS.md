@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/006-plantillas-pdf-personalizables/plan.md
+at specs/007-solucionario-claves/plan.md
 
 ## Gestión de Materiales — Correcciones Implementadas (Jul 2026)
 

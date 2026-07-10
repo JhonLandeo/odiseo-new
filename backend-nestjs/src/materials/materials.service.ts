@@ -93,6 +93,8 @@ export class MaterialsService {
       await manager.update(MaterialRequestCourse, courseReq.id, {
         status: courseStatus,
         downloadUrl: statusData.download_url || undefined,
+        keyDownloadUrl: statusData.key_download_url || undefined,
+        solutionDownloadUrl: statusData.solution_download_url || undefined,
         warnings: (statusData.error_message
           ? { error: statusData.error_message }
           : null) as any,
@@ -655,7 +657,11 @@ export class MaterialsService {
     return result;
   }
 
-  async getDownloadUrl(id: string, courseId: string): Promise<any> {
+  async getDownloadUrl(
+    id: string,
+    courseId: string,
+    type: 'student' | 'keys' | 'solutions' = 'student',
+  ): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const courseReq = await manager.findOne(MaterialRequestCourse, {
         where: { materialRequestId: id, courseId },
@@ -667,17 +673,24 @@ export class MaterialsService {
         );
       }
 
+      let rawUrl: string | null = courseReq.downloadUrl;
+      if (type === 'keys') {
+        rawUrl = courseReq.keyDownloadUrl;
+      } else if (type === 'solutions') {
+        rawUrl = courseReq.solutionDownloadUrl;
+      }
+
       if (
         (courseReq.status !== CourseMaterialStatus.COMPLETED &&
           courseReq.status !== CourseMaterialStatus.COMPLETED_WITH_WARNINGS) ||
-        !courseReq.downloadUrl
+        !rawUrl
       ) {
         throw new BadRequestException(
           'El material aún no está listo o falló su generación',
         );
       }
 
-      let key = courseReq.downloadUrl;
+      let key = rawUrl;
       if (key.startsWith('http')) {
         try {
           const urlObj = new URL(key);
@@ -685,7 +698,7 @@ export class MaterialsService {
           key = parts.slice(2).join('/');
         } catch (e) {
           // Fallback if parsing fails
-          key = courseReq.downloadUrl;
+          key = rawUrl;
         }
       }
 
@@ -705,13 +718,17 @@ export class MaterialsService {
   async updateMergedDownloadUrl(
     materialRequestId: string,
     mergedUrl: string,
+    mergedKeyUrl?: string,
+    mergedSolutionUrl?: string,
   ): Promise<void> {
     return this.tenantService.runInTenant(async (manager) => {
       await manager.update(MaterialRequest, materialRequestId, {
         mergedDownloadUrl: mergedUrl,
+        mergedKeyDownloadUrl: mergedKeyUrl || undefined,
+        mergedSolutionDownloadUrl: mergedSolutionUrl || undefined,
       });
       this.logger.log(
-        `Merged download URL updated for MaterialRequest ${materialRequestId}`,
+        `Merged download URLs updated for MaterialRequest ${materialRequestId}`,
       );
     });
   }
@@ -724,7 +741,10 @@ export class MaterialsService {
     });
   }
 
-  async getMergedDownloadUrl(id: string): Promise<any> {
+  async getMergedDownloadUrl(
+    id: string,
+    type: 'student' | 'keys' | 'solutions' = 'student',
+  ): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const request = await manager.findOne(MaterialRequest, {
         where: { id },
@@ -734,13 +754,20 @@ export class MaterialsService {
         throw new NotFoundException('La solicitud de material no existe');
       }
 
-      if (!request.mergedDownloadUrl) {
+      let rawUrl: string | null = request.mergedDownloadUrl;
+      if (type === 'keys') {
+        rawUrl = request.mergedKeyDownloadUrl;
+      } else if (type === 'solutions') {
+        rawUrl = request.mergedSolutionDownloadUrl;
+      }
+
+      if (!rawUrl) {
         throw new BadRequestException(
           'El PDF combinado aún no está disponible',
         );
       }
 
-      let key = request.mergedDownloadUrl;
+      let key = rawUrl;
       if (key.startsWith('http')) {
         try {
           const urlObj = new URL(key);

@@ -59,9 +59,10 @@ export class PdfGeneratorService {
     weekNumber?: number,
     templateName?: string,
     withSolution = false,
+    withKeysTable = false,
   ): Promise<Buffer> {
     this.logger.log(
-      `Generating PDF for course ${courseId} with ${questions.length} questions. Solution: ${withSolution}`,
+      `Generating PDF for course ${courseId} with ${questions.length} questions. Solution: ${withSolution}, KeysTable: ${withKeysTable}`,
     );
 
     // 1. Resolve design image URLs to base64 data URIs
@@ -84,6 +85,7 @@ export class PdfGeneratorService {
       weekNumber,
       templateName,
       withSolution,
+      withKeysTable,
     );
 
     // 3. Define footer template for Playwright
@@ -235,6 +237,7 @@ export class PdfGeneratorService {
     weekNumber?: number,
     templateName?: string,
     withSolution = false,
+    withKeysTable = false,
   ): string {
     const primaryTitleColor = design?.primaryTitleColor || '2, 113, 184';
     const secondaryTitleColor = design?.secondaryTitleColor || '2, 113, 184';
@@ -566,6 +569,49 @@ export class PdfGeneratorService {
             column-count: 1;
         }
 
+        .keys-table__container {
+            margin-top: 40px;
+            padding: 20px;
+            border: 2px solid rgb(${primaryTitleColor});
+            border-radius: ${borderRadius};
+            background-color: rgb(${backgroundHighlightColor});
+            page-break-inside: avoid;
+            column-span: all;
+        }
+        .keys-table__title {
+            font-size: 14pt;
+            font-weight: bold;
+            color: rgb(${primaryTitleColor});
+            margin-bottom: 15px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        .keys-table__grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 10px;
+        }
+        .keys-table__cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 11pt;
+            font-weight: bold;
+        }
+        .keys-table__num {
+            font-size: 9pt;
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+        .keys-table__letter {
+            color: rgb(${primaryTitleColor});
+            font-size: 12pt;
+        }
+
         .section__title {
             text-transform: uppercase;
             color: rgb(var(--v-theme-secondary-title));
@@ -749,13 +795,39 @@ export class PdfGeneratorService {
         </div>`;
         }
         if (block === 'content') {
+          let keysTableHtml = '';
+          if (withKeysTable) {
+            const keysGridHtml = questions
+              .map((q, idx) => {
+                const correctOpt = (q.options || []).find((opt) => opt.isCorrect);
+                const correctLetter = correctOpt ? correctOpt.label : '-';
+                return `
+                  <div class="keys-table__cell">
+                    <span class="keys-table__num">${idx + 1}</span>
+                    <span class="keys-table__letter">${correctLetter}</span>
+                  </div>
+                `;
+              })
+              .join('');
+
+            keysTableHtml = `
+              <div class="keys-table__container">
+                <div class="keys-table__title">CLAVES DE RESPUESTAS</div>
+                <div class="keys-table__grid">
+                  ${keysGridHtml}
+                </div>
+              </div>
+            `;
+          }
+
           return `
         <div class="layout__watermark-fixed">
             ${watermarkHtml}
         </div>
         <div class="content__wrapper columns-2">
             ${questionsHtml}
-        </div>`;
+        </div>
+        ${keysTableHtml}`;
         }
         return '';
       })

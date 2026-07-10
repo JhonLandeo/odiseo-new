@@ -213,6 +213,56 @@ describe('MaterialsService', () => {
     });
   });
 
+  describe('updateMaterialStatus and updateMergedDownloadUrl', () => {
+    it('should update course status, downloadUrl, keyDownloadUrl and solutionDownloadUrl', async () => {
+      const mockCourseReq = {
+        id: 'job-id-123',
+        materialRequestId: 'parent-req-id',
+        status: CourseMaterialStatus.PENDING,
+      };
+      mockEntityManager.findOne.mockResolvedValueOnce(mockCourseReq);
+      mockEntityManager.find.mockResolvedValueOnce([mockCourseReq]);
+
+      await service.updateMaterialStatus({
+        job_id: 'job-id-123',
+        status: 'completed',
+        download_url: 'http://foo.com/std.pdf',
+        key_download_url: 'http://foo.com/key.pdf',
+        solution_download_url: 'http://foo.com/sol.pdf',
+      });
+
+      expect(mockEntityManager.update).toHaveBeenCalledWith(
+        expect.anything(),
+        'job-id-123',
+        expect.objectContaining({
+          status: CourseMaterialStatus.COMPLETED,
+          downloadUrl: 'http://foo.com/std.pdf',
+          keyDownloadUrl: 'http://foo.com/key.pdf',
+          solutionDownloadUrl: 'http://foo.com/sol.pdf',
+        }),
+      );
+    });
+
+    it('should update merged download URLs on the parent request', async () => {
+      await service.updateMergedDownloadUrl(
+        'req-id',
+        'http://foo.com/merged.pdf',
+        'http://foo.com/merged_key.pdf',
+        'http://foo.com/merged_sol.pdf',
+      );
+
+      expect(mockEntityManager.update).toHaveBeenCalledWith(
+        expect.anything(),
+        'req-id',
+        expect.objectContaining({
+          mergedDownloadUrl: 'http://foo.com/merged.pdf',
+          mergedKeyDownloadUrl: 'http://foo.com/merged_key.pdf',
+          mergedSolutionDownloadUrl: 'http://foo.com/merged_sol.pdf',
+        }),
+      );
+    });
+  });
+
   describe('getDownloadUrl', () => {
     it('should throw NotFoundException if course request does not exist', async () => {
       mockEntityManager.findOne.mockResolvedValue(null);

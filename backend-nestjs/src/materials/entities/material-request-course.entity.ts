@@ -39,8 +39,14 @@ export class MaterialRequestCourse {
   })
   status: CourseMaterialStatus;
 
-  @Column({ name: 'download_url', nullable: true })
+  @Column({ name: 'download_url', nullable: true, type: 'text' })
   downloadUrl: string;
+
+  @Column({ name: 'key_download_url', nullable: true, type: 'text' })
+  keyDownloadUrl: string | null;
+
+  @Column({ name: 'solution_download_url', nullable: true, type: 'text' })
+  solutionDownloadUrl: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   warnings: any;
