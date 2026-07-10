@@ -5,8 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { SyllabusDistribution } from './syllabus-distribution.entity';
+import { Course } from '../../catalogs/entities/course.entity';
+import { Cycle } from '../../academic-time/entities/cycle.entity';
 
 @Entity('syllabus')
 export class Syllabus {
@@ -16,8 +20,16 @@ export class Syllabus {
   @Column({ name: 'cycle_id', type: 'uuid' })
   cycleId: string;
 
+  @ManyToOne(() => Cycle, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'cycle_id' })
+  cycle: Cycle;
+
   @Column({ name: 'course_id', type: 'uuid' })
   courseId: string;
+
+  @ManyToOne(() => Course, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Course;
 
   @Column({ type: 'varchar', length: 255 })
   name: string;
@@ -36,7 +48,7 @@ export class Syllabus {
 
   @OneToMany(
     () => SyllabusDistribution,
-    (distribution) => distribution.syllabus,
+    (distribution: SyllabusDistribution) => distribution.syllabus,
   )
   distributions: SyllabusDistribution[];
 }

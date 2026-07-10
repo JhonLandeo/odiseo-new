@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { CycleMaterialTemplate } from './cycle-material-template.entity';
+import { Course } from '../../catalogs/entities/course.entity';
 
 @Entity({ name: 'cycle_material_template_courses' })
 export class CycleMaterialTemplateCourse {
@@ -19,6 +20,10 @@ export class CycleMaterialTemplateCourse {
 
   @Column({ name: 'course_id', type: 'uuid' })
   courseId: string;
+
+  @ManyToOne(() => Course, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Course;
 
   @Column({ name: 'questions_quantity', type: 'integer' })
   questionsQuantity: number;
@@ -38,7 +43,7 @@ export class CycleMaterialTemplateCourse {
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => CycleMaterialTemplate, (template) => template.courses, {
+  @ManyToOne(() => CycleMaterialTemplate, (template: CycleMaterialTemplate) => template.courses, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'template_id' })

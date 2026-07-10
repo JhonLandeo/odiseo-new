@@ -4,7 +4,10 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Company } from '../../tenants/entities/tenant.entity';
 
 @Entity('users')
 export class User {
@@ -22,6 +25,10 @@ export class User {
 
   @Column({ name: 'company_id' })
   companyId: string;
+
+  @ManyToOne(() => Company, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'company_id' })
+  company: Company;
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

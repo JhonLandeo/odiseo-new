@@ -14,6 +14,7 @@ import { MaterialReviewQuestion } from './material-review-question.entity';
 import { PdfDesignTemplate } from './pdf-design-template.entity';
 import { MaterialRequestStatus } from './material-status.enum';
 import { Material } from './material.entity';
+import { Cycle } from '../../academic-time/entities/cycle.entity';
 
 @Entity('material_requests')
 export class MaterialRequest {
@@ -28,6 +29,10 @@ export class MaterialRequest {
 
   @Column({ name: 'cycle_id', type: 'uuid' })
   cycleId: string;
+
+  @ManyToOne(() => Cycle, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'cycle_id' })
+  cycle: Cycle;
 
   @Column({ name: 'week_number', type: 'int' })
   weekNumber: number;
@@ -55,7 +60,7 @@ export class MaterialRequest {
   @Column({ name: 'material_id', nullable: true, type: 'uuid' })
   materialId: string | null;
 
-  @ManyToOne(() => Material, (material) => material.requests, {
+  @ManyToOne(() => Material, (material: Material) => material.requests, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'material_id' })
@@ -76,14 +81,14 @@ export class MaterialRequest {
   @VersionColumn()
   version: number;
 
-  @OneToMany(() => MaterialRequestCourse, (course) => course.materialRequest, {
+  @OneToMany(() => MaterialRequestCourse, (course: MaterialRequestCourse) => course.materialRequest, {
     cascade: true,
   })
   courses: MaterialRequestCourse[];
 
   @OneToMany(
     () => MaterialReviewQuestion,
-    (question) => question.materialRequest,
+    (question: MaterialReviewQuestion) => question.materialRequest,
     { cascade: true },
   )
   reviewQuestions: MaterialReviewQuestion[];
