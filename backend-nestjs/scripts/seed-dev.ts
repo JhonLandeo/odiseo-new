@@ -1,20 +1,25 @@
 import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Cargar archivo .env
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 async function seed() {
   const client = new Client({
-    host: 'localhost',
-    port: 5432,
-    user: 'postgres',
-    password: '123456',
-    database: 'odiseo',
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASS || '123456',
+    database: process.env.DB_NAME || 'odiseo',
   });
 
   try {
     await client.connect();
     console.log('🔌 Connected to PostgreSQL database...');
 
-    // Ensure public.companies exists
+    // Ensure public tables exist to support tenant table FK constraints
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.companies (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,6 +29,26 @@ async function seed() {
         primary_color VARCHAR(50) DEFAULT '#6366f1',
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS public.courses (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS public.topics (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS public.subtopics (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        topic_id UUID REFERENCES public.topics(id) ON DELETE CASCADE,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
     `);

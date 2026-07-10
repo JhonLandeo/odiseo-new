@@ -1,16 +1,56 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { MaterialsService } from './materials.service';
+import { InjectEntityManager } from '@nestjs/typeorm';
+import { EntityManager } from 'typeorm';
+import { ClsService } from 'nestjs-cls';
+import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
+import { TenantService } from '../database/tenant.service';
+import { Company } from '../tenants/entities/tenant.entity';
+import { CycleMaterialTemplate } from '../academic-time/entities/cycle-material-template.entity';
 
 @Injectable()
 export class MaterialsCron {
   private readonly logger = new Logger(MaterialsCron.name);
 
-  constructor(private readonly materialsService: MaterialsService) {}
+  constructor(
+    private readonly generateMaterialUseCase: GenerateMaterialUseCase,
+    private readonly tenantService: TenantService,
+    private readonly cls: ClsService,
+    @InjectEntityManager()
+    private readonly entityManager: EntityManager,
+  ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleCron() {
     this.logger.log('Running US5: Automatic Material Generation (Cron)');
+
+    // Obtener la primera compañía activa en el esquema público
+    const company = await this.entityManager.findOne(Company, {
+      where: { isActive: true },
+    });
+
+    if (!company) {
+      this.logger.warn('No active company found. Skipping automatic material generation.');
+      return;
+    }
+
+    const tenantId = company.id;
+    const schemaName = `tenant_${tenantId}`;
+
+    // Buscar un perfil (CycleMaterialTemplate) activo en el esquema del tenant
+    const template = await this.tenantService.runInSchema(
+      schemaName,
+      async (manager) => {
+        return manager.findOne(CycleMaterialTemplate, {});
+      },
+    );
+
+    if (!template) {
+      this.logger.warn(
+        `No CycleMaterialTemplate found for tenant schema ${schemaName}. Skipping automatic material generation.`,
+      );
+      return;
+    }
 
     // Mock de base de datos para la configuración de ciclos
     const cycles = [
@@ -42,12 +82,21 @@ export class MaterialsCron {
           `Triggering generation for active week ${week.week_num} in cycle ${cycle.cycle_id}`,
         );
         try {
-          // Invocamos el flujo de US1
-          await this.materialsService.generateMaterial({
-            course_id: week.course_id,
-            material_type: 'BALOTARIO',
-            difficulty_level: 'INTERMEDIO',
-          });
+          // Invocamos el flujo de US1 usando el caso de uso
+          await this.cls.runWith(
+            {
+              companyId: tenantId,
+              tenantSchema: schemaName,
+            } as any,
+            async () => {
+              await this.generateMaterialUseCase.execute(tenantId, tenantId, {
+                profile_id: template.id,
+                week_number: week.week_num,
+                requires_review: false,
+                courses: [{ course_id: week.course_id }],
+              });
+            },
+          );
         } catch (error) {
           this.logger.error(
             `Error auto-generating material for week ${week.week_num}: ${error.message}`,
@@ -57,3 +106,4 @@ export class MaterialsCron {
     }
   }
 }
+

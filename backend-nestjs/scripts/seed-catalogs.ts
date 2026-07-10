@@ -1,14 +1,18 @@
 import { Client } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Cargar archivo .env
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 async function seedCatalogs() {
   const client = new Client({
-    host: 'localhost',
-    port: 5432,
-    user: 'postgres',
-    password: '123456',
-    database: 'odiseo',
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    user: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASS || '123456',
+    database: process.env.DB_NAME || 'odiseo',
   });
 
   try {
@@ -93,6 +97,12 @@ async function seedCatalogs() {
       const courseUuid = String(t.course_id).padStart(12, '0');
       const courseId = `00000000-0000-0000-0000-${courseUuid}`;
 
+      // Asegurar que el curso referenciado exista en public.courses para evitar violación de FK
+      await client.query(
+        `INSERT INTO public.courses (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+        [courseId, `Curso Faltante ${t.course_id}`]
+      );
+
       await client.query(
         `INSERT INTO public.topics (id, name, course_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
         [topicId, t.name, courseId]
@@ -129,6 +139,12 @@ async function seedCatalogs() {
       
       const topicUuid = String(s.topic_id).padStart(12, '0');
       const topicId = `00000000-0000-0000-0000-${topicUuid}`;
+
+      // Asegurar que el topic referenciado exista para evitar violación de FK
+      await client.query(
+        `INSERT INTO public.topics (id, name, course_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+        [topicId, `Tópico Faltante ${s.topic_id}`, '00000000-0000-0000-0000-000000000001']
+      );
 
       await client.query(
         `INSERT INTO public.subtopics (id, name, topic_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
