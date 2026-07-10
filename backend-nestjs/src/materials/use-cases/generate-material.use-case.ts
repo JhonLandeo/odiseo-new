@@ -246,8 +246,7 @@ export class GenerateMaterialUseCase {
       }
 
       // Always generate question slots to allow auditing and review (T023)
-      if (true) {
-        let position = 1;
+      let position = 1;
         const reviewQuestionsToSave: MaterialReviewQuestion[] = [];
 
         // 1. Gather all subtopic UUIDs and convert them to numeric IDs
@@ -356,7 +355,6 @@ export class GenerateMaterialUseCase {
         if (reviewQuestionsToSave.length > 0) {
           await manager.save(MaterialReviewQuestion, reviewQuestionsToSave);
         }
-      }
 
       // 5. Encolar el trabajo en BullMQ si no requiere revisión
       const jobPayload = {

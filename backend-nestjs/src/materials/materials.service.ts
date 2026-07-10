@@ -56,17 +56,6 @@ export class MaterialsService {
     private readonly gcsService: GcsService,
   ) {}
 
-  async generateMaterial(dto: {
-    course_id: string;
-    material_type: string;
-    difficulty_level: string;
-  }): Promise<any> {
-    this.logger.log(
-      `Automatic generation requested for course ${dto.course_id}`,
-    );
-    return 'auto-job-001';
-  }
-
   async updateMaterialStatus(
     statusData: WebhookStatusRequestDto,
   ): Promise<void> {
@@ -477,7 +466,9 @@ export class MaterialsService {
       throw new NotFoundException('Tenant not identified');
     }
 
-    return this.tenantService.runInTenant(async (manager) => {
+    const jobsToDispatch: { name: string, data: any }[] = [];
+
+    const result = await this.tenantService.runInTenant(async (manager) => {
       const request = await manager.findOne(MaterialRequest, {
         where: { id },
         relations: ['courses'],
@@ -643,18 +634,25 @@ export class MaterialsService {
           },
         };
 
-        await this.materialsQueue.add('generate', job);
+        jobsToDispatch.push({ name: 'generate', data: job });
       }
-
-      this.logger.log(
-        `Curation approved for MaterialRequest ${id}. Dispatched jobs to BullMQ.`,
-      );
 
       return {
         status: MaterialRequestStatus.PROCESSING,
         message: 'Generación de PDFs iniciada',
       };
     });
+
+    // Outbox: Dispatch safely AFTER transaction commit
+    for (const job of jobsToDispatch) {
+      await this.materialsQueue.add(job.name, job.data);
+    }
+    
+    if (jobsToDispatch.length > 0) {
+      this.logger.log(`Curation approved for MaterialRequest ${id}. Dispatched jobs to BullMQ.`);
+    }
+
+    return result;
   }
 
   async getDownloadUrl(id: string, courseId: string): Promise<any> {

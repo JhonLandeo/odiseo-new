@@ -18,6 +18,7 @@ import { WebhookStatusRequestDto } from './dto/webhook-status-request.dto';
 import { ApproveReviewDto } from './dto/approve-review.dto';
 import { MaterialsService } from './materials.service';
 import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
+import { GetQuestionAlternativesDto } from './dto/get-question-alternatives.dto';
 
 @ApiTags('Materials')
 @Controller('v1/materials')
@@ -91,7 +92,8 @@ export class MaterialsController {
     @Param('id') id: string,
     @Body() request: ApproveReviewDto,
   ) {
-    const userId = this.cls.get('companyId') || 'system';
+    const userId = this.cls.get('companyId');
+    if (!userId) throw new UnauthorizedException('Tenant no identificado');
     return await this.materialsService.saveDraftCuration(id, request, userId);
   }
 
@@ -109,7 +111,8 @@ export class MaterialsController {
     @Param('id') id: string,
     @Body() request: ApproveReviewDto,
   ) {
-    const userId = this.cls.get('companyId') || 'system';
+    const userId = this.cls.get('companyId');
+    if (!userId) throw new UnauthorizedException('Tenant no identificado');
     return await this.materialsService.approveCuration(id, request, userId);
   }
 
@@ -238,14 +241,7 @@ export class MaterialsController {
     description: 'Lista de 3 preguntas alternativas.',
   })
   async getQuestionAlternatives(
-    @Body() body: {
-      courseId?: string;
-      topicId?: string;
-      subtopicId?: string;
-      levelId?: string;
-      limit?: number;
-      excludeIds?: string[];
-    }
+    @Body() body: GetQuestionAlternativesDto
   ) {
     return await this.materialsService.getQuestionAlternatives(
       body.courseId,
