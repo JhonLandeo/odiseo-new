@@ -66,6 +66,21 @@ export const useMaterialsStore = defineStore('materials', () => {
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   const currentReview = ref<ReviewData | null>(null)
+  const pendingReplacements = ref<Record<string, string>>({})
+  const pendingReplacementsData = ref<Record<string, any>>({})
+  const pendingRemovals = ref<Set<string>>(new Set())
+
+  // Persist local draft state
+  watch([pendingReplacements, pendingReplacementsData, pendingRemovals], () => {
+    if (currentReview.value?.materialId) {
+      const draft = {
+        replacements: pendingReplacements.value,
+        replacementsData: pendingReplacementsData.value,
+        removals: Array.from(pendingRemovals.value)
+      };
+      localStorage.setItem(`draft_${currentReview.value.materialId}`, JSON.stringify(draft));
+    }
+  }, { deep: true })
 
   async function generateMaterial(data: {
     profile_id: string;
@@ -128,6 +143,21 @@ export const useMaterialsStore = defineStore('materials', () => {
   }
 
   async function fetchReviewData(materialId: string) {
+    if (currentReview.value?.materialId !== materialId) {
+      pendingReplacements.value = {}
+      pendingReplacementsData.value = {}
+      pendingRemovals.value = new Set()
+      
+      const saved = localStorage.getItem(`draft_${materialId}`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          pendingReplacements.value = parsed.replacements || {};
+          pendingReplacementsData.value = parsed.replacementsData || {};
+          if (parsed.removals) pendingRemovals.value = new Set(parsed.removals);
+        } catch (e) {}
+      }
+    }
     isLoading.value = true
     error.value = null
     try {
@@ -144,6 +174,28 @@ export const useMaterialsStore = defineStore('materials', () => {
       throw e
     } finally {
       isLoading.value = false
+    }
+  }
+
+  async function saveDraft(
+    materialId: string,
+    payload: {
+      version: number;
+      replacements: { reviewQuestionId: string; questionId: string }[];
+      removals: string[];
+    }
+  ) {
+    try {
+      const authStore = useAuthStore()
+      const subdomain = authStore.getSubdomain()
+      // @ts-ignore
+      await $fetch(`/api/v1/materials/${materialId}/draft`, {
+        method: 'POST',
+        headers: { 'x-subdomain': subdomain },
+        body: payload,
+      })
+    } catch (e: any) {
+      console.error('Error auto-guardando borrador:', e)
     }
   }
 
@@ -167,6 +219,10 @@ export const useMaterialsStore = defineStore('materials', () => {
         headers: { 'x-subdomain': subdomain },
         body: payload,
       })
+      pendingReplacements.value = {}
+      pendingReplacementsData.value = {}
+      pendingRemovals.value = new Set()
+      localStorage.removeItem(`draft_${materialId}`);
       return res as {
         status: string;
         message: string;
@@ -303,6 +359,10 @@ export const useMaterialsStore = defineStore('materials', () => {
     fetchHistory,
     fetchAttempts,
     fetchQuestionPreview,
-    fetchQuestionAlternatives
+    fetchQuestionAlternatives,
+    pendingReplacements,
+    pendingReplacementsData,
+    pendingRemovals,
+    saveDraft
   }
 })

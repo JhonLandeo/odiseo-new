@@ -235,8 +235,8 @@ const clearFilters = () => {
 };
 
 const handleConfirm = () => {
-  if (searchedQuestion.value?.questionId) {
-    emit('selected', searchedQuestion.value.questionId);
+  if (searchedQuestion.value?.questionId || searchedQuestion.value?.id) {
+    emit('selected', searchedQuestion.value);
   }
 };
 

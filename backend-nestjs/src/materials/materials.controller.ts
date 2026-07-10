@@ -78,6 +78,23 @@ export class MaterialsController {
     return await this.materialsService.getReviewData(id);
   }
 
+  @Post(':id/draft')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Guardar borrador de la curaduría en tiempo real',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Borrador guardado exitosamente.',
+  })
+  async saveDraftCuration(
+    @Param('id') id: string,
+    @Body() request: ApproveReviewDto,
+  ) {
+    const userId = this.cls.get('companyId') || 'system';
+    return await this.materialsService.saveDraftCuration(id, request, userId);
+  }
+
   @Post(':id/approve')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({

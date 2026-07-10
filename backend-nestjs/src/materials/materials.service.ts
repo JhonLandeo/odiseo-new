@@ -426,6 +426,51 @@ export class MaterialsService {
     });
   }
 
+  async saveDraftCuration(id: string, dto: ApproveReviewDto, userId: string): Promise<any> {
+    const tenantId = this.cls.get('companyId');
+    if (!tenantId) {
+      throw new NotFoundException('Tenant not identified');
+    }
+
+    return this.tenantService.runInTenant(async (manager) => {
+      const request = await manager.findOne(MaterialRequest, {
+        where: { id },
+      });
+      if (!request) {
+        throw new NotFoundException('La solicitud de material no existe');
+      }
+
+      if (request.version !== dto.version) {
+        throw new ConflictException(
+          'El material ya está siendo revisado por otro administrador o su estado ha cambiado',
+        );
+      }
+
+      for (const replacement of dto.replacements) {
+        await manager.update(
+          MaterialReviewQuestion,
+          { id: replacement.reviewQuestionId, materialRequestId: id },
+          {
+            questionId: replacement.questionId,
+            status: ReviewQuestionStatus.REPLACED,
+          },
+        );
+      }
+
+      for (const removalId of dto.removals) {
+        await manager.update(
+          MaterialReviewQuestion,
+          { id: removalId, materialRequestId: id },
+          {
+            status: ReviewQuestionStatus.REMOVED,
+          },
+        );
+      }
+      
+      return { status: 'OK', message: 'Borrador guardado exitosamente' };
+    });
+  }
+
   async approveCuration(id: string, dto: ApproveReviewDto, userId: string): Promise<any> {
     const tenantId = this.cls.get('companyId');
     if (!tenantId) {
@@ -489,7 +534,7 @@ export class MaterialsService {
       if (alreadyGenerated && noChanges) {
         const finalStatus = hasEmpty ? MaterialRequestStatus.COMPLETED_WITH_WARNINGS : MaterialRequestStatus.COMPLETED;
         request.status = finalStatus;
-        request.version += 1;
+        // La versión se incrementa automáticamente por el @VersionColumn() de TypeORM al guardar
         await manager.save(request);
 
         if (request.materialId) {
@@ -510,7 +555,7 @@ export class MaterialsService {
 
       // 3. Update parent request status
       request.status = MaterialRequestStatus.PROCESSING;
-      request.version += 1;
+      // La versión se incrementa automáticamente por el @VersionColumn() de TypeORM al guardar
       await manager.save(request);
 
       if (request.materialId) {

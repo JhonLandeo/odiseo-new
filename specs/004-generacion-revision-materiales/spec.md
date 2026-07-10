@@ -18,6 +18,10 @@ Opcionalmente, el administrador puede solicitar una **revisión del material** a
 
 ## Clarifications
 
+### Session 2026-07-09
+
+- Q: ¿Cómo se debe mostrar el historial de intentos en la interfaz para evitar la confusión de los saltos de números de versión de TypeORM? → A: Sin versiones numéricas (Opción C). Se elimina el texto "Versión X" de la UI y los intentos se identifican únicamente por su fecha, hora y estado.
+
 ### Session 2026-06-20
 
 - Q: ¿Cómo se determina el rango de semanas acumulativas en la generación de material? → A: Sugerencia Inteligente + Edición Manual. Al solicitar la generación en la semana W con una acumulación N, el sistema pre-selecciona automáticamente las últimas N semanas activas (retrocediendo desde W), pero muestra un selector en la UI para que el usuario final pueda modificar la selección de semanas antes de confirmar.

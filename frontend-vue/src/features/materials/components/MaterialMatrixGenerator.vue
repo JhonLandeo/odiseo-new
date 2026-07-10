@@ -714,7 +714,7 @@ defineExpose({ isOpen, openWithContext });
                             class="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200/60 dark:border-white/10 text-xs">
                             <div class="flex flex-col min-w-0">
                               <span class="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                                Versión {{ attempt.version }}
+                                Intento de Generación
                                 <span v-if="attempt.id === currentRequest?.id"
                                   class="px-1 py-0.2 bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400 rounded text-[9px] font-black uppercase">
                                   Actual
