@@ -14,6 +14,7 @@ export enum CourseMaterialStatus {
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
   COMPLETED_WITH_WARNINGS = 'COMPLETED_WITH_WARNINGS',
+  EMPTY_BANK = 'EMPTY_BANK',
   FAILED = 'FAILED',
 }
 
@@ -25,7 +26,7 @@ export class MaterialRequestCourse {
   @Column({ name: 'material_request_id', type: 'uuid' })
   materialRequestId: string;
 
-  @Column({ name: 'course_id' })
+  @Column({ name: 'course_id', type: 'uuid' })
   courseId: string;
 
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })

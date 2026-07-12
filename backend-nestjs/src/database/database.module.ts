@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TenantService } from './tenant.service';
+import { SchemaService } from './schema.service';
 import { Company } from '../tenants/entities/tenant.entity';
 import { Question } from '../question-bank/entities/question.entity';
 import { Alternative } from '../question-bank/entities/alternative.entity';
@@ -50,7 +51,7 @@ import { Alternative } from '../question-bank/entities/alternative.entity';
     // Company entity needed by TenantMiddleware (global scope)
     TypeOrmModule.forFeature([Company]),
   ],
-  providers: [TenantService],
-  exports: [TenantService, TypeOrmModule],
+  providers: [TenantService, SchemaService],
+  exports: [TenantService, SchemaService, TypeOrmModule],
 })
 export class DatabaseModule { }

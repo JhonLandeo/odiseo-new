@@ -285,7 +285,7 @@ export class PdfGenerationProcessor extends WorkerHost {
               if (dist.course_request_id) {
                 await this.materialsService.updateMaterialStatus({
                   job_id: dist.course_request_id,
-                  status: 'completed_with_warnings',
+                  status: 'empty_bank',
                   error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
                 });
               }
@@ -655,11 +655,11 @@ export class PdfGenerationProcessor extends WorkerHost {
             if (dist.course_request_id) {
               await this.materialsService.updateMaterialStatus({
                 job_id: dist.course_request_id,
-                status: 'completed_with_warnings',
+                status: 'empty_bank',
                 error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
               });
             }
-            return { course_id: courseId, status: CourseMaterialStatus.COMPLETED_WITH_WARNINGS };
+            return { course_id: courseId, status: CourseMaterialStatus.EMPTY_BANK };
           }
 
           const pdfBuffer = await this.pdfGeneratorService.generatePdf(

@@ -221,6 +221,14 @@
         </div>
       </header>
 
+      <!-- Soft Limit Warning Banner (Mock for Admins) -->
+      <div v-if="userName === 'Director' && isGracePeriod" class="bg-amber-500 shrink-0 px-4 py-2 flex items-center justify-center gap-3">
+        <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5 text-amber-900 shrink-0" />
+        <p class="text-sm font-medium text-amber-900">
+          Su colegio ha excedido los límites del plan. Tiene un periodo de gracia de 3 días antes de suspenderse el servicio. Por favor, contacte a soporte para actualizar su suscripción.
+        </p>
+      </div>
+
       <!-- Dashboard Content View (Nuxt Page) -->
       <div class="flex-1 overflow-auto custom-scrollbar relative">
         <div class="p-6 md:p-8 max-w-[1600px] mx-auto">
@@ -248,6 +256,9 @@ const userInitials = computed(() => {
   const name = userName.value;
   return name ? name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'O';
 });
+
+// Mock state for grace period (would normally come from authStore/tenant context)
+const isGracePeriod = ref(true);
 
 // Layout State
 const isSidebarOpen = ref(true);

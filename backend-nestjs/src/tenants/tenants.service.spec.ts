@@ -6,9 +6,10 @@ describe('TenantsService', () => {
   let service: TenantsService;
   let mockCompanyRepo: any;
   let mockDataSource: any;
+  let mockQueryRunner: any;
 
   const mockSavedCompany: Partial<Company> = {
-    id: 'uuid-new-company',
+    id: '123e4567-e89b-12d3-a456-426614174000',
     subdomain: 'nuevo-colegio',
     commercialName: 'Colegio Nuevo',
     logoUrl: undefined,
@@ -25,7 +26,15 @@ describe('TenantsService', () => {
       save: jest.fn(),
     };
 
+    mockQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      createSchema: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+    };
+
     mockDataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
       query: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -71,18 +80,14 @@ describe('TenantsService', () => {
       expect(result).toEqual(mockSavedCompany);
 
       // Verify schema creation
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('CREATE SCHEMA IF NOT EXISTS'),
+      expect(mockQueryRunner.createSchema).toHaveBeenCalledWith(
+        'tenant_123e4567-e89b-12d3-a456-426614174000',
+        true
       );
 
       // Verify tenant tables creation
-      expect(mockDataSource.query).toHaveBeenCalledWith(
+      expect(mockQueryRunner.query).toHaveBeenCalledWith(
         expect.stringContaining('CREATE TABLE IF NOT EXISTS users'),
-      );
-
-      // Verify RBAC seeding
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO roles'),
       );
     });
 
@@ -97,7 +102,7 @@ describe('TenantsService', () => {
       ).rejects.toThrow(ConflictException);
 
       // Should NOT create schema
-      expect(mockDataSource.query).not.toHaveBeenCalled();
+      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
     });
 
     it('should use correct schema name based on company id', async () => {
@@ -110,8 +115,9 @@ describe('TenantsService', () => {
         commercialName: 'Colegio Nuevo',
       });
 
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('tenant_uuid-new-company'),
+      expect(mockQueryRunner.createSchema).toHaveBeenCalledWith(
+        'tenant_123e4567-e89b-12d3-a456-426614174000',
+        true
       );
     });
 
@@ -142,7 +148,7 @@ describe('TenantsService', () => {
         commercialName: 'Test',
       });
 
-      const allQueries = mockDataSource.query.mock.calls
+      const allQueries = mockQueryRunner.query.mock.calls
         .map((call: any) => call[0])
         .join(' ');
 
@@ -167,7 +173,7 @@ describe('TenantsService', () => {
         commercialName: 'Test',
       });
 
-      const seedQuery = mockDataSource.query.mock.calls
+      const seedQuery = mockQueryRunner.query.mock.calls
         .map((call: any) => call[0])
         .join(' ');
 

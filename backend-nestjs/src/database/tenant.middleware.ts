@@ -14,7 +14,9 @@ export class TenantMiddleware implements NestMiddleware {
   // Public paths that don't require tenant resolution
   private readonly publicPaths = [
     '/api/v1/tenants/branding',
-    '/api/v1/admin/companies',
+    '/v1/tenants/branding',
+    '/api/v1/admin',
+    '/v1/admin',
     '/queues',
   ];
 
@@ -45,6 +47,7 @@ export class TenantMiddleware implements NestMiddleware {
 
     // For public paths, skip tenant resolution
     const requestPath = req.baseUrl + req.path;
+    require('fs').appendFileSync('/tmp/debug.log', JSON.stringify({ baseUrl: req.baseUrl, path: req.path, requestPath }) + '\\n');
     if (this.publicPaths.some((p) => requestPath.startsWith(p))) {
       next();
       return;

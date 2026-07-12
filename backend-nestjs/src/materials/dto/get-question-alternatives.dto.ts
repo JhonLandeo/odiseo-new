@@ -1,19 +1,19 @@
-import { IsUUID, IsNumber, IsOptional, IsArray, Min } from 'class-validator';
+import { IsUUID, IsNumber, IsOptional, IsArray, Min, IsString } from 'class-validator';
 
 export class GetQuestionAlternativesDto {
-  @IsUUID()
+  @IsString()
   @IsOptional()
   courseId?: string;
 
-  @IsUUID()
+  @IsString()
   @IsOptional()
   topicId?: string;
 
-  @IsUUID()
+  @IsString()
   @IsOptional()
   subtopicId?: string;
 
-  @IsUUID()
+  @IsString()
   @IsOptional()
   levelId?: string;
 
@@ -23,7 +23,8 @@ export class GetQuestionAlternativesDto {
   limit?: number;
 
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsString({ each: true })
   @IsOptional()
   excludeIds?: string[];
 }
+

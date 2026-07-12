@@ -83,6 +83,8 @@ export class MaterialsService {
         courseStatus = CourseMaterialStatus.COMPLETED;
       } else if (statusData.status === 'completed_with_warnings') {
         courseStatus = CourseMaterialStatus.COMPLETED_WITH_WARNINGS;
+      } else if (statusData.status === 'empty_bank') {
+        courseStatus = CourseMaterialStatus.EMPTY_BANK;
       } else if (statusData.status === 'failed') {
         courseStatus = CourseMaterialStatus.FAILED;
       } else if (statusData.status === 'processing') {
@@ -113,6 +115,7 @@ export class MaterialsService {
         (c) =>
           c.status === CourseMaterialStatus.COMPLETED ||
           c.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS ||
+          c.status === CourseMaterialStatus.EMPTY_BANK ||
           c.status === CourseMaterialStatus.FAILED,
       );
 
@@ -121,7 +124,7 @@ export class MaterialsService {
           (c) => c.status === CourseMaterialStatus.FAILED,
         );
         const hasWarnings = siblingCourses.some(
-          (c) => c.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS,
+          (c) => c.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS || c.status === CourseMaterialStatus.EMPTY_BANK,
         );
 
         let finalStatus = MaterialRequestStatus.COMPLETED;
@@ -521,8 +524,14 @@ export class MaterialsService {
         throw new BadRequestException('Existen slots vacíos no resueltos');
       }
 
-      const alreadyGenerated = request.courses.some(c => c.downloadUrl != null);
-      const noChanges = dto.replacements.length === 0 && dto.removals.length === 0;
+      const alreadyGenerated = request.courses.every(
+        (c) =>
+          c.downloadUrl != null &&
+          c.keyDownloadUrl != null &&
+          c.solutionDownloadUrl != null,
+      );
+      const noChanges =
+        dto.replacements.length === 0 && dto.removals.length === 0;
 
       if (alreadyGenerated && noChanges) {
         const finalStatus = hasEmpty ? MaterialRequestStatus.COMPLETED_WITH_WARNINGS : MaterialRequestStatus.COMPLETED;

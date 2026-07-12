@@ -290,14 +290,117 @@ async function seed() {
     );
     console.log(`✅ Assigned 'admin' role to user '${email}'.`);
 
+    // ==========================================
+    // 6. SEED SUPER ADMIN (SYSTEM TENANT)
+    // ==========================================
+    const sysCheck = await client.query(`SELECT * FROM public.companies WHERE subdomain = $1`, ['odiseo']);
+    let sysCompanyId: string;
+    if (sysCheck.rows.length > 0) {
+      sysCompanyId = sysCheck.rows[0].id;
+    } else {
+      const sysInsert = await client.query(
+        `INSERT INTO public.companies (subdomain, commercial_name, primary_color, is_active) VALUES ($1, $2, $3, true) RETURNING id`,
+        ['odiseo', 'Odiseo SaaS', '#000000']
+      );
+      sysCompanyId = sysInsert.rows[0].id;
+    }
+    const sysSchema = `tenant_${sysCompanyId}`;
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${sysSchema}"`);
+    
+    // Create base tables for system tenant
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "${sysSchema}".users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        company_id UUID NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS "${sysSchema}".roles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(100) NOT NULL UNIQUE,
+        guard_name VARCHAR(50) NOT NULL DEFAULT 'web',
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS "${sysSchema}".permissions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(100) NOT NULL UNIQUE,
+        guard_name VARCHAR(50) NOT NULL DEFAULT 'web',
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS "${sysSchema}".model_has_roles (
+        role_id UUID NOT NULL REFERENCES "${sysSchema}".roles(id) ON DELETE CASCADE,
+        model_id UUID NOT NULL,
+        model_type VARCHAR(100) NOT NULL DEFAULT 'User',
+        PRIMARY KEY (role_id, model_id, model_type)
+      );
+      CREATE TABLE IF NOT EXISTS "${sysSchema}".role_has_permissions (
+        role_id UUID NOT NULL REFERENCES "${sysSchema}".roles(id) ON DELETE CASCADE,
+        permission_id UUID NOT NULL REFERENCES "${sysSchema}".permissions(id) ON DELETE CASCADE,
+        PRIMARY KEY (role_id, permission_id)
+      );
+    `);
+
+    // Insert role and user
+    await client.query(`
+      INSERT INTO "${sysSchema}".roles (name, guard_name) VALUES ('super_admin', 'web') ON CONFLICT (name) DO NOTHING;
+      
+      INSERT INTO "${sysSchema}".permissions (name, guard_name) VALUES
+        ('view_catalogs', 'web'),
+        ('edit_catalogs', 'web'),
+        ('view_materials', 'web'),
+        ('generate_material', 'web'),
+        ('review_material', 'web'),
+        ('view_syllabus', 'web'),
+        ('edit_syllabus', 'web'),
+        ('manage_academic_time', 'web'),
+        ('manage_tenants', 'web')
+      ON CONFLICT (name) DO NOTHING;
+
+      INSERT INTO "${sysSchema}".role_has_permissions (role_id, permission_id)
+        SELECT r.id, p.id FROM "${sysSchema}".roles r, "${sysSchema}".permissions p
+        WHERE r.name = 'super_admin'
+      ON CONFLICT DO NOTHING;
+    `);
+    const sysEmail = 'superadmin@odiseo.com';
+    const sysPass = 'superadmin123';
+    const sysPassHash = await bcrypt.hash(sysPass, 10);
+    const sysUserCheck = await client.query(`SELECT * FROM "${sysSchema}".users WHERE email = $1`, [sysEmail]);
+    let sysUserId: string;
+    if (sysUserCheck.rows.length > 0) {
+      sysUserId = sysUserCheck.rows[0].id;
+    } else {
+      const sysUserInsert = await client.query(
+        `INSERT INTO "${sysSchema}".users (email, password_hash, name, company_id, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
+        [sysEmail, sysPassHash, 'Super Administrador', sysCompanyId]
+      );
+      sysUserId = sysUserInsert.rows[0].id;
+    }
+    await client.query(
+      `INSERT INTO "${sysSchema}".model_has_roles (role_id, model_id, model_type) SELECT r.id, $1, 'User' FROM "${sysSchema}".roles r WHERE r.name = 'super_admin' ON CONFLICT DO NOTHING`,
+      [sysUserId]
+    );
+
     console.log('\n🎉 DEVELOPMENT SEED COMPLETED SUCCESSFULLY!');
     console.log('----------------------------------------------------');
     console.log('Use the following details to log in to the system:');
     console.log('----------------------------------------------------');
+    console.log(`[TENANT NORMAL]`);
     console.log(`URL:        http://colegio.localhost:3001/login`);
     console.log(`Email:      ${email}`);
     console.log(`Password:   ${password}`);
     console.log(`Subdomain:  colegio`);
+    console.log('----------------------------------------------------');
+    console.log(`[SUPER ADMIN]`);
+    console.log(`URL:        http://odiseo.localhost:3001/login`);
+    console.log(`Email:      superadmin@odiseo.com`);
+    console.log(`Password:   superadmin123`);
+    console.log(`Subdomain:  odiseo`);
     console.log('----------------------------------------------------');
 
   } catch (error) {

@@ -4,7 +4,10 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { SubscriptionPlan } from '../../admin/subscriptions/entities/subscription-plan.entity';
 
 @Entity('companies', { schema: 'public' })
 export class Company {
@@ -25,6 +28,23 @@ export class Company {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  @ManyToOne(() => SubscriptionPlan)
+  @JoinColumn({ name: 'subscription_plan_id' })
+  subscriptionPlan: SubscriptionPlan;
+
+  @Column({ name: 'subscription_plan_id', nullable: true })
+  subscriptionPlanId: string;
+
+  @Column({
+    type: 'enum',
+    enum: ['ACTIVE', 'SUSPENDED', 'GRACE_PERIOD'],
+    default: 'ACTIVE',
+  })
+  status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD';
+
+  @Column({ name: 'grace_period_until', type: 'timestamp', nullable: true })
+  gracePeriodUntil: Date;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

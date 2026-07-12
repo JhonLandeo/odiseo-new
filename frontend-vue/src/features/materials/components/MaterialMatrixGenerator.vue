@@ -252,11 +252,11 @@ const downloadPdf = async (course: any, type: any = 'student') => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    
+
     let suffix = '';
     if (downloadType === 'keys') suffix = '_claves';
     else if (downloadType === 'solutions') suffix = '_solucionario';
-    
+
     a.download = `${getCourseName(course.courseId)}${suffix}.pdf`;
     document.body.appendChild(a);
     a.click();
@@ -279,16 +279,16 @@ const downloadMergedPdf = async (type: any = 'student') => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-    
+
     let suffix = '';
     if (downloadType === 'keys') suffix = '_claves';
     else if (downloadType === 'solutions') suffix = '_solucionario';
-    
+
     let filename = filenameMatch?.[1] || 'Completo.pdf';
     if (suffix && !filename.includes(suffix)) {
       filename = filename.replace(/\.pdf$/, `${suffix}.pdf`);
     }
-    
+
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -677,16 +677,24 @@ defineExpose({ isOpen, openWithContext });
                                     'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20': course.status === 'COMPLETED_WITH_WARNINGS',
                                     'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20': course.status === 'FAILED',
                                     'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20 animate-pulse': course.status === 'PROCESSING',
-                                    'bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/5 dark:text-slate-400 dark:border-white/10': course.status === 'PENDING'
+                                    'bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/5 dark:text-slate-400 dark:border-white/10': course.status === 'PENDING',
+                                    'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/10 dark:text-slate-400': course.status === 'EMPTY_BANK'
                                   }">
                                   {{ course.status === 'COMPLETED' ? 'Listo' :
                                     course.status === 'COMPLETED_WITH_WARNINGS' ? 'Parcial' :
                                       course.status === 'FAILED' ? 'Fallido' :
-                                        course.status === 'PROCESSING' ? 'En Proceso' : 'Pendiente' }}
+                                        course.status === 'PROCESSING' ? 'En Proceso' : 
+                                          course.status === 'EMPTY_BANK' ? 'Sin Preguntas' : 'Pendiente' }}
                                 </span>
 
-                                <span v-if="course.status === 'COMPLETED_WITH_WARNINGS'"
-                                  title="Generado con preguntas faltantes" class="cursor-help">
+                                <span v-if="course.status === 'EMPTY_BANK'"
+                                  class="flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md p-1.5"
+                                  title="No se encontraron preguntas para este curso">
+                                  <UIcon name="i-heroicons-inbox" class="w-3.5 h-3.5 text-slate-500" />
+                                </span>
+                                <span v-else-if="course.status === 'COMPLETED_WITH_WARNINGS'"
+                                  class="flex items-center justify-center bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/40 rounded-md p-1.5"
+                                  title="Se generó con advertencias (preguntas faltantes)">
                                   <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 text-amber-500" />
                                 </span>
 
@@ -696,35 +704,30 @@ defineExpose({ isOpen, openWithContext });
 
                                 <div v-if="course.status === 'COMPLETED' || course.status === 'COMPLETED_WITH_WARNINGS'"
                                   class="flex items-center gap-1">
-                                  <UButton
-                                    size="xs" color="primary" icon="i-heroicons-arrow-down-tray"
-                                    @click="downloadPdf(course, 'student')"
-                                    title="Descargar PDF Estudiante" />
-                                  <UButton
-                                    size="xs" color="neutral" variant="soft" icon="i-heroicons-key"
-                                    @click="downloadPdf(course, 'keys')"
-                                    title="Descargar Claves" />
-                                  <UButton
-                                    size="xs" color="neutral" variant="soft" icon="i-heroicons-academic-cap"
-                                    @click="downloadPdf(course, 'solutions')"
-                                    title="Descargar Solucionario" />
+                                  <UButton v-if="course.downloadUrl" size="xs" color="primary" icon="i-heroicons-arrow-down-tray"
+                                    @click="downloadPdf(course, 'student')" title="Descargar PDF Estudiante" />
+                                  <UButton v-if="course.keyDownloadUrl" size="xs" color="neutral" variant="soft" icon="i-heroicons-key"
+                                    @click="downloadPdf(course, 'keys')" title="Descargar Claves" />
+                                  <UButton v-if="course.solutionDownloadUrl" size="xs" color="neutral" variant="soft" icon="i-heroicons-academic-cap"
+                                    @click="downloadPdf(course, 'solutions')" title="Descargar Solucionario" />
                                 </div>
                               </div>
                             </div>
                           </div>
-                          <div v-if="allCoursesCompleted" class="pt-3 border-t border-slate-200 dark:border-white/5 space-y-2">
-                            <button @click="downloadMergedPdf('student')"
+                          <div v-if="allCoursesCompleted"
+                            class="pt-3 border-t border-slate-200 dark:border-white/5 space-y-2">
+                            <button v-if="currentRequest?.mergedDownloadUrl" @click="downloadMergedPdf('student')"
                               class="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-bold transition-all duration-200 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/20">
                               <UIcon name="i-heroicons-document-arrow-down" class="w-4 h-4" />
                               PDF Combinado (Estudiante)
                             </button>
                             <div class="grid grid-cols-2 gap-2">
-                              <button @click="downloadMergedPdf('keys')"
+                              <button v-if="currentRequest?.mergedKeyDownloadUrl" @click="downloadMergedPdf('keys')"
                                 class="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10">
                                 <UIcon name="i-heroicons-key" class="w-3.5 h-3.5" />
                                 Claves Completo
                               </button>
-                              <button @click="downloadMergedPdf('solutions')"
+                              <button v-if="currentRequest?.mergedSolutionDownloadUrl" @click="downloadMergedPdf('solutions')"
                                 class="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10">
                                 <UIcon name="i-heroicons-academic-cap" class="w-3.5 h-3.5" />
                                 Solucionario Completo
@@ -752,12 +755,11 @@ defineExpose({ isOpen, openWithContext });
                           <div v-for="attempt in attemptsHistory" :key="attempt.id"
                             class="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200/60 dark:border-white/10 text-xs">
                             <div class="flex flex-col min-w-0">
-                              <span class="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                                Intento de Generación
-                                <span v-if="attempt.id === currentRequest?.id"
-                                  class="px-1 py-0.2 bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400 rounded text-[9px] font-black uppercase">
-                                  Actual
-                                </span>
+
+
+                              <span v-if="attempt.id === currentRequest?.id"
+                                class="px-1 py-0.2 bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400 rounded text-[9px] font-black uppercase">
+                                Actual
                               </span>
                               <span class="text-[10px] text-slate-400 dark:text-slate-500">
                                 {{ formatDate(attempt.createdAt) }}
@@ -772,6 +774,7 @@ defineExpose({ isOpen, openWithContext });
                                   'bg-rose-100 text-rose-700 border-rose-250 dark:bg-rose-500/10 dark:text-rose-400': attempt.status === 'FAILED',
                                   'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 animate-pulse': attempt.status === 'PROCESSING',
                                   'bg-fuchsia-105 text-fuchsia-750 border-fuchsia-200 dark:bg-fuchsia-500/10 dark:text-fuchsia-400': attempt.status === 'REVIEW_REQUIRED',
+                                  'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/10 dark:text-slate-400': attempt.status === 'EMPTY_BANK',
                                 }">
                                 {{ statusLabel(attempt.status) }}
                               </span>
@@ -779,8 +782,7 @@ defineExpose({ isOpen, openWithContext });
                               <UButton v-if="attempt.mergedDownloadUrl && attempt.id === currentRequest?.id" size="xs"
                                 color="neutral" variant="ghost" icon="i-heroicons-arrow-down-tray"
                                 @click="downloadMergedPdfForAttempt(attempt)" title="Descargar PDF Combinado" />
-                              <span v-else-if="attempt.mergedDownloadUrl && attempt.id !== currentRequest?.id"
-                                class="text-[9px] text-slate-400 dark:text-slate-600 italic px-1">Solo referencia</span>
+
                             </div>
                           </div>
                         </div>
@@ -860,7 +862,7 @@ defineExpose({ isOpen, openWithContext });
                     {{ materialsStore.currentReview.status === 'COMPLETED' ? 'Completado' :
                       materialsStore.currentReview.status === 'IN_REVIEW' ? 'En Revisión' :
                         materialsStore.currentReview.status === 'REVIEW_REQUIRED' ? 'Revisión Requerida' :
-                    materialsStore.currentReview.status }}
+                          materialsStore.currentReview.status }}
                   </span>
                 </div>
               </div>
