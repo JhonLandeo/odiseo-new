@@ -1,6 +1,9 @@
 <template>
-  <div class="min-h-screen flex relative overflow-hidden bg-white dark:bg-[#12121a] transition-colors duration-500">
-    
+  <div v-if="!isInitialized" class="min-h-screen flex items-center justify-center bg-white dark:bg-[#12121a]">
+    <div class="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+  </div>
+  <div v-else class="min-h-screen flex relative overflow-hidden bg-white dark:bg-[#12121a] transition-colors duration-500">
+
     <!-- LEFT PANEL: Dynamic Storytelling & Floating Cards -->
     <div 
       class="hidden lg:flex lg:w-[55%] relative flex-col justify-center items-center p-20 overflow-hidden"
@@ -255,6 +258,7 @@ const error = ref('');
 const showPassword = ref(false);
 const isBrandingLoading = ref(false);
 const subdomain = ref('');
+const isInitialized = ref(false);
 
 // Theming & Dynamic Layout
 const isSystemTenant = computed(() => subdomain.value === 'odiseo');
@@ -281,6 +285,7 @@ const focusStyle = computed(() => {
 
 onMounted(async () => {
   subdomain.value = authStore.getSubdomain();
+  isInitialized.value = true;
 
   isBrandingLoading.value = true;
   try {

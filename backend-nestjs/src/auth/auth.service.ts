@@ -58,29 +58,54 @@ export class AuthService {
         if (user.companyId !== company.id) return null;
 
         // Step 6: Load roles and permissions
-        const rolesResult = await manager.query(
+        // Step 6: Load roles and permissions using new RBAC
+        const userRolesResult = await manager.query(
           `
-        SELECT r.name FROM roles r
-        INNER JOIN model_has_roles mhr ON mhr.role_id = r.id
-        WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
+        SELECT r.id, r.name, r.permissions FROM roles r
+        INNER JOIN user_roles ur ON ur.role_id = r.id
+        WHERE ur.user_id = $1
       `,
           [user.id],
         );
 
-        const permissionsResult = await manager.query(
+        const allRolesInheritance = await manager.query(
           `
-        SELECT DISTINCT p.name FROM permissions p
-        INNER JOIN role_has_permissions rhp ON rhp.permission_id = p.id
-        INNER JOIN model_has_roles mhr ON mhr.role_id = rhp.role_id
-        WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
-      `,
-          [user.id],
+        SELECT r.id, r.permissions, ri.parent_role_id
+        FROM roles r
+        LEFT JOIN role_inheritance ri ON ri.child_role_id = r.id
+      `
         );
+
+        const permissionsSet = new Set<string>();
+        const visitedRoleIds = new Set<string>();
+
+        const resolveRolePermissions = (currentRoleId: string) => {
+          if (visitedRoleIds.has(currentRoleId)) return;
+          visitedRoleIds.add(currentRoleId);
+
+          // Find role data
+          const roleData = allRolesInheritance.filter((r: any) => r.id === currentRoleId);
+          if (!roleData.length) return;
+
+          const permissionsJson = roleData[0].permissions;
+          if (permissionsJson && Array.isArray(permissionsJson)) {
+            permissionsJson.forEach((p: string) => permissionsSet.add(p));
+          }
+
+          // Recursively resolve parents
+          roleData.forEach((r: any) => {
+            if (r.parent_role_id) {
+              resolveRolePermissions(r.parent_role_id);
+            }
+          });
+        };
+
+        userRolesResult.forEach((ur: any) => resolveRolePermissions(ur.id));
 
         return {
           user,
-          roles: rolesResult.map((r: any) => r.name),
-          permissions: permissionsResult.map((p: any) => p.name),
+          roles: userRolesResult.map((r: any) => r.name),
+          permissions: Array.from(permissionsSet),
           companyId: company.id,
         };
       },
