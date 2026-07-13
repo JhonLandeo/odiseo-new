@@ -6,7 +6,7 @@
       :class="{ 'is-minimized': isMinimized }"
     >
       <!-- Header -->
-      <div class="checklist-header" @click="isMinimized = !isMinimized">
+      <div class="checklist-header" @click="toggleMinimize">
         <div class="checklist-header-left">
           <div class="checklist-icon-wrap">
             <UIcon name="i-heroicons-rocket-launch" class="checklist-icon" />
@@ -23,7 +23,7 @@
             variant="ghost"
             :icon="isMinimized ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
             class="action-btn"
-            @click.stop="isMinimized = !isMinimized"
+            @click.stop="toggleMinimize"
           />
           <UButton
             size="xs"
@@ -77,13 +77,49 @@
           </Transition>
 
           <!-- Skip -->
-          <button class="skip-btn" @click="handleDismiss">
+          <button class="skip-btn" @click="openConfirm">
             Omitir configuración
           </button>
         </div>
       </Transition>
     </div>
   </Transition>
+
+  <!-- Confirmation Modal -->
+  <UModal v-model:open="isConfirmOpen">
+    <template #content>
+      <UCard>
+        <div class="p-6 flex flex-col items-center text-center">
+          <div class="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-4 ring-8 ring-amber-50/50 dark:ring-amber-900/10">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6" />
+          </div>
+          <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">
+            ¿Omitir la guía de configuración?
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-sm leading-relaxed">
+            El checklist se ocultará de la pantalla principal. Puedes reactivarlo o limpiar los datos demo cuando lo desees en la sección de Configuración.
+          </p>
+          <div class="flex items-center gap-3 w-full mt-6">
+            <UButton
+              variant="outline"
+              color="neutral"
+              class="flex-1 justify-center rounded-lg py-2 text-xs font-semibold"
+              @click="closeConfirm"
+            >
+              Volver
+            </UButton>
+            <UButton
+              color="warning"
+              class="flex-1 justify-center rounded-lg py-2 text-xs font-semibold"
+              @click="confirmDismiss"
+            >
+              Confirmar y Omitir
+            </UButton>
+          </div>
+        </div>
+      </UCard>
+    </template>
+  </UModal>
 </template>
 
 <script setup lang="ts">
@@ -94,12 +130,30 @@ import { useToast } from '#imports'
 const store = useOnboardingStore()
 const toast = useToast()
 const isMinimized = ref(false)
+const isConfirmOpen = ref(false)
 
 onMounted(async () => {
   if (!store.hasFetched) {
     await store.fetchProgress()
   }
 })
+
+function toggleMinimize() {
+  isMinimized.value = !isMinimized.value
+}
+
+function openConfirm() {
+  isConfirmOpen.value = true
+}
+
+function closeConfirm() {
+  isConfirmOpen.value = false
+}
+
+async function confirmDismiss() {
+  isConfirmOpen.value = false
+  await handleDismiss()
+}
 
 async function handleDismiss() {
   try {
@@ -108,7 +162,7 @@ async function handleDismiss() {
       title: 'Guía ocultada',
       description: 'Puedes reactivarla desde la configuración de tu institución.',
       color: 'neutral',
-      timeout: 3000,
+      duration: 3000,
     })
   } catch {
     // silently fail
