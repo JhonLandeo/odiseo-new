@@ -15,8 +15,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // If route is public
   if (isPublicRoute) {
     if (authStore.isAuthenticated) {
-      // Redirect authenticated users trying to access login page to materials monitor
-      return navigateTo('/materials');
+      // Redirect authenticated users trying to access login page to the appropriate dashboard
+      if (authStore.getSubdomain() === 'odiseo') {
+        return navigateTo('/admin/dashboard');
+      }
+      if (authStore.hasPermission('generate_material') || authStore.hasPermission('view_materials')) {
+        return navigateTo('/materials');
+      }
+      // If they are authenticated but lack permissions, log them out to clear the stale session
+      await authStore.logout();
     }
     return;
   }

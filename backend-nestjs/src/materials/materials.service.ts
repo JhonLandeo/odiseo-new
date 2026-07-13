@@ -1081,4 +1081,77 @@ export class MaterialsService {
       },
     };
   }
+
+  async getTenantDashboardMetrics(): Promise<any> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // 1. Total generated materials (requests with status COMPLETED or COMPLETED_WITH_WARNINGS)
+      const totalMaterialsRes = await manager.query(`
+        SELECT COUNT(*) as count FROM material_requests 
+        WHERE status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS')
+      `);
+      const totalMaterials = parseInt(totalMaterialsRes[0]?.count || '0', 10);
+
+      // 2. Total questions generated
+      const totalQuestionsRes = await manager.query(`
+        SELECT COUNT(*) as count FROM material_question_usage
+      `);
+      const totalQuestions = parseInt(totalQuestionsRes[0]?.count || '0', 10);
+
+      // 3. Replacements count
+      const replacementsRes = await manager.query(`
+        SELECT COUNT(*) as count FROM material_question_usage WHERE was_replacement = true
+      `);
+      const totalReplacements = parseInt(replacementsRes[0]?.count || '0', 10);
+
+      // 4. Activity status breakdown (count by status)
+      const statusBreakdownRes = await manager.query(`
+        SELECT status, COUNT(*) as count FROM material_requests GROUP BY status
+      `);
+      const statusCounts: Record<string, number> = {
+        PENDING: 0,
+        PROCESSING: 0,
+        REVIEW_REQUIRED: 0,
+        IN_REVIEW: 0,
+        COMPLETED: 0,
+        COMPLETED_WITH_WARNINGS: 0,
+        FAILED: 0,
+      };
+      for (const row of statusBreakdownRes) {
+        statusCounts[row.status] = parseInt(row.count || '0', 10);
+      }
+
+      // 5. Breakdown by Cycle (comparative table)
+      const cyclesBreakdown = await manager.query(`
+        SELECT 
+          c.id, 
+          c.name, 
+          c.is_active as "isActive",
+          (SELECT COUNT(*) FROM material_requests r WHERE r.cycle_id = c.id AND r.status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS')) as "materialsCount",
+          (SELECT COUNT(*) FROM material_question_usage q WHERE q.cycle_id = c.id) as "questionsCount",
+          (SELECT COUNT(*) FROM syllabus s WHERE s.cycle_id = c.id AND s.is_active = true) as "syllabusCount"
+        FROM cycles c
+        ORDER BY c.is_active DESC, c.created_at DESC
+      `);
+
+      // 6. Recent generation history with Cycle name (limit 5)
+      const recentHistoryRes = await manager.query(`
+        SELECT r.id, r.week_number as "weekNumber", r.status, r.created_at as "createdAt",
+               t.name as "templateName", c.name as "cycleName"
+        FROM material_requests r
+        LEFT JOIN cycle_material_templates t ON r.profile_id = t.id
+        LEFT JOIN cycles c ON r.cycle_id = c.id
+        ORDER BY r.created_at DESC
+        LIMIT 5
+      `);
+
+      return {
+        totalMaterials,
+        totalQuestions,
+        totalReplacements,
+        statusCounts,
+        cyclesBreakdown,
+        recentHistory: recentHistoryRes,
+      };
+    });
+  }
 }

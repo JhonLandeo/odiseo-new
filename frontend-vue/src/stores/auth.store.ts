@@ -41,7 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
         return parts[0];
       }
     }
-    return 'default';
+    return 'odiseo';
   }
 
   async function fetchBranding(subdomainParam?: string) {

@@ -347,6 +347,33 @@ export const useMaterialsStore = defineStore('materials', () => {
     }
   }
 
+  async function fetchDashboardMetrics() {
+    isLoading.value = true
+    error.value = null
+    try {
+      const authStore = useAuthStore()
+      const subdomain = authStore.getSubdomain()
+      // @ts-ignore
+      const res = await $fetch('/api/v1/materials/dashboard/metrics', {
+        method: 'GET',
+        headers: { 'x-subdomain': subdomain },
+      })
+      return res as {
+        totalMaterials: number;
+        totalQuestions: number;
+        totalReplacements: number;
+        statusCounts: Record<string, number>;
+        cyclesBreakdown: any[];
+        recentHistory: any[];
+      }
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error al obtener métricas del dashboard'
+      throw e
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     isLoading,
     error,
@@ -360,6 +387,7 @@ export const useMaterialsStore = defineStore('materials', () => {
     fetchAttempts,
     fetchQuestionPreview,
     fetchQuestionAlternatives,
+    fetchDashboardMetrics,
     pendingReplacements,
     pendingReplacementsData,
     pendingRemovals,

@@ -179,6 +179,22 @@ export class MaterialsController {
     }
   }
 
+  @Get('dashboard/metrics')
+  @ApiOperation({
+    summary: 'Obtener métricas consolidadas para el dashboard del tenant',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Métricas del tenant obtenidas exitosamente.',
+  })
+  async getDashboardMetrics() {
+    const tenantId = this.cls.get('companyId');
+    if (!tenantId) {
+      throw new UnauthorizedException('Tenant not identified');
+    }
+    return await this.materialsService.getTenantDashboardMetrics();
+  }
+
   @Get('history')
   @ApiOperation({
     summary: 'Obtener historial de solicitudes de generación',

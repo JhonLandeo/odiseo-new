@@ -20,6 +20,26 @@ export class CreateTenantDto {
   @IsString()
   @IsOptional()
   adminPassword?: string;
+
+  @IsString()
+  @IsOptional()
+  contactEmail?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  taxId?: string;
+
+  @IsString()
+  @IsOptional()
+  logoUrl?: string;
 }
 
 export class UpdateTenantDto {

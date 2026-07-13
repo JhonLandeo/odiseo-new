@@ -13,13 +13,47 @@ export class TenantsAdminService {
     private readonly schemaService: SchemaService,
   ) {}
 
-  async findAll(): Promise<Company[]> {
-    return this.companyRepository.find({
+  async findAll(): Promise<any[]> {
+    const companies = await this.companyRepository.find({
       relations: ['subscriptionPlan'],
     });
+
+    const result = [];
+    for (const company of companies) {
+      let adminEmail = null;
+      try {
+        const schemaName = `tenant_${company.id}`;
+        const users = await this.companyRepository.manager.query(
+          `SELECT email FROM "${schemaName}".users LIMIT 1`
+        );
+        if (users && users.length > 0) {
+          adminEmail = users[0].email;
+        }
+      } catch (e) {
+        // Schema or table might not exist yet or is the public schema
+      }
+
+      result.push({
+        ...company,
+        adminEmail: adminEmail || company.contactEmail || 'No registrado',
+      });
+    }
+
+    return result;
   }
 
-  async create(data: { name: string; subdomain: string; subscription_plan_id: string; adminEmail: string; adminPassword?: string }): Promise<Company> {
+  async create(data: { 
+    name: string; 
+    subdomain: string; 
+    subscription_plan_id: string; 
+    adminEmail: string; 
+    adminPassword?: string;
+    contactEmail?: string;
+    phone?: string;
+    address?: string;
+    taxId?: string;
+    logoUrl?: string;
+  }): Promise<Company> {
     const existing = await this.companyRepository.findOne({ where: { subdomain: data.subdomain } });
     if (existing) {
       throw new ConflictException(`Tenant con subdominio ${data.subdomain} ya existe.`);
@@ -36,6 +70,11 @@ export class TenantsAdminService {
       subscriptionPlanId: data.subscription_plan_id,
       status: 'ACTIVE',
       isActive: true,
+      contactEmail: data.contactEmail || data.adminEmail,
+      phone: data.phone,
+      address: data.address,
+      taxId: data.taxId,
+      logoUrl: data.logoUrl,
     });
     const savedCompany = await this.companyRepository.save(company);
 

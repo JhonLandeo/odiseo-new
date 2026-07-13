@@ -80,20 +80,27 @@ export class SchemaService {
 
       // 2. Insert Super Admin (Director) Role
       const superAdminPermsJSON = JSON.stringify([
-        "MANAGE_ROLES", "MANAGE_USERS", "VIEW_SYLLABUS", "EDIT_SYLLABUS", "VIEW_MATERIALS", "EDIT_MATERIALS", "MANAGE_TENANTS"
+        'view_catalogs',
+        'edit_catalogs',
+        'view_materials',
+        'generate_material',
+        'review_material',
+        'view_syllabus',
+        'edit_syllabus',
+        'manage_academic_time',
       ]);
       const sysRoleRes = await queryRunner.query(`
         INSERT INTO "${schemaName}".roles (name, description, is_system_default, permissions) 
         VALUES ('Director', 'Administrador Principal de la Institución', true, $1::jsonb) RETURNING id;
       `, [superAdminPermsJSON]);
-      const sysRoleId = sysRoleRes.rows[0].id;
+      const sysRoleId = sysRoleRes[0].id;
 
       // 3. Insert user
       const sysUserInsert = await queryRunner.query(
         `INSERT INTO "${schemaName}".users (email, password_hash, name, company_id, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
         [adminEmail, adminPasswordHash, 'Director General', companyId]
       );
-      const sysUserId = sysUserInsert.rows[0].id;
+      const sysUserId = sysUserInsert[0].id;
 
       // 4. Assign role
       await queryRunner.query(`INSERT INTO "${schemaName}".user_roles (user_id, role_id) VALUES ($1, $2)`, [sysUserId, sysRoleId]);

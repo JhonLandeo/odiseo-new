@@ -38,7 +38,18 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     }
   }
 
-  const createTenant = async (data: { name: string; subdomain: string; subscription_plan_id: string; adminEmail: string; adminPassword?: string }) => {
+  const createTenant = async (data: { 
+    name: string; 
+    subdomain: string; 
+    subscription_plan_id: string; 
+    adminEmail: string; 
+    adminPassword?: string;
+    contactEmail?: string;
+    phone?: string;
+    address?: string;
+    taxId?: string;
+    logoUrl?: string;
+  }) => {
     loading.value = true
     error.value = null
     try {

@@ -309,7 +309,7 @@ async function handleLogin() {
     if (isSystemTenant.value) {
       router.push('/admin/dashboard');
     } else {
-      router.push('/');
+      router.push('/materials');
     }
   } else {
     error.value = 'Credenciales inválidas o acceso denegado.';
