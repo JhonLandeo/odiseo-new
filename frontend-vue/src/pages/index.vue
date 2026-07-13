@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useMaterialsStore } from '@/features/materials/store/materials';
+import { useOnboardingStore } from '@/features/onboarding/store/onboarding';
+import OnboardingChecklistWidget from '@/features/onboarding/components/OnboardingChecklistWidget.vue';
 import { useRouter } from 'vue-router';
 
 definePageMeta({
@@ -10,6 +12,7 @@ definePageMeta({
 
 const authStore = useAuthStore();
 const materialsStore = useMaterialsStore();
+const onboardingStore = useOnboardingStore();
 const router = useRouter();
 
 const isSuperAdmin = ref(false);
@@ -54,6 +57,8 @@ onMounted(async () => {
     if (data) {
       metrics.value = data;
     }
+    // Fetch onboarding progress in parallel (non-blocking)
+    onboardingStore.fetchProgress().catch(() => {});
   } catch (error) {
     console.error('Error loading dashboard metrics:', error);
   } finally {
@@ -450,6 +455,9 @@ function formatDate(dateString: string) {
       </div>
 
     </div>
+
+    <!-- Fixed onboarding checklist widget (bottom-right overlay) -->
+    <OnboardingChecklistWidget />
   </div>
 </template>
 

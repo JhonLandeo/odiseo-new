@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useOnboardingStore } from '@/features/onboarding/store/onboarding'
 import PdfDesignList from '@/features/materials/components/PdfDesignList.vue'
 import PdfDesignForm from '@/features/materials/components/PdfDesignForm.vue'
+import { useToast } from '#imports'
 
 definePageMeta({ layout: 'b2b', permissions: ['generate_material'] })
 
@@ -22,6 +24,29 @@ function openEdit(id: string) {
 function goBack() {
   currentView.value = 'list'
   editingId.value = null
+}
+
+const onboardingStore = useOnboardingStore()
+const toast = useToast()
+const isClearing = ref(false)
+const showClearConfirm = ref(false)
+
+async function handleClearDemo() {
+  isClearing.value = true
+  try {
+    await onboardingStore.clearDemoData()
+    showClearConfirm.value = false
+    toast.add({
+      title: 'Datos demo eliminados',
+      description: 'Tu plataforma está lista para comenzar con datos reales.',
+      color: 'success',
+      timeout: 4000,
+    })
+  } catch (e: any) {
+    toast.add({ title: 'Error', description: e.message, color: 'error', timeout: 5000 })
+  } finally {
+    isClearing.value = false
+  }
 }
 </script>
 
@@ -44,6 +69,37 @@ function goBack() {
         </UButton>
       </div>
       <PdfDesignList @create="openNew" @edit="openEdit" />
+
+      <!-- Demo Data Cleanup Card -->
+      <div
+        v-if="onboardingStore.stepsCompleted.includes('load_demo_or_create_cycle')"
+        class="mt-6 p-5 rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center gap-4"
+      >
+        <div class="flex-1">
+          <p class="text-sm font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+            <UIcon name="i-heroicons-beaker" class="w-4 h-4" />
+            Datos de demostración activos
+          </p>
+          <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+            La plataforma tiene ciclos y sílabos de prueba cargados. Elimínalos cuando estés listo para comenzar con información real.
+          </p>
+        </div>
+        <UButton
+          v-if="!showClearConfirm"
+          color="warning"
+          variant="soft"
+          size="sm"
+          icon="i-heroicons-trash"
+          @click="showClearConfirm = true"
+        >
+          Limpiar datos demo
+        </UButton>
+        <div v-else class="flex items-center gap-2">
+          <span class="text-xs text-amber-800 dark:text-amber-300 font-medium">¿Confirmar?</span>
+          <UButton size="xs" color="error" :loading="isClearing" @click="handleClearDemo">Sí, eliminar</UButton>
+          <UButton size="xs" color="neutral" variant="ghost" @click="showClearConfirm = false">Cancelar</UButton>
+        </div>
+      </div>
     </div>
   </template>
 

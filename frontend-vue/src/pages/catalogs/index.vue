@@ -22,7 +22,7 @@
     </div>
 
     <!-- Cargando (Skeletons de Bloques de Cursos) -->
-    <div v-if="(!store.hasFetched || store.isLoading) && store.courses.length === 0" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div v-if="store.isLoading && store.courses.length === 0" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
       <div v-for="i in 4" :key="i" class="bg-white dark:bg-[#2b2b3f] rounded-2xl border border-slate-200 dark:border-slate-700/50 p-6 space-y-4 shadow-sm animate-pulse">
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-3">
@@ -37,10 +37,30 @@
       </div>
     </div>
 
+    <!-- Error State -->
+    <div v-else-if="store.error && store.courses.length === 0" class="flex flex-col items-center justify-center p-12 bg-white dark:bg-[#2b2b3f] rounded-2xl border border-rose-200/50 dark:border-rose-900/30 text-center max-w-2xl mx-auto my-8 shadow-sm">
+      <div class="w-16 h-16 rounded-full bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 flex items-center justify-center text-rose-500 dark:text-rose-400 mb-4 animate-bounce">
+        <UIcon name="i-heroicons-exclamation-triangle" class="w-8 h-8" />
+      </div>
+      <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">Error al cargar los cursos</h3>
+      <p class="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md">
+        No se pudieron obtener las materias escolares. {{ store.error }}
+      </p>
+      <UButton
+        color="red"
+        variant="solid"
+        icon="i-heroicons-arrow-path"
+        class="shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all"
+        @click="store.fetchCourses()"
+      >
+        Intentar de nuevo
+      </UButton>
+    </div>
+
     <!-- Componente Principal del Catálogo -->
     <CatalogTable 
       ref="catalogTableRef"
-      v-show="store.courses.length > 0 || (store.hasFetched && !store.isLoading)" 
+      v-show="store.courses.length > 0 || (store.hasFetched && !store.isLoading && !store.error)" 
     />
 
     <!-- Leyenda / Indicador de Teclado -->

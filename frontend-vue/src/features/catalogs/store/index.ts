@@ -45,11 +45,11 @@ export const useCatalogsStore = defineStore('catalogs', () => {
         }));
         lastSyncedAt.value = data.lastSyncedAt;
       }
-      hasFetched.value = true;
     } catch (e: any) {
       error.value = e.message || 'Error fetching catalogs'
     } finally {
-      isLoading.value = false
+      isLoading.value = false;
+      hasFetched.value = true;
     }
   }
 

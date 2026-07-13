@@ -62,8 +62,19 @@
       </div>
     </div>
 
+    <!-- 4b. Empty State (Onboarding) -->
+    <OnboardingEmptyState
+      v-if="store.hasFetched && !store.isLoading && store.cycles.length === 0"
+      title="Organiza tus Ciclos Académicos"
+      description="Define los ciclos del año lectivo con sus semanas, plantillas y periodos de evaluación. Carga datos demo para ver cómo funciona."
+      icon="i-heroicons-calendar-days"
+      create-label="Ciclo"
+      @create="openCreateSlide"
+      @demo_loaded="store.fetchCycles()"
+    />
+
     <!-- 5. Matriz de semanas -->
-    <WeeksMatrix ref="weeksMatrixRef" v-show="store.cycles.length > 0 || (store.hasFetched && !store.isLoading)" @edit="openEditSlide" />
+    <WeeksMatrix ref="weeksMatrixRef" v-show="store.cycles.length > 0" @edit="openEditSlide" />
 
     <!-- Slide-over para Crear/Editar Ciclos -->
     <CycleSlideOver v-model="showCreateSlide" :cycleToEdit="selectedCycle" @submit="onSubmitted" />
@@ -87,6 +98,7 @@ import { useAcademicTimeStore } from '../../features/academic-time/store'
 import type { Cycle } from '../../features/academic-time/store'
 import WeeksMatrix from '../../features/academic-time/components/WeeksMatrix.vue'
 import CycleSlideOver from '../../features/academic-time/components/CycleSlideOver.vue'
+import OnboardingEmptyState from '../../features/onboarding/components/OnboardingEmptyState.vue'
 import { useToast } from '#imports'
 import { watchDebounced } from '@vueuse/core'
 
