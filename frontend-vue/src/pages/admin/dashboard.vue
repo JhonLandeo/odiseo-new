@@ -1,87 +1,123 @@
 <template>
-  <div>
-    <div class="sm:flex sm:items-center">
-      <div class="sm:flex-auto">
-        <h1 class="text-xl font-semibold text-gray-900">Dashboard de Consumo e Infraestructura</h1>
-        <p class="mt-2 text-sm text-gray-700">Métricas consolidadas de uso de recursos por empresa (Tenant).</p>
+  <div class="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <!-- Header Section -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+          <UIcon name="i-heroicons-chart-bar-square" class="w-7 h-7 text-indigo-500" />
+          Métricas de Consumo
+        </h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Supervisión de infraestructura y recursos globales de Odiseo SaaS.
+        </p>
       </div>
     </div>
 
     <!-- Error message -->
-    <div v-if="error" class="mt-4 p-4 text-sm text-red-700 bg-red-100 rounded-md">
+    <div v-if="error" class="p-4 text-sm text-rose-700 bg-rose-50 border border-rose-200 dark:bg-rose-900/20 dark:border-rose-800/30 dark:text-rose-400 rounded-xl flex items-center gap-3">
+      <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 shrink-0" />
       {{ error }}
     </div>
 
-    <!-- Filters (Mock) -->
-    <div class="mt-6 flex gap-4 items-end bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-      <div class="w-64">
-        <label class="block text-sm font-medium text-gray-700">Seleccionar Tenant</label>
-        <select v-model="selectedTenantId" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm border">
-          <option value="all">Consolidado Global (Mock)</option>
-          <!-- <option v-for="tenant in tenants" :value="tenant.id">{{ tenant.commercialName }}</option> -->
-        </select>
+    <!-- Filters Box -->
+    <div class="relative overflow-hidden bg-white/60 dark:bg-[#2b2b3f]/60 backdrop-blur-xl p-5 rounded-2xl border border-slate-200/60 dark:border-slate-700/50 shadow-sm flex flex-col sm:flex-row gap-4 items-end">
+      <!-- Decorator -->
+      <div class="absolute -right-10 -top-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      
+      <div class="w-full sm:w-72 relative z-10">
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Tenant Analizado</label>
+        <div class="relative">
+          <select 
+            v-model="selectedTenantId" 
+            class="block w-full appearance-none rounded-xl border border-slate-300 dark:border-slate-600 bg-white/50 dark:bg-slate-800/50 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-700 dark:text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer"
+          >
+            <option value="all">🌐 Consolidado Global (Todos)</option>
+            <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">🏢 {{ tenant.commercialName }}</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
+            <UIcon name="i-heroicons-chevron-up-down" class="w-4 h-4" />
+          </div>
+        </div>
       </div>
-      <button @click="loadMetrics" class="bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700">Actualizar</button>
+      
+      <button 
+        @click="loadMetrics" 
+        class="w-full sm:w-auto relative z-10 group flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md shadow-indigo-500/20"
+      >
+        <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 transition-transform group-hover:rotate-180 duration-500" />
+        Actualizar Datos
+      </button>
     </div>
 
-    <!-- Stats -->
-    <dl class="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="relative overflow-hidden rounded-lg bg-white px-4 pt-5 pb-12 shadow sm:px-6 sm:pt-6">
-        <dt>
-          <div class="absolute rounded-md bg-indigo-500 p-3">
-            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-            </svg>
+    <!-- Bento Grid Stats -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      
+      <!-- Users Metric -->
+      <div class="relative overflow-hidden rounded-3xl bg-white dark:bg-[#2b2b3f] border border-slate-200 dark:border-slate-700/50 p-6 shadow-sm hover:shadow-md transition-shadow group">
+        <div class="absolute -right-6 -top-6 w-24 h-24 bg-blue-500/10 dark:bg-blue-500/20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+        <div class="flex items-center gap-4 mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400">
+            <UIcon name="i-heroicons-users" class="w-6 h-6" />
           </div>
-          <p class="ml-16 truncate text-sm font-medium text-gray-500">Usuarios Activos</p>
-        </dt>
-        <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-          <p class="text-2xl font-semibold text-gray-900">{{ loading ? '...' : (metrics?.active_users || 0) }}</p>
-        </dd>
+          <span class="text-sm font-medium text-slate-600 dark:text-slate-400">Usuarios Activos</span>
+        </div>
+        <div class="relative z-10 flex items-baseline gap-2">
+          <span class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+            {{ loading ? '...' : (metrics?.active_users || 0) }}
+          </span>
+        </div>
       </div>
 
-      <div class="relative overflow-hidden rounded-lg bg-white px-4 pt-5 pb-12 shadow sm:px-6 sm:pt-6">
-        <dt>
-          <div class="absolute rounded-md bg-indigo-500 p-3">
-            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
+      <!-- PDF Pages Metric -->
+      <div class="relative overflow-hidden rounded-3xl bg-white dark:bg-[#2b2b3f] border border-slate-200 dark:border-slate-700/50 p-6 shadow-sm hover:shadow-md transition-shadow group">
+        <div class="absolute -right-6 -top-6 w-24 h-24 bg-purple-500/10 dark:bg-purple-500/20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+        <div class="flex items-center gap-4 mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center border border-purple-100 dark:border-purple-500/20 text-purple-600 dark:text-purple-400">
+            <UIcon name="i-heroicons-document-text" class="w-6 h-6" />
           </div>
-          <p class="ml-16 truncate text-sm font-medium text-gray-500">Páginas de PDF</p>
-        </dt>
-        <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-          <p class="text-2xl font-semibold text-gray-900">{{ loading ? '...' : (metrics?.pdf_pages_generated || 0) }}</p>
-        </dd>
+          <span class="text-sm font-medium text-slate-600 dark:text-slate-400">Páginas Generadas</span>
+        </div>
+        <div class="relative z-10 flex items-baseline gap-2">
+          <span class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+            {{ loading ? '...' : (metrics?.pdf_pages_generated || 0) }}
+          </span>
+        </div>
       </div>
 
-      <div class="relative overflow-hidden rounded-lg bg-white px-4 pt-5 pb-12 shadow sm:px-6 sm:pt-6">
-        <dt>
-          <div class="absolute rounded-md bg-indigo-500 p-3">
-            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-            </svg>
+      <!-- Questions Used -->
+      <div class="relative overflow-hidden rounded-3xl bg-white dark:bg-[#2b2b3f] border border-slate-200 dark:border-slate-700/50 p-6 shadow-sm hover:shadow-md transition-shadow group">
+        <div class="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/10 dark:bg-emerald-500/20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+        <div class="flex items-center gap-4 mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center border border-emerald-100 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+            <UIcon name="i-heroicons-academic-cap" class="w-6 h-6" />
           </div>
-          <p class="ml-16 truncate text-sm font-medium text-gray-500">Preguntas Usadas</p>
-        </dt>
-        <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-          <p class="text-2xl font-semibold text-gray-900">{{ loading ? '...' : (metrics?.questions_used || 0) }}</p>
-        </dd>
+          <span class="text-sm font-medium text-slate-600 dark:text-slate-400">Preguntas Usadas</span>
+        </div>
+        <div class="relative z-10 flex items-baseline gap-2">
+          <span class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+            {{ loading ? '...' : (metrics?.questions_used || 0) }}
+          </span>
+        </div>
       </div>
 
-      <div class="relative overflow-hidden rounded-lg bg-white px-4 pt-5 pb-12 shadow sm:px-6 sm:pt-6">
-        <dt>
-          <div class="absolute rounded-md bg-indigo-500 p-3">
-            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-            </svg>
+      <!-- Storage Metric -->
+      <div class="relative overflow-hidden rounded-3xl bg-white dark:bg-[#2b2b3f] border border-slate-200 dark:border-slate-700/50 p-6 shadow-sm hover:shadow-md transition-shadow group">
+        <div class="absolute -right-6 -top-6 w-24 h-24 bg-amber-500/10 dark:bg-amber-500/20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+        <div class="flex items-center gap-4 mb-4 relative z-10">
+          <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center border border-amber-100 dark:border-amber-500/20 text-amber-600 dark:text-amber-400">
+            <UIcon name="i-heroicons-server-stack" class="w-6 h-6" />
           </div>
-          <p class="ml-16 truncate text-sm font-medium text-gray-500">Almacenamiento (MB)</p>
-        </dt>
-        <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-          <p class="text-2xl font-semibold text-gray-900">{{ loading ? '...' : (metrics?.storage_mb || 0) }}</p>
-        </dd>
+          <span class="text-sm font-medium text-slate-600 dark:text-slate-400">Almacenamiento (MB)</span>
+        </div>
+        <div class="relative z-10 flex items-baseline gap-2">
+          <span class="text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+            {{ loading ? '...' : (metrics?.storage_mb || 0) }}
+          </span>
+          <span class="text-sm text-slate-400 font-medium">MB</span>
+        </div>
       </div>
-    </dl>
+
+    </div>
   </div>
 </template>
 
@@ -89,6 +125,7 @@
 import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAdminDashboardStore } from '@/stores/admin/dashboard'
+import { useAdminTenantsStore } from '@/stores/admin/tenants'
 
 definePageMeta({
   layout: 'admin',
@@ -98,11 +135,15 @@ const store = useAdminDashboardStore()
 const { metrics, loading, error } = storeToRefs(store)
 const selectedTenantId = ref('all')
 
+const tenantsStore = useAdminTenantsStore()
+const { tenants } = storeToRefs(tenantsStore)
+
 const loadMetrics = () => {
   store.fetchMetrics(selectedTenantId.value)
 }
 
 onMounted(() => {
+  tenantsStore.fetchTenants()
   loadMetrics()
 })
 </script>

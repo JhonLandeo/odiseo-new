@@ -23,6 +23,18 @@ export class Company {
   @Column({ name: 'logo_url', nullable: true, length: 255 })
   logoUrl: string;
 
+  @Column({ name: 'contact_email', nullable: true, length: 255 })
+  contactEmail: string;
+
+  @Column({ nullable: true, length: 50 })
+  phone: string;
+
+  @Column({ nullable: true, type: 'text' })
+  address: string;
+
+  @Column({ name: 'tax_id', nullable: true, length: 100 })
+  taxId: string;
+
   @Column({ name: 'primary_color', default: '#6366f1', length: 50 })
   primaryColor: string;
 

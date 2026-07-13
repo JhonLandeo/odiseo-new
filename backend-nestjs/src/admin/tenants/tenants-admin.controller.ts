@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/co
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsAdminService } from './tenants-admin.service';
 import { JwtAuthGuard } from '../../auth/auth.guard';
+import { CreateTenantDto, UpdateTenantDto, UpdateTenantStatusDto, ResetAdminDto } from './dto/tenant.dto';
 
 @ApiTags('Admin / Tenants')
 @ApiBearerAuth()
@@ -18,7 +19,7 @@ export class TenantsAdminController {
 
   @Post()
   @ApiOperation({ summary: 'Registrar y aprovisionar nueva empresa B2B' })
-  async create(@Body() createData: { name: string; subdomain: string; subscription_plan_id: string }) {
+  async create(@Body() createData: CreateTenantDto) {
     return this.tenantsAdminService.create(createData);
   }
 
@@ -26,9 +27,27 @@ export class TenantsAdminController {
   @ApiOperation({ summary: 'Actualizar estado de suscripción de la empresa' })
   async updateStatus(
     @Param('id') id: string,
-    @Body() updateData: { status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD'; grace_period_until?: string },
+    @Body() updateData: UpdateTenantStatusDto,
   ) {
     const gracePeriod = updateData.grace_period_until ? new Date(updateData.grace_period_until) : undefined;
     return this.tenantsAdminService.updateStatus(id, updateData.status, gracePeriod);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Editar datos básicos de la empresa' })
+  async update(
+    @Param('id') id: string,
+    @Body() updateData: UpdateTenantDto,
+  ) {
+    return this.tenantsAdminService.update(id, updateData);
+  }
+
+  @Post(':id/reset-admin')
+  @ApiOperation({ summary: 'Resetear credenciales del Director de la empresa' })
+  async resetAdminCredentials(
+    @Param('id') id: string,
+    @Body() resetData: ResetAdminDto,
+  ) {
+    return this.tenantsAdminService.resetAdminCredentials(id, resetData.email, resetData.password);
   }
 }

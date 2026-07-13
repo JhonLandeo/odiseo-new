@@ -12,7 +12,7 @@
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          <tr v-for="user in mockUsers" :key="user.id">
+          <tr v-for="user in filteredUsers" :key="user.id">
             <td class="px-6 py-4 whitespace-nowrap">
               <div class="font-medium text-gray-900">{{ user.name }}</div>
               <div class="text-gray-500 text-sm">{{ user.email }}</div>
@@ -56,7 +56,7 @@
             <input 
               type="checkbox" 
               :value="role.id" 
-              v-model="selectedRoleIds"
+              v-model="selectedRoles"
               class="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
             >
             <span class="text-gray-900 font-medium">{{ role.name }}</span>
@@ -77,58 +77,70 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRolesStore } from '../store/roles.store';
 import { storeToRefs } from 'pinia';
 
-// Mock data to demonstrate integration without full user module dependency
-const mockUsers = ref([
-  { id: '1', name: 'Ana Garcia', email: 'ana@colegio.edu', roles: [] as any[] },
-  { id: '2', name: 'Carlos Ruiz', email: 'carlos@colegio.edu', roles: [] as any[] },
-]);
-
+const search = ref('')
+const users = ref<any[]>([])
+const loading = ref(false)
 const rolesStore = useRolesStore();
 const { roles: availableRoles } = storeToRefs(rolesStore);
 
+const filteredUsers = computed(() => {
+  if (!search.value) return users.value
+  const query = search.value.toLowerCase()
+  return users.value.filter(u => 
+    u.name.toLowerCase().includes(query) || 
+    u.email.toLowerCase().includes(query)
+  )
+})
+
 const isModalOpen = ref(false);
 const selectedUser = ref<any>(null);
-const selectedRoleIds = ref<string[]>([]);
+const selectedRoles = ref<string[]>([]);
 
-onMounted(() => {
-  rolesStore.fetchRoles();
-  // Idealmente aquí se llamaría a fetchUsers() de un userStore
-});
+onMounted(async () => {
+  rolesStore.fetchRoles()
+  await fetchUsers()
+})
+
+const fetchUsers = async () => {
+  loading.value = true
+  try {
+    const res = await $fetch<any[]>('/api/v1/admin/users')
+    users.value = res
+  } catch (e) {
+    console.error('Error fetching users', e)
+  } finally {
+    loading.value = false
+  }
+};
 
 const openRoleModal = (user: any) => {
   selectedUser.value = user;
-  selectedRoleIds.value = user.roles.map((r: any) => r.id);
+  selectedRoles.value = user.roles.map((r: any) => r.id);
   isModalOpen.value = true;
 };
 
 const closeModal = () => {
   isModalOpen.value = false;
   selectedUser.value = null;
-  selectedRoleIds.value = [];
+  selectedRoles.value = [];
 };
 
 const saveRoles = async () => {
   if (!selectedUser.value) return;
   
   try {
-    const response = await fetch(`/api/v1/admin/users/${selectedUser.value.id}/roles`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({ role_ids: selectedRoleIds.value })
-    });
+    await rolesStore.assignRolesToUser(selectedUser.value.id, selectedRoles.value)
     
-    if (response.ok) {
-      // Optimistic update
-      selectedUser.value.roles = availableRoles.value.filter(r => selectedRoleIds.value.includes(r.id));
-      closeModal();
+    // Optimistic update of local users array
+    const localUser = users.value.find(u => u.id === selectedUser.value!.id)
+    if (localUser) {
+      localUser.roles = rolesStore.roles.filter(r => selectedRoles.value.includes(r.id))
     }
+    closeModal();
   } catch (err) {
     alert('Error al asignar roles');
   }
