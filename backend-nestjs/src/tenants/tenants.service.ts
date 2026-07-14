@@ -7,6 +7,8 @@ import * as path from 'path';
 
 @Injectable()
 export class TenantsService {
+  private initSqlCache: string | null = null;
+
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
@@ -45,39 +47,46 @@ export class TenantsService {
       );
     }
 
-    // Create company record
-    const company = this.companyRepository.create({
-      subdomain: data.subdomain,
-      commercialName: data.commercialName,
-      logoUrl: data.logoUrl,
-      primaryColor: data.primaryColor || '#6366f1',
-    });
-    const saved = await this.companyRepository.save(company);
-
-    // 1. Validate UUID (Security: prevent SQL injection in schema name)
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(saved.id)) {
-      throw new ConflictException('Invalid company ID format');
-    }
-
-    const schemaName = `tenant_${saved.id}`;
     const queryRunner = this.dataSource.createQueryRunner();
-    
     await queryRunner.connect();
+    await queryRunner.startTransaction();
 
     try {
+      // Create company record within transaction
+      const company = this.companyRepository.create({
+        subdomain: data.subdomain,
+        commercialName: data.commercialName,
+        logoUrl: data.logoUrl,
+        primaryColor: data.primaryColor || '#6366f1',
+      });
+      const saved = await queryRunner.manager.save(Company, company);
+
+      // 1. Validate UUID (Security: prevent SQL injection in schema name)
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(saved.id)) {
+        throw new ConflictException('Invalid company ID format');
+      }
+
+      const schemaName = `tenant_${saved.id}`;
+
       // 2. Create secure schema (TypeORM sanitizes the schemaName under the hood)
       await queryRunner.createSchema(schemaName, true);
 
       // 3. Execute initialization script (Clean Code: separate DDL)
-      const initScriptPath = path.join(__dirname, 'scripts', 'tenant-schema-init.sql');
-      const initSql = await fs.readFile(initScriptPath, 'utf8');
+      if (!this.initSqlCache) {
+        const initScriptPath = path.join(__dirname, 'scripts', 'tenant-schema-init.sql');
+        this.initSqlCache = await fs.readFile(initScriptPath, 'utf8');
+      }
 
       await queryRunner.query(`SET LOCAL search_path TO "${schemaName}"`);
-      await queryRunner.query(initSql);
+      await queryRunner.query(this.initSqlCache);
+      
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
     } finally {
       await queryRunner.release();
     }
-
-    return saved;
   }
 }

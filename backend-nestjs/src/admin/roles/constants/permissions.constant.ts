@@ -2,6 +2,7 @@ export const PERMISSIONS = {
   // Module: Admin
   MANAGE_ROLES: 'MANAGE_ROLES',
   MANAGE_USERS: 'MANAGE_USERS',
+  MANAGE_TENANTS: 'MANAGE_TENANTS',
   
   // Module: Syllabus
   VIEW_SYLLABUS: 'VIEW_SYLLABUS',
@@ -20,6 +21,7 @@ export const PERMISSIONS_METADATA = [
     permissions: [
       { code: PERMISSIONS.MANAGE_ROLES, description: 'Crear y editar roles' },
       { code: PERMISSIONS.MANAGE_USERS, description: 'Gestionar usuarios y accesos' },
+      { code: PERMISSIONS.MANAGE_TENANTS, description: 'Gestionar inquilinos/empresas' },
     ],
   },
   {

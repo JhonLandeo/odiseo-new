@@ -13,6 +13,8 @@ import { Company } from './entities/tenant.entity';
 import { TenantsService } from './tenants.service';
 import { JwtAuthGuard } from '../auth/auth.guard';
 import { CreateCompanyDto } from './dto/create-company.dto';
+import { PermissionsGuard, RequirePermissions } from '../common/guards/permissions.guard';
+import { PERMISSIONS } from '../admin/roles/constants/permissions.constant';
 
 @Controller('v1')
 export class TenantsController {
@@ -53,9 +55,9 @@ export class TenantsController {
   }
 
   @Post('admin/companies')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(PERMISSIONS.MANAGE_TENANTS)
   async createCompany(@Body() dto: CreateCompanyDto) {
-    // TODO: In future, validate super-admin role from request.user
     const company = await this.tenantsService.createCompany({
       subdomain: dto.subdomain,
       commercialName: dto.commercialName,
