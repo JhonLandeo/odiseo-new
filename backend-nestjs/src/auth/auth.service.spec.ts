@@ -51,10 +51,17 @@ describe('AuthService', () => {
       verify: jest.fn(),
     };
 
+    const mockCacheManager = {
+      get: jest.fn(),
+      set: jest.fn(),
+      del: jest.fn(),
+    };
+
     authService = new AuthService(
       mockTenantService,
       mockTenantsService,
       mockJwtService,
+      mockCacheManager as any,
     );
   });
 

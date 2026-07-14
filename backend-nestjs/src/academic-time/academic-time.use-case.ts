@@ -3,6 +3,10 @@ import { IAcademicTimeRepository } from './repositories/i-academic-time.reposito
 import { v4 as uuidv4 } from 'uuid';
 import { CreateCycleMaterialTemplateDto, CreateTemplateCourseDto } from './dtos/create-material-template.dto';
 import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
+import * as dayjs from 'dayjs';
+import * as utcPlugin from 'dayjs/plugin/utc';
+
+dayjs.extend((utcPlugin as any).default || utcPlugin);
 
 @Injectable()
 export class AcademicTimeUseCase {
@@ -24,17 +28,14 @@ export class AcademicTimeUseCase {
   }) {
     const { name, year, startDate, daysPerWeek, totalWeeks } = dto;
 
-    const startParts = startDate.split('-');
-    const start = new Date(
-      Date.UTC(+startParts[0], +startParts[1] - 1, +startParts[2]),
-    );
+    const start = dayjs.utc(startDate);
 
     const cycleId = uuidv4();
     const cycle = {
       id: cycleId,
       name,
       year,
-      startDate: start.toISOString().split('T')[0],
+      startDate: start.format('YYYY-MM-DD'),
       endDate: '', // Will be assigned from the last week
       daysPerWeek,
       totalWeeks,
@@ -42,16 +43,15 @@ export class AcademicTimeUseCase {
     };
 
     for (let i = 1; i <= totalWeeks; i++) {
-      // 86400000 = 24 * 60 * 60 * 1000 (ms in a day)
-      const currentWeekStart = new Date(start.getTime() + (i - 1) * 7 * 86400000);
-      const currentWeekEnd = new Date(currentWeekStart.getTime() + (daysPerWeek - 1) * 86400000);
+      const currentWeekStart = start.add((i - 1) * 7, 'day');
+      const currentWeekEnd = currentWeekStart.add(daysPerWeek - 1, 'day');
 
       cycle.weeks.push({
         id: uuidv4(),
         cycleId,
         weekNumber: i,
-        startDate: currentWeekStart.toISOString().split('T')[0],
-        endDate: currentWeekEnd.toISOString().split('T')[0],
+        startDate: currentWeekStart.format('YYYY-MM-DD'),
+        endDate: currentWeekEnd.format('YYYY-MM-DD'),
         isActive: true,
       });
     }
@@ -84,13 +84,7 @@ export class AcademicTimeUseCase {
 
     const normalizeDate = (d: any): string => {
       if (!d) return '';
-      if (d instanceof Date) {
-        return d.toISOString().split('T')[0];
-      }
-      if (typeof d === 'string') {
-        return d.split('T')[0];
-      }
-      return String(d);
+      return dayjs.utc(d).format('YYYY-MM-DD');
     };
 
     const finalStartDate =
@@ -124,23 +118,19 @@ export class AcademicTimeUseCase {
     if (totalWeeks !== undefined) cycleUpdate.totalWeeks = finalTotalWeeks;
 
     if (needsRecalculation) {
-      const startParts = finalStartDate.split('-');
-      const start = new Date(
-        Date.UTC(+startParts[0], +startParts[1] - 1, +startParts[2]),
-      );
+      const start = dayjs.utc(finalStartDate);
 
       cycleUpdate.weeks = [];
       for (let i = 1; i <= finalTotalWeeks; i++) {
-        // 86400000 = 24 * 60 * 60 * 1000 (ms in a day)
-        const currentWeekStart = new Date(start.getTime() + (i - 1) * 7 * 86400000);
-        const currentWeekEnd = new Date(currentWeekStart.getTime() + (finalDaysPerWeek - 1) * 86400000);
+        const currentWeekStart = start.add((i - 1) * 7, 'day');
+        const currentWeekEnd = currentWeekStart.add(finalDaysPerWeek - 1, 'day');
 
         cycleUpdate.weeks.push({
           id: uuidv4(),
           cycleId: id,
           weekNumber: i,
-          startDate: currentWeekStart.toISOString().split('T')[0],
-          endDate: currentWeekEnd.toISOString().split('T')[0],
+          startDate: currentWeekStart.format('YYYY-MM-DD'),
+          endDate: currentWeekEnd.format('YYYY-MM-DD'),
           isActive: true,
         });
       }

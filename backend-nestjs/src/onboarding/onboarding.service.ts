@@ -194,7 +194,8 @@ export class OnboardingService {
   /** T024: Purge all demo records in a single transaction */
   async clearDemoData(): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      // Order matters due to FK constraints
+      // Order matters due to FK constraints (SyllabusDistribution has ON DELETE RESTRICT)
+      await manager.query(`DELETE FROM syllabus_distribution WHERE syllabus_id IN (SELECT id FROM syllabus WHERE is_demo = true)`);
       await manager.query(`DELETE FROM syllabus WHERE is_demo = true`);
       await manager.query(`DELETE FROM pdf_design_templates WHERE is_demo = true`);
       await manager.query(`DELETE FROM cycles WHERE is_demo = true`);

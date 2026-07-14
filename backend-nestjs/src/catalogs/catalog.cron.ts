@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
+import { HttpService } from '@nestjs/axios';
+import { lastValueFrom } from 'rxjs';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
 
 const LAST_SYNC_CACHE_KEY = 'catalogs:last-synced-at';
@@ -17,6 +19,7 @@ export class CatalogCronService {
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
     private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -27,20 +30,15 @@ export class CatalogCronService {
         this.configService.get<string>('CORE_API_URL') ||
         'http://localhost:3000/api/catalogs';
 
-      const response = await fetch(coreApiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const response: any = await lastValueFrom(
+        this.httpService.get(coreApiUrl, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
 
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch catalogs from Core API: ${response.statusText}`,
-        );
-      }
-
-      const payload = await response.json();
+      const payload = response.data;
 
       await this.catalogRepository.upsertCatalogs(payload);
       await this.cacheManager.set(LAST_SYNC_CACHE_KEY, new Date().toISOString());

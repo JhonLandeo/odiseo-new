@@ -20,6 +20,7 @@ const providers: any[] = [
 
 import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
   imports: [
@@ -27,6 +28,10 @@ import { CacheModule } from '@nestjs/cache-manager';
     ConfigModule,
     CacheModule.register({
       ttl: 60 * 10 * 1000, // 10 minutes default
+    }),
+    HttpModule.register({
+      timeout: 10000,
+      maxRedirects: 3,
     }),
   ],
   controllers: [CatalogsController],

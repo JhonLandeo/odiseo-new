@@ -53,24 +53,33 @@ export class QuestionBankService {
 
     const usedIdsList = usedQuestionIds.map((row: any) => row.question_id);
 
-    // Base query builder for unused questions
-    const unusedIdsQb = this.questionRepository
+    // Fetch all valid question IDs and their levels for this subtopic
+    const pool = await this.questionRepository
       .createQueryBuilder('q')
-      .select('q.id', 'id')
+      .select(['q.id', 'q.levelId'])
       .where(
         'q.id IN (SELECT question_id FROM odiseo.question_subtopic WHERE subtopic_id = :subtopicId AND fl_status = true)',
         { subtopicId: numericSubtopicId },
       )
       .andWhere('q.fl_status = true')
-      .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)');
+      .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)')
+      .getMany();
 
-    if (usedIdsList.length > 0) {
-      unusedIdsQb.andWhere('q.id NOT IN (:...usedIdsList)', { usedIdsList });
-    }
+    const usedSet = new Set(usedIdsList);
+    const unusedPool = pool.filter(q => !usedSet.has(q.id));
+    
+    // Fisher-Yates shuffle helper
+    const shuffle = (array: any[]) => {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    };
 
     let selectedIds: string[] = [];
 
-    // If difficulty is specified, try to find questions matching the difficulty first
+    // Priority 1: Unused questions matching difficulty
     if (difficulty) {
       let levelIds: number[] = [];
       const upperDiff = String(difficulty).toUpperCase();
@@ -83,51 +92,37 @@ export class QuestionBankService {
       }
 
       if (levelIds.length > 0) {
-        const diffQb = unusedIdsQb.clone().andWhere('q.level_id IN (:...levelIds)', { levelIds });
-        const diffRows = await diffQb.orderBy('RANDOM()').limit(limit).getRawMany();
-        selectedIds = diffRows.map((row) => row.id);
+        const diffPool = unusedPool.filter(q => levelIds.includes(q.levelId));
+        shuffle(diffPool);
+        const take = Math.min(limit, diffPool.length);
+        selectedIds = diffPool.slice(0, take).map(q => String(q.id));
       }
     }
 
-    // If no difficulty was specified or not enough questions found, fall back to any difficulty (still unused)
+    // Priority 2: Unused questions of any difficulty (Fallback 1)
     if (selectedIds.length < limit) {
       const remainingLimit = limit - selectedIds.length;
-      const fallbackQb = unusedIdsQb.clone();
-      if (selectedIds.length > 0) {
-        fallbackQb.andWhere('q.id NOT IN (:...selectedIds)', { selectedIds });
-      }
-      const fallbackRows = await fallbackQb.orderBy('RANDOM()').limit(remainingLimit).getRawMany();
-      selectedIds = [...selectedIds, ...fallbackRows.map((row) => row.id)];
+      const selectedSet = new Set(selectedIds);
+      const fallbackPool = unusedPool.filter(q => !selectedSet.has(q.id));
+      
+      shuffle(fallbackPool);
+      const take = Math.min(remainingLimit, fallbackPool.length);
+      selectedIds.push(...fallbackPool.slice(0, take).map(q => String(q.id)));
     }
 
-    // Priority 2 (Fallback): Agotamiento del Banco (relax unused constraint)
+    // Priority 3: Used questions (Fallback 2: Agotamiento del Banco)
     if (selectedIds.length < limit) {
       const missingCount = limit - selectedIds.length;
       this.logger.warn(
          `Banco agotado para subtema ${subtopicId}. Faltan ${missingCount} preguntas. Relajando regla de no-repetición.`,
       );
-
-      const fallbackIdsQb = this.questionRepository
-        .createQueryBuilder('q')
-        .select('q.id', 'id')
-        .where(
-          'q.id IN (SELECT question_id FROM odiseo.question_subtopic WHERE subtopic_id = :subtopicId AND fl_status = true)',
-          { subtopicId: numericSubtopicId },
-        )
-        .andWhere('q.fl_status = true')
-        .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)');
-
-      if (selectedIds.length > 0) {
-        fallbackIdsQb.andWhere('q.id NOT IN (:...selectedIds)', {
-          selectedIds,
-        });
-      }
-
-      const fallbackIdRows = await fallbackIdsQb
-        .orderBy('RANDOM()')
-        .limit(missingCount)
-        .getRawMany();
-      selectedIds = [...selectedIds, ...fallbackIdRows.map((row) => row.id)];
+      
+      const selectedSet = new Set(selectedIds);
+      const usedPool = pool.filter(q => usedSet.has(q.id) && !selectedSet.has(q.id));
+      
+      shuffle(usedPool);
+      const take = Math.min(missingCount, usedPool.length);
+      selectedIds.push(...usedPool.slice(0, take).map(q => String(q.id)));
     }
 
     if (selectedIds.length === 0) {

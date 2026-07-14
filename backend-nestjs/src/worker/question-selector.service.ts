@@ -110,6 +110,7 @@ export class QuestionSelectorService {
               easyTarget,
               job.tenant.tenant_id,
               'EASY',
+              job.cycle_id,
             );
             subQuestions.push(...easyQs);
           }
@@ -119,6 +120,7 @@ export class QuestionSelectorService {
               mediumTarget,
               job.tenant.tenant_id,
               'MEDIUM',
+              job.cycle_id,
             );
             subQuestions.push(...mediumQs);
           }
@@ -128,6 +130,7 @@ export class QuestionSelectorService {
               hardTarget,
               job.tenant.tenant_id,
               'HARD',
+              job.cycle_id,
             );
             subQuestions.push(...hardQs);
           }
@@ -139,6 +142,8 @@ export class QuestionSelectorService {
               dist.subtopic_id,
               missing,
               job.tenant.tenant_id,
+              undefined,
+              job.cycle_id,
             );
             subQuestions.push(...fallbackQs);
           }
@@ -148,6 +153,7 @@ export class QuestionSelectorService {
             dist.quantity,
             job.tenant.tenant_id,
             job.difficulty_level,
+            job.cycle_id,
           );
           subQuestions.push(...normalQs);
         }

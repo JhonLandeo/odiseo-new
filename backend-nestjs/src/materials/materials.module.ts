@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MaterialsController } from './materials.controller';
-import { MaterialsService } from './materials.service';
 import { MaterialsCron } from './materials.cron';
 import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
 import { GetMaterialReviewUseCase } from './use-cases/get-material-review.use-case';
+import { ApproveMaterialReviewUseCase } from './use-cases/approve-material-review.use-case';
+import { MaterialDownloadsUseCase } from './use-cases/material-downloads.use-case';
+import { HandleMaterialWebhookUseCase } from './use-cases/handle-material-webhook.use-case';
+import { GetMaterialHistoryUseCase } from './use-cases/get-material-history.use-case';
+import { GetMaterialMetricsUseCase } from './use-cases/get-material-metrics.use-case';
+import { GetMaterialQuestionsUseCase } from './use-cases/get-material-questions.use-case';
 import { CoreApiService } from './services/core-api.service';
 import { PdfGeneratorService } from './services/pdf-generator.service';
 import { PdfGenerationProcessor } from './processors/pdf-generation.processor';
@@ -48,11 +53,16 @@ import { QuestionBankModule } from '../question-bank/question-bank.module';
   ],
   controllers: [MaterialsController, PdfDesignController],
   providers: [
-    MaterialsService,
     PdfDesignService,
     MaterialsCron,
     GenerateMaterialUseCase,
     GetMaterialReviewUseCase,
+    ApproveMaterialReviewUseCase,
+    MaterialDownloadsUseCase,
+    HandleMaterialWebhookUseCase,
+    GetMaterialHistoryUseCase,
+    GetMaterialMetricsUseCase,
+    GetMaterialQuestionsUseCase,
     CoreApiService,
     PdfGeneratorService,
     PdfGenerationProcessor,
@@ -61,6 +71,6 @@ import { QuestionBankModule } from '../question-bank/question-bank.module';
       useClass: MaterialsRepository,
     },
   ],
-  exports: [MaterialsService, I_MATERIALS_REPOSITORY],
+  exports: [I_MATERIALS_REPOSITORY],
 })
 export class MaterialsModule {}

@@ -1,4 +1,6 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { TenantService } from '../database/tenant.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { JwtService } from '@nestjs/jwt';
@@ -11,6 +13,7 @@ export class AuthService {
     private readonly tenantService: TenantService,
     private readonly tenantsService: TenantsService,
     private readonly jwtService: JwtService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   /**
@@ -170,8 +173,12 @@ export class AuthService {
    * Dynamically loads permissions for a user. Used by Guards.
    */
   async getUserPermissions(userId: string, companyId: string): Promise<string[]> {
+    const cacheKey = `auth:permissions:${companyId}:${userId}`;
+    const cached = await this.cacheManager.get<string[]>(cacheKey);
+    if (cached) return cached;
+
     const schemaName = `tenant_${companyId}`;
-    return this.tenantService.runInSchema(schemaName, async (manager) => {
+    const permissions = await this.tenantService.runInSchema(schemaName, async (manager) => {
       const permissionsResult = await manager.query(
         `
         SELECT DISTINCT p.name
@@ -184,5 +191,8 @@ export class AuthService {
       );
       return permissionsResult.map((p: any) => p.name);
     });
+
+    await this.cacheManager.set(cacheKey, permissions);
+    return permissions;
   }
 }

@@ -16,18 +16,28 @@ import { ClsService } from 'nestjs-cls';
 import { GenerateMaterialDto } from './dto/generate-material.dto';
 import { WebhookStatusRequestDto } from './dto/webhook-status-request.dto';
 import { ApproveReviewDto } from './dto/approve-review.dto';
-import { MaterialsService } from './materials.service';
 import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
 import { GetMaterialReviewUseCase } from './use-cases/get-material-review.use-case';
+import { ApproveMaterialReviewUseCase } from './use-cases/approve-material-review.use-case';
+import { MaterialDownloadsUseCase } from './use-cases/material-downloads.use-case';
+import { HandleMaterialWebhookUseCase } from './use-cases/handle-material-webhook.use-case';
+import { GetMaterialHistoryUseCase } from './use-cases/get-material-history.use-case';
+import { GetMaterialMetricsUseCase } from './use-cases/get-material-metrics.use-case';
+import { GetMaterialQuestionsUseCase } from './use-cases/get-material-questions.use-case';
 import { GetQuestionAlternativesDto } from './dto/get-question-alternatives.dto';
 
 @ApiTags('Materials')
 @Controller('v1/materials')
 export class MaterialsController {
   constructor(
-    private readonly materialsService: MaterialsService,
     private readonly generateMaterialUseCase: GenerateMaterialUseCase,
     private readonly getMaterialReviewUseCase: GetMaterialReviewUseCase,
+    private readonly approveMaterialReviewUseCase: ApproveMaterialReviewUseCase,
+    private readonly materialDownloadsUseCase: MaterialDownloadsUseCase,
+    private readonly handleMaterialWebhookUseCase: HandleMaterialWebhookUseCase,
+    private readonly getMaterialHistoryUseCase: GetMaterialHistoryUseCase,
+    private readonly getMaterialMetricsUseCase: GetMaterialMetricsUseCase,
+    private readonly getMaterialQuestionsUseCase: GetMaterialQuestionsUseCase,
     private readonly cls: ClsService,
   ) {}
 
@@ -64,7 +74,7 @@ export class MaterialsController {
     description: 'Estado actualizado correctamente.',
   })
   async updateMaterialStatus(@Body() request: WebhookStatusRequestDto) {
-    await this.materialsService.updateMaterialStatus(request);
+    await this.handleMaterialWebhookUseCase.execute(request);
     return { success: true };
   }
 
@@ -96,7 +106,7 @@ export class MaterialsController {
   ) {
     const userId = this.cls.get('companyId');
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.materialsService.saveDraftCuration(id, request, userId);
+    return await this.approveMaterialReviewUseCase.saveDraft(id, request, userId);
   }
 
   @Post(':id/approve')
@@ -115,7 +125,7 @@ export class MaterialsController {
   ) {
     const userId = this.cls.get('companyId');
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.materialsService.approveCuration(id, request, userId);
+    return await this.approveMaterialReviewUseCase.execute(id, request, userId, userId);
   }
 
   @Get(':id/courses/:courseId/download')
@@ -136,9 +146,9 @@ export class MaterialsController {
     @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
     @Res() res: Response,
   ) {
-    const result = await this.materialsService.getDownloadUrl(id, courseId, type);
+    const result = await this.materialDownloadsUseCase.getDownloadUrl(id, courseId, type);
     try {
-      const buffer = await this.materialsService.streamDownload(result.s3Key);
+      const buffer = await this.materialDownloadsUseCase.streamDownload(result.s3Key);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
         'Content-Disposition',
@@ -166,9 +176,9 @@ export class MaterialsController {
     @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
     @Res() res: Response,
   ) {
-    const result = await this.materialsService.getMergedDownloadUrl(id, type);
+    const result = await this.materialDownloadsUseCase.getMergedDownloadUrl(id, type);
     try {
-      const buffer = await this.materialsService.streamDownload(result.s3Key);
+      const buffer = await this.materialDownloadsUseCase.streamDownload(result.s3Key);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
         'Content-Disposition',
@@ -194,7 +204,7 @@ export class MaterialsController {
     if (!tenantId) {
       throw new UnauthorizedException('Tenant not identified');
     }
-    return await this.materialsService.getTenantDashboardMetrics();
+    return await this.getMaterialMetricsUseCase.getTenantDashboardMetrics();
   }
 
   @Get('history')
@@ -223,7 +233,7 @@ export class MaterialsController {
           .filter((w) => !isNaN(w))
       : undefined;
     const parsedTemplates = templateIds ? templateIds.split(',') : undefined;
-    return await this.materialsService.getHistory(
+    return await this.getMaterialHistoryUseCase.getHistory(
       idsToFilter,
       parsedWeeks,
       parsedTemplates,
@@ -239,7 +249,7 @@ export class MaterialsController {
     description: 'Lista de intentos devuelta.',
   })
   async getAttempts(@Param('id') id: string) {
-    return await this.materialsService.getAttempts(id);
+    return await this.getMaterialHistoryUseCase.getAttempts(id);
   }
 
   @Get('question/:questionId/preview')
@@ -251,7 +261,7 @@ export class MaterialsController {
     description: 'Datos de la pregunta.',
   })
   async getQuestionPreview(@Param('questionId') questionId: string) {
-    return await this.materialsService.getQuestionPreview(questionId);
+    return await this.getMaterialQuestionsUseCase.getQuestionPreview(questionId);
   }
 
   @Post('question/alternatives/search')
@@ -266,7 +276,7 @@ export class MaterialsController {
   async getQuestionAlternatives(
     @Body() body: GetQuestionAlternativesDto
   ) {
-    return await this.materialsService.getQuestionAlternatives(
+    return await this.getMaterialQuestionsUseCase.getQuestionAlternatives(
       body.courseId,
       body.topicId,
       body.subtopicId,

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useMaterialsStore } from '@/features/materials/store/materials';
 import { useOnboardingStore } from '@/features/onboarding/store/onboarding';
 import OnboardingChecklistWidget from '@/features/onboarding/components/OnboardingChecklistWidget.vue';
+import OnboardingEmptyState from '@/features/onboarding/components/OnboardingEmptyState.vue';
 import { useRouter } from 'vue-router';
 
 definePageMeta({
@@ -38,6 +39,12 @@ const metrics = ref<DashboardMetrics>({
 
 const tenantName = computed(() => authStore.branding?.commercialName || 'tu institución');
 const userName = computed(() => authStore.user?.name || 'Usuario');
+
+const isBrandNew = computed(() => {
+  if (!onboardingStore.hasFetched) return false;
+  const cycleStep = onboardingStore.availableSteps.find(s => s.id === 'load_demo_or_create_cycle');
+  return cycleStep ? !cycleStep.completed : false;
+});
 
 const curationRate = computed(() => {
   if (!metrics.value.totalQuestions) return 0;
@@ -144,8 +151,21 @@ function formatDate(dateString: string) {
       </div>
     </div>
 
-    <!-- Metrics Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <!-- Empty State for Brand New Tenants -->
+    <div v-if="isBrandNew" class="bg-white dark:bg-[#2b2b3f] rounded-3xl border border-slate-100 dark:border-slate-700/50 p-6 md:p-12 shadow-sm">
+      <OnboardingEmptyState
+        title="Tu plataforma está lista"
+        description="Para comenzar a generar material de estudio, necesitas un Ciclo Académico. Carga los datos de demostración o crea tu primer ciclo manualmente."
+        icon="i-heroicons-rocket-launch"
+        createLabel="Ciclo Académico"
+        @create="router.push('/academic-time')"
+        @demo_loaded="async () => { await Promise.all([materialsStore.fetchDashboardMetrics().then(data => data && (metrics = data)), onboardingStore.fetchProgress()]) }"
+      />
+    </div>
+
+    <template v-else>
+      <!-- Metrics Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
       <!-- Card 1: Generated Materials -->
       <div
@@ -455,6 +475,7 @@ function formatDate(dateString: string) {
       </div>
 
     </div>
+    </template>
 
     <!-- Fixed onboarding checklist widget (bottom-right overlay) -->
     <OnboardingChecklistWidget />

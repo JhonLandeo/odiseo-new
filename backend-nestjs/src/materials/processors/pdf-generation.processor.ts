@@ -12,7 +12,8 @@ import {
   DesignTemplateConfig,
 } from '../services/pdf-generator.service';
 import { S3Service } from '../../aws/s3.service';
-import { MaterialsService } from '../materials.service';
+import { MaterialDownloadsUseCase } from '../use-cases/material-downloads.use-case';
+import { HandleMaterialWebhookUseCase } from '../use-cases/handle-material-webhook.use-case';
 import { ClsService } from 'nestjs-cls';
 import {
   I_MATERIALS_REPOSITORY,
@@ -40,7 +41,8 @@ export class PdfGenerationProcessor extends WorkerHost {
     private readonly coreApiService: CoreApiService,
     private readonly pdfGeneratorService: PdfGeneratorService,
     private readonly s3Service: S3Service,
-    private readonly materialsService: MaterialsService,
+    private readonly materialDownloadsUseCase: MaterialDownloadsUseCase,
+    private readonly handleMaterialWebhookUseCase: HandleMaterialWebhookUseCase,
     private readonly cls: ClsService,
     @Inject(I_MATERIALS_REPOSITORY)
     private readonly materialsRepo: IMaterialsRepository,
@@ -283,7 +285,7 @@ export class PdfGenerationProcessor extends WorkerHost {
             if (allQuestions.length === 0) {
               this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
               if (dist.course_request_id) {
-                await this.materialsService.updateMaterialStatus({
+                await this.handleMaterialWebhookUseCase.execute({
                   job_id: dist.course_request_id,
                   status: 'empty_bank',
                   error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
@@ -358,7 +360,7 @@ export class PdfGenerationProcessor extends WorkerHost {
                 : CourseMaterialStatus.COMPLETED;
 
             if (dist.course_request_id) {
-              await this.materialsService.updateMaterialStatus({
+              await this.handleMaterialWebhookUseCase.execute({
                 job_id: dist.course_request_id,
                 status:
                   status === CourseMaterialStatus.COMPLETED
@@ -404,7 +406,7 @@ export class PdfGenerationProcessor extends WorkerHost {
             );
 
             if (dist.course_request_id) {
-              await this.materialsService.updateMaterialStatus({
+              await this.handleMaterialWebhookUseCase.execute({
                 job_id: dist.course_request_id,
                 status: 'failed',
                 error_message: error.message,
@@ -478,7 +480,7 @@ export class PdfGenerationProcessor extends WorkerHost {
               'application/pdf',
             );
 
-            await this.materialsService.updateMergedDownloadUrl(
+            await this.materialDownloadsUseCase.updateMergedDownloadUrl(
               material_request_id,
               mergedUrl,
               mergedKeysUrl,
@@ -653,7 +655,7 @@ export class PdfGenerationProcessor extends WorkerHost {
           if (allQuestions.length === 0) {
             this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
             if (dist.course_request_id) {
-              await this.materialsService.updateMaterialStatus({
+              await this.handleMaterialWebhookUseCase.execute({
                 job_id: dist.course_request_id,
                 status: 'empty_bank',
                 error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
@@ -689,7 +691,7 @@ export class PdfGenerationProcessor extends WorkerHost {
               : CourseMaterialStatus.COMPLETED;
 
           if (dist.course_request_id) {
-            await this.materialsService.updateMaterialStatus({
+            await this.handleMaterialWebhookUseCase.execute({
               job_id: dist.course_request_id,
               status:
                 status === CourseMaterialStatus.COMPLETED
@@ -727,7 +729,7 @@ export class PdfGenerationProcessor extends WorkerHost {
           );
 
           if (dist.course_request_id) {
-            await this.materialsService.updateMaterialStatus({
+            await this.handleMaterialWebhookUseCase.execute({
               job_id: dist.course_request_id,
               status: 'failed',
               error_message: error.message,
@@ -748,7 +750,7 @@ export class PdfGenerationProcessor extends WorkerHost {
       const courseRequests = await this.cls.runWith(
         { tenantSchema: schemaName } as any,
         async () => {
-          return this.materialsService.getCoursesForMerge(material_request_id);
+          return this.materialDownloadsUseCase.getCoursesForMerge(material_request_id);
         },
       );
 
@@ -792,7 +794,7 @@ export class PdfGenerationProcessor extends WorkerHost {
       );
 
       await this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
-        await this.materialsService.updateMergedDownloadUrl(
+        await this.materialDownloadsUseCase.updateMergedDownloadUrl(
           material_request_id,
           mergedUrl,
         );
