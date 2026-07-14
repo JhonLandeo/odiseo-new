@@ -42,7 +42,6 @@ export class AuthController {
       sub: result.user.id,
       companyId: result.companyId,
       roles: result.roles,
-      permissions: result.permissions,
     });
 
     // Set JWT as httpOnly cookie
