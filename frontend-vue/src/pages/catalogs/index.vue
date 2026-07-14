@@ -47,7 +47,7 @@
         No se pudieron obtener las materias escolares. {{ store.error }}
       </p>
       <UButton
-        color="red"
+        color="error"
         variant="solid"
         icon="i-heroicons-arrow-path"
         class="shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -60,7 +60,18 @@
     <!-- Componente Principal del Catálogo -->
     <CatalogTable 
       ref="catalogTableRef"
-      v-show="store.courses.length > 0 || (store.hasFetched && !store.isLoading && !store.error)" 
+      v-show="store.courses.length > 0" 
+    />
+
+    <!-- Empty State (Onboarding) -->
+    <OnboardingEmptyState
+      v-if="store.hasFetched && !store.isLoading && !store.error && store.courses.length === 0"
+      title="Configura tu Catálogo de Cursos"
+      description="Sincroniza y gestiona las materias de tu plan curricular. Carga los datos de demostración para ver ejemplos cargados."
+      icon="i-heroicons-book-open"
+      create-label="Curso"
+      @create="catalogTableRef?.focusSearch()"
+      @demo_loaded="store.fetchCourses()"
     />
 
     <!-- Leyenda / Indicador de Teclado -->
@@ -77,6 +88,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useCatalogsStore } from '../../features/catalogs/store'
 import CatalogTable from '../../features/catalogs/components/CatalogTable.vue'
+import OnboardingEmptyState from '../../features/onboarding/components/OnboardingEmptyState.vue'
 
 definePageMeta({
   layout: 'b2b',

@@ -83,7 +83,7 @@ async function handleSeedDemo() {
       title: '¡Datos demo cargados!',
       description: 'Explora la plataforma con datos de ejemplo. Puedes limpiarlos cuando quieras.',
       color: 'success',
-      timeout: 4000,
+      duration: 4000,
     })
     emit('demo_loaded')
   } catch (e: any) {
@@ -91,7 +91,7 @@ async function handleSeedDemo() {
       title: 'Error al cargar datos demo',
       description: e.message,
       color: 'error',
-      timeout: 5000,
+      duration: 5000,
     })
   } finally {
     isLoadingDemo.value = false

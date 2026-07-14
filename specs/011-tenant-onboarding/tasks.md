@@ -15,9 +15,9 @@
 
 **Purpose**: Create the NestJS module skeleton and register it in the application
 
-- [ ] T001 Create `OnboardingProgress` TypeORM entity in `backend-nestjs/src/onboarding/entities/onboarding-progress.entity.ts`
-- [ ] T002 Create `OnboardingModule` with entity registration in `backend-nestjs/src/onboarding/onboarding.module.ts`
-- [ ] T003 Register `OnboardingModule` in the root `AppModule` imports in `backend-nestjs/src/app.module.ts`
+- [x] T001 Create `OnboardingProgress` TypeORM entity in `backend-nestjs/src/onboarding/entities/onboarding-progress.entity.ts`
+- [x] T002 Create `OnboardingModule` with entity registration in `backend-nestjs/src/onboarding/onboarding.module.ts`
+- [x] T003 Register `OnboardingModule` in the root `AppModule` imports in `backend-nestjs/src/app.module.ts`
 
 ---
 
@@ -27,11 +27,11 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `cycles` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
-- [ ] T005 [P] Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `pdf_design_templates` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
-- [ ] T006 [P] Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `syllabus` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
-- [ ] T007 Add `CREATE TABLE IF NOT EXISTS onboarding_progress` DDL to `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
-- [ ] T008 Write and execute a one-time SQL migration script to add the `is_demo` column and `onboarding_progress` table to all existing tenant schemas in the development database
+- [x] T004 Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `cycles` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
+- [x] T005 [P] Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `pdf_design_templates` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
+- [x] T006 [P] Add `is_demo BOOLEAN NOT NULL DEFAULT false` column to the `syllabus` table DDL inside `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
+- [x] T007 Add `CREATE TABLE IF NOT EXISTS onboarding_progress` DDL to `backend-nestjs/src/database/schema.service.ts` `seedTenantSchema()`
+- [x] T008 Write and execute a one-time SQL migration script to add the `is_demo` column and `onboarding_progress` table to all existing tenant schemas in the development database
 
 **Checkpoint**: Schema ready — all tenant schemas support `is_demo` flags and `onboarding_progress` tracking
 
@@ -45,17 +45,17 @@
 
 ### Backend Implementation
 
-- [ ] T009 [US1] Create `OnboardingService` with `seedDemoData()` method that transactionally inserts 1 demo Cycle, 2 CycleWeeks, 1 PdfDesignTemplate, 1 Syllabus, and 2 SyllabusDistribution records (all with `is_demo = true`) inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T010 [US1] Add `hasDemoData()` helper method to `OnboardingService` that checks if any records with `is_demo = true` exist in the tenant schema inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T011 [US1] Add `hasRealCycles()` helper method to `OnboardingService` that checks if any cycles with `is_demo = false` exist, to guard the seed-demo endpoint inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T012 [US1] Create `OnboardingController` with `@Post('seed-demo')` endpoint that calls `seedDemoData()` and returns the seeded cycle ID inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
+- [x] T009 [US1] Create `OnboardingService` with `seedDemoData()` method that transactionally inserts 1 demo Cycle, 2 CycleWeeks, 1 PdfDesignTemplate, 1 Syllabus, and 2 SyllabusDistribution records (all with `is_demo = true`) inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T010 [US1] Add `hasDemoData()` helper method to `OnboardingService` that checks if any records with `is_demo = true` exist in the tenant schema inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T011 [US1] Add `hasRealCycles()` helper method to `OnboardingService` that checks if any cycles with `is_demo = false` exist, to guard the seed-demo endpoint inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T012 [US1] Create `OnboardingController` with `@Post('seed-demo')` endpoint that calls `seedDemoData()` and returns the seeded cycle ID inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
 
 ### Frontend Implementation
 
-- [ ] T013 [P] [US1] Create Pinia store `useOnboardingStore` with `seedDemo()` action and `hasDemoData` state in `frontend-vue/src/features/onboarding/store/onboarding.ts`
-- [ ] T014 [P] [US1] Create `OnboardingEmptyState.vue` reusable component with premium illustration, descriptive text, "Cargar Datos Demo" and "Crear manualmente" action buttons in `frontend-vue/src/features/onboarding/components/OnboardingEmptyState.vue`
-- [ ] T015 [US1] Integrate `OnboardingEmptyState` into the academic-time page, showing it conditionally when no cycles exist in `frontend-vue/src/pages/academic-time/index.vue`
-- [ ] T016 [US1] Integrate `OnboardingEmptyState` into the catalogs page, showing it conditionally when no courses are configured for the tenant in `frontend-vue/src/pages/catalogs/index.vue`
+- [x] T013 [P] [US1] Create Pinia store `useOnboardingStore` with `seedDemo()` action and `hasDemoData` state in `frontend-vue/src/features/onboarding/store/onboarding.ts`
+- [x] T014 [P] [US1] Create `OnboardingEmptyState.vue` reusable component with premium illustration, descriptive text, "Cargar Datos Demo" and "Crear manualmente" action buttons in `frontend-vue/src/features/onboarding/components/OnboardingEmptyState.vue`
+- [x] T015 [US1] Integrate `OnboardingEmptyState` into the academic-time page, showing it conditionally when no cycles exist in `frontend-vue/src/pages/academic-time/index.vue`
+- [x] T016 [US1] Integrate `OnboardingEmptyState` into the catalogs page, showing it conditionally when no courses are configured for the tenant in `frontend-vue/src/pages/catalogs/index.vue`
 
 **Checkpoint**: At this point, a new tenant can load demo data and see populated sections — User Story 1 is fully functional and testable independently
 
@@ -69,14 +69,14 @@
 
 ### Backend Implementation
 
-- [ ] T017 [US2] Add `getProgress()` method to `OnboardingService` that queries `onboarding_progress` and dynamically checks step completion against actual tenant data (cycles exist, templates exist, syllabus exists, materials generated) inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T018 [US2] Add `@Get('progress')` endpoint to `OnboardingController` that returns the full progress payload (steps, percentage, dismissed state) per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
+- [x] T017 [US2] Add `getProgress()` method to `OnboardingService` that queries `onboarding_progress` and dynamically checks step completion against actual tenant data (cycles exist, templates exist, syllabus exists, materials generated) inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T018 [US2] Add `@Get('progress')` endpoint to `OnboardingController` that returns the full progress payload (steps, percentage, dismissed state) per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
 
 ### Frontend Implementation
 
-- [ ] T019 [P] [US2] Add `fetchProgress()` action, `stepsCompleted`, `progressPercentage`, and `isDismissed` state to `useOnboardingStore` in `frontend-vue/src/features/onboarding/store/onboarding.ts`
-- [ ] T020 [US2] Create `OnboardingChecklistWidget.vue` component with floating card layout, animated progress bar, step list with checkmarks, and micro-animations (confetti on completion) in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
-- [ ] T021 [US2] Integrate `OnboardingChecklistWidget` into the tenant dashboard page, fetching progress on mount and conditionally rendering based on `isDismissed` state in `frontend-vue/src/pages/index.vue`
+- [x] T019 [P] [US2] Add `fetchProgress()` action, `stepsCompleted`, `progressPercentage`, and `isDismissed` state to `useOnboardingStore` in `frontend-vue/src/features/onboarding/store/onboarding.ts`
+- [x] T020 [US2] Create `OnboardingChecklistWidget.vue` component with floating card layout, animated progress bar, step list with checkmarks, and micro-animations (confetti on completion) in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
+- [x] T021 [US2] Integrate `OnboardingChecklistWidget` into the tenant dashboard page, fetching progress on mount and conditionally rendering based on `isDismissed` state in `frontend-vue/src/pages/index.vue`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 both work independently — the dashboard shows live progress reflecting actions taken via empty states
 
@@ -90,16 +90,16 @@
 
 ### Backend Implementation
 
-- [ ] T022 [US3] Add `dismissOnboarding()` method to `OnboardingService` that sets `is_dismissed = true` on the `onboarding_progress` record inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T023 [US3] Add `@Patch('dismiss')` endpoint to `OnboardingController` per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
-- [ ] T024 [US3] Add `clearDemoData()` method to `OnboardingService` that deletes all `is_demo = true` records across `syllabus`, `pdf_design_templates`, and `cycles` tables in a single transaction, and resets `onboarding_progress.steps_completed` to `[]` inside `backend-nestjs/src/onboarding/onboarding.service.ts`
-- [ ] T025 [US3] Add `@Post('clear-demo')` endpoint to `OnboardingController` per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
+- [x] T022 [US3] Add `dismissOnboarding()` method to `OnboardingService` that sets `is_dismissed = true` on the `onboarding_progress` record inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T023 [US3] Add `@Patch('dismiss')` endpoint to `OnboardingController` per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
+- [x] T024 [US3] Add `clearDemoData()` method to `OnboardingService` that deletes all `is_demo = true` records across `syllabus`, `pdf_design_templates`, and `cycles` tables in a single transaction, and resets `onboarding_progress.steps_completed` to `[]` inside `backend-nestjs/src/onboarding/onboarding.service.ts`
+- [x] T025 [US3] Add `@Post('clear-demo')` endpoint to `OnboardingController` per the API contract inside `backend-nestjs/src/onboarding/onboarding.controller.ts`
 
 ### Frontend Implementation
 
-- [ ] T026 [P] [US3] Add `dismissChecklist()` and `clearDemoData()` actions to `useOnboardingStore` in `frontend-vue/src/features/onboarding/store/onboarding.ts`
-- [ ] T027 [US3] Add minimize toggle (collapse to floating bubble icon) and "Omitir configuración" dismiss button with confirmation modal to `OnboardingChecklistWidget.vue` in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
-- [ ] T028 [US3] Add "Limpiar Datos Demo" action card with confirmation modal in the tenant settings or profile section in `frontend-vue/src/pages/config/index.vue`
+- [x] T026 [P] [US3] Add `dismissChecklist()` and `clearDemoData()` actions to `useOnboardingStore` in `frontend-vue/src/features/onboarding/store/onboarding.ts`
+- [x] T027 [US3] Add minimize toggle (collapse to floating bubble icon) and "Omitir configuración" dismiss button with confirmation modal to `OnboardingChecklistWidget.vue` in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
+- [x] T028 [US3] Add "Limpiar Datos Demo" action card with confirmation modal in the tenant settings or profile section in `frontend-vue/src/pages/config/index.vue`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -109,9 +109,9 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T029 [P] Add premium CSS animations and transitions (progress bar fill, step checkmark reveal, confetti burst at 100%) to `OnboardingChecklistWidget.vue` in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
-- [ ] T030 [P] Add responsive styling and dark-mode support to `OnboardingEmptyState.vue` in `frontend-vue/src/features/onboarding/components/OnboardingEmptyState.vue`
-- [ ] T031 Run quickstart.md validation scenarios end-to-end against a fresh tenant
+- [x] T029 [P] Add premium CSS animations and transitions (progress bar fill, step checkmark reveal, confetti burst at 100%) to `OnboardingChecklistWidget.vue` in `frontend-vue/src/features/onboarding/components/OnboardingChecklistWidget.vue`
+- [x] T030 [P] Add responsive styling and dark-mode support to `OnboardingEmptyState.vue` in `frontend-vue/src/features/onboarding/components/OnboardingEmptyState.vue`
+- [x] T031 Run quickstart.md validation scenarios end-to-end against a fresh tenant
 
 ---
 
