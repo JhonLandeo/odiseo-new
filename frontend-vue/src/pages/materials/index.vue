@@ -43,7 +43,7 @@
           Actualizar
         </UButton>
 
-        <UButton color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary"
+        <UButton id="tour-generate-material" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary"
           @click="openMatrixModal">
           Solicitar Material
         </UButton>
@@ -179,7 +179,7 @@
         class="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto text-center font-medium leading-relaxed mb-6">
         Aún no has generado materiales para este ciclo. Haz clic en "Solicitar Material" para comenzar la magia.
       </p>
-      <UButton color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary" @click="openMatrixModal">
+      <UButton id="tour-generate-material" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary" @click="openMatrixModal">
         Solicitar Material
       </UButton>
     </div>

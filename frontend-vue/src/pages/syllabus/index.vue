@@ -336,7 +336,7 @@ function getGeneralWeekStyle(item: SyllabusWithProgress, week: number) {
           class="btn-premium-secondary" @click="openCycleCloneModal()">
           Clonar Ciclo
         </UButton>
-        <UButton v-if="!store.syllabus" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md"
+        <UButton v-if="!store.syllabus" id="tour-create-syllabus" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md"
           class="btn-premium-primary" @click="openCreate()">
           Crear Sílabo
         </UButton>

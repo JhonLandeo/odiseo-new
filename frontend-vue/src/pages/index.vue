@@ -3,8 +3,6 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useMaterialsStore } from '@/features/materials/store/materials';
 import { useOnboardingStore } from '@/features/onboarding/store/onboarding';
-import OnboardingChecklistWidget from '@/features/onboarding/components/OnboardingChecklistWidget.vue';
-import OnboardingEmptyState from '@/features/onboarding/components/OnboardingEmptyState.vue';
 import { useRouter } from 'vue-router';
 
 definePageMeta({
@@ -152,15 +150,15 @@ function formatDate(dateString: string) {
     </div>
 
     <!-- Empty State for Brand New Tenants -->
-    <div v-if="isBrandNew" class="bg-white dark:bg-[#2b2b3f] rounded-3xl border border-slate-100 dark:border-slate-700/50 p-6 md:p-12 shadow-sm">
-      <OnboardingEmptyState
-        title="Tu plataforma está lista"
-        description="Para comenzar a generar material de estudio, necesitas un Ciclo Académico. Carga los datos de demostración o crea tu primer ciclo manualmente."
-        icon="i-heroicons-rocket-launch"
-        createLabel="Ciclo Académico"
-        @create="router.push('/academic-time')"
-        @demo_loaded="async () => { await Promise.all([materialsStore.fetchDashboardMetrics().then(data => data && (metrics = data)), onboardingStore.fetchProgress()]) }"
-      />
+    <div v-if="isBrandNew" class="bg-white dark:bg-[#2b2b3f] rounded-3xl border border-slate-100 dark:border-slate-700/50 p-6 md:p-12 shadow-sm text-center py-20">
+      <div class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 mx-auto mb-4">
+        <UIcon name="i-heroicons-rocket-launch" class="w-8 h-8" />
+      </div>
+      <h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Tu plataforma está lista</h3>
+      <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-6">
+        Para comenzar a generar material de estudio, necesitas configurar tu primer Ciclo Académico.
+      </p>
+      <UButton color="primary" @click="router.push('/academic-time')">Ir a Ciclos Académicos</UButton>
     </div>
 
     <template v-else>
@@ -476,9 +474,6 @@ function formatDate(dateString: string) {
 
     </div>
     </template>
-
-    <!-- Fixed onboarding checklist widget (bottom-right overlay) -->
-    <OnboardingChecklistWidget />
   </div>
 </template>
 

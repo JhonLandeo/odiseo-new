@@ -10,7 +10,7 @@
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <UButton color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary"
+        <UButton id="tour-create-cycle" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary"
           @click="openCreateSlide">
           Nuevo Ciclo
         </UButton>
@@ -53,8 +53,8 @@
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-[#1e1e2d] shrink-0" />
             <div class="space-y-1.5">
-              <div class="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded-md" />
-              <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800 rounded-md" />
+               <div class="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded-md" />
+               <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800 rounded-md" />
             </div>
           </div>
           <div class="w-7 h-7 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
@@ -62,16 +62,17 @@
       </div>
     </div>
 
-    <!-- 4b. Empty State (Onboarding) -->
-    <OnboardingEmptyState
-      v-if="store.hasFetched && !store.isLoading && store.cycles.length === 0"
-      title="Organiza tus Ciclos Académicos"
-      description="Define los ciclos del año lectivo con sus semanas, plantillas y periodos de evaluación. Carga datos demo para ver cómo funciona."
-      icon="i-heroicons-calendar-days"
-      create-label="Ciclo"
-      @create="openCreateSlide"
-      @demo_loaded="store.fetchCycles()"
-    />
+    <!-- Empty state simple for when no cycles exist -->
+    <div v-if="store.hasFetched && !store.isLoading && store.cycles.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+      <div class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 mb-4">
+        <UIcon name="i-heroicons-calendar-days" class="w-8 h-8" />
+      </div>
+      <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">No hay ciclos creados</h3>
+      <p class="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-6">
+        Crea tu primer ciclo académico para empezar a gestionar tus semanas, temarios y material.
+      </p>
+      <UButton color="primary" @click="openCreateSlide">Crear Primer Ciclo</UButton>
+    </div>
 
     <!-- 5. Matriz de semanas -->
     <WeeksMatrix ref="weeksMatrixRef" v-show="store.cycles.length > 0" @edit="openEditSlide" />
@@ -98,7 +99,6 @@ import { useAcademicTimeStore } from '../../features/academic-time/store'
 import type { Cycle } from '../../features/academic-time/store'
 import WeeksMatrix from '../../features/academic-time/components/WeeksMatrix.vue'
 import CycleSlideOver from '../../features/academic-time/components/CycleSlideOver.vue'
-import OnboardingEmptyState from '../../features/onboarding/components/OnboardingEmptyState.vue'
 import { useToast } from '#imports'
 import { watchDebounced } from '@vueuse/core'
 

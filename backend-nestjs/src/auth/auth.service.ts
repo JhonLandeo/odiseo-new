@@ -61,32 +61,25 @@ export class AuthService {
         if (user.companyId !== company.id) return null;
 
         // Step 6: Load roles and permissions
-        // Step 6: Load roles and permissions using correct Spatie-like schema
+        // Step 6: Load roles and permissions using the new TypeORM schema
         const userRolesResult = await manager.query(
           `
-          SELECT r.id, r.name 
+          SELECT r.id, r.name, r.permissions 
           FROM roles r
-          INNER JOIN model_has_roles mhr ON mhr.role_id = r.id
-          WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
+          INNER JOIN user_roles ur ON ur.role_id = r.id
+          WHERE ur.user_id = $1
           `,
           [user.id],
         );
 
-        const permissionsResult = await manager.query(
-          `
-          SELECT DISTINCT p.name
-          FROM permissions p
-          INNER JOIN role_has_permissions rhp ON rhp.permission_id = p.id
-          INNER JOIN model_has_roles mhr ON mhr.role_id = rhp.role_id
-          WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
-          `,
-          [user.id]
-        );
+        const mergedPermissions = Array.from(
+          new Set(userRolesResult.flatMap((r: any) => r.permissions || []))
+        ) as string[];
 
         return {
           user,
           roles: userRolesResult.map((r: any) => r.name),
-          permissions: permissionsResult.map((p: any) => p.name),
+          permissions: mergedPermissions,
           companyId: company.id,
         };
       },
@@ -137,20 +130,23 @@ export class AuthService {
 
         if (!user) return null;
 
-        const permissionsResult = await manager.query(
+        const rolesResult = await manager.query(
           `
-          SELECT DISTINCT p.name
-          FROM permissions p
-          INNER JOIN role_has_permissions rhp ON rhp.permission_id = p.id
-          INNER JOIN model_has_roles mhr ON mhr.role_id = rhp.role_id
-          WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
+          SELECT r.permissions
+          FROM roles r
+          INNER JOIN user_roles ur ON ur.role_id = r.id
+          WHERE ur.user_id = $1
           `,
           [user.id]
         );
 
+        const mergedPermissions = Array.from(
+          new Set(rolesResult.flatMap((r: any) => r.permissions || []))
+        ) as string[];
+
         return {
           user,
-          permissions: permissionsResult.map((p: any) => p.name)
+          permissions: mergedPermissions
         };
       },
     );
@@ -179,17 +175,18 @@ export class AuthService {
 
     const schemaName = `tenant_${companyId}`;
     const permissions = await this.tenantService.runInSchema(schemaName, async (manager) => {
-      const permissionsResult = await manager.query(
+      const rolesResult = await manager.query(
         `
-        SELECT DISTINCT p.name
-        FROM permissions p
-        INNER JOIN role_has_permissions rhp ON rhp.permission_id = p.id
-        INNER JOIN model_has_roles mhr ON mhr.role_id = rhp.role_id
-        WHERE mhr.model_id = $1 AND mhr.model_type = 'User'
+        SELECT r.permissions
+        FROM roles r
+        INNER JOIN user_roles ur ON ur.role_id = r.id
+        WHERE ur.user_id = $1
         `,
         [userId]
       );
-      return permissionsResult.map((p: any) => p.name);
+      return Array.from(
+        new Set(rolesResult.flatMap((r: any) => r.permissions || []))
+      ) as string[];
     });
 
     await this.cacheManager.set(cacheKey, permissions);

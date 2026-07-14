@@ -63,16 +63,17 @@
       v-show="store.courses.length > 0" 
     />
 
-    <!-- Empty State (Onboarding) -->
-    <OnboardingEmptyState
-      v-if="store.hasFetched && !store.isLoading && !store.error && store.courses.length === 0"
-      title="Configura tu Catálogo de Cursos"
-      description="Sincroniza y gestiona las materias de tu plan curricular. Carga los datos de demostración para ver ejemplos cargados."
-      icon="i-heroicons-book-open"
-      create-label="Curso"
-      @create="catalogTableRef?.focusSearch()"
-      @demo_loaded="store.fetchCourses()"
-    />
+    <!-- Empty state simple for when no catalogs exist -->
+    <div v-if="store.hasFetched && !store.isLoading && !store.error && store.courses.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+      <div class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 mb-4">
+        <UIcon name="i-heroicons-book-open" class="w-8 h-8" />
+      </div>
+      <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">Catálogo Vacío</h3>
+      <p class="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-6">
+        Busca y agrega materias del banco global para utilizarlas en tus sílabos.
+      </p>
+      <UButton color="primary" @click="catalogTableRef?.focusSearch()">Sincronizar Materias</UButton>
+    </div>
 
     <!-- Leyenda / Indicador de Teclado -->
     <div class="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 pt-2 select-none">
@@ -88,7 +89,6 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useCatalogsStore } from '../../features/catalogs/store'
 import CatalogTable from '../../features/catalogs/components/CatalogTable.vue'
-import OnboardingEmptyState from '../../features/onboarding/components/OnboardingEmptyState.vue'
 
 definePageMeta({
   layout: 'b2b',

@@ -10,7 +10,7 @@ import {
 import { OnboardingService } from './onboarding.service';
 import { JwtAuthGuard } from '../auth/auth.guard';
 
-@Controller('api/v1/onboarding')
+@Controller('v1/onboarding')
 @UseGuards(JwtAuthGuard)
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}

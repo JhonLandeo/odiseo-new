@@ -9,8 +9,8 @@
 ## Summary
 
 This feature provides a frictionless self-guided onboarding flow for new B2B Tenants. 
-* **Backend**: Exposes onboarding progress endpoints and transactionally provisions standard demo records (Cycles, Weeks, Syllabus, Design Templates) marked with `is_demo = true`. Also supports a safe cleanup endpoint.
-* **Frontend**: Renders premium illustrations and interactive empty state components in empty sections, alongside a gamified setup checklist widget on the main dashboard to guide users.
+* **Backend**: Exposes onboarding progress endpoints to track completion of core system configuration (Cycles, Syllabus, Design Templates) without creating demo data.
+* **Frontend**: Renders an interactive global Spotlight Walkthrough overlay that darkens the background and highlights real UI buttons step-by-step, firing confetti animations upon successful configuration of each module.
 
 ---
 
@@ -28,11 +28,11 @@ This feature provides a frictionless self-guided onboarding flow for new B2B Ten
 
 **Project Type**: Multi-tenant Web Application
 
-**Performance Goals**: Demo seeding completes in <2.0s; checklist widget loads in <50ms.
+**Performance Goals**: Tour overlay mask calculation completes in <16ms; overlay loads in <50ms.
 
 **Constraints**: SQL names in English snake_case, tenant data schema isolation, non-blocking Nuxt UI alerts/toasts.
 
-**Scale/Scope**: Up to 10k tenants, 4 core checklist setup milestones.
+**Scale/Scope**: Up to 10k tenants, 4 core tour setup milestones pointing to real configuration flows.
 
 ---
 
@@ -40,10 +40,10 @@ This feature provides a frictionless self-guided onboarding flow for new B2B Ten
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-1. **Separation of Domains (Core I/II)**: ✅ Pass. Seeding only affects B2B tenant records. No global question repository records are altered or stored in B2B.
+1. **Separation of Domains (Core I/II)**: ✅ Pass. The onboarding tour strictly operates within the B2B frontend context.
 2. **PostgreSQL snake_case rule (Core IV)**: ✅ Pass. Table `onboarding_progress` and columns use English snake_case.
 3. **UX Notification Standards (Core IV)**: ✅ Pass. All alerts, error messages, and success confirmations use Nuxt UI Toast/Modals. No native `alert()` or `confirm()` are utilized.
-4. **No Synchronous PDF Compilation (Core VIII)**: ✅ Pass. Seeding demo data only registers the database records; it does not trigger SQS/ECS compilation jobs.
+4. **No Synchronous PDF Compilation (Core VIII)**: ✅ Pass. Creating real materials via the tour still dispatches correctly to the asynchronous generation queue.
 
 ---
 
@@ -80,16 +80,11 @@ frontend-vue/
     ├── features/
     │   └── onboarding/
     │       ├── components/
-    │       │   ├── OnboardingChecklistWidget.vue
-    │       │   └── OnboardingEmptyState.vue
+    │       │   └── AppTour.vue
     │       └── store/
     │           └── onboarding.ts
     └── pages/
-        ├── index.vue                # Display checklist
-        ├── catalogs/
-        │   └── index.vue            # Apply empty state
-        └── academic-time/
-            └── index.vue            # Apply empty state
+        └── index.vue                # Trigger tour
 ```
 
 **Structure Decision**: Monorepo split between `backend-nestjs` and `frontend-vue`. Code matches existing multi-tenant architecture patterns.

@@ -64,42 +64,11 @@ async function handleClearDemo() {
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Personaliza la apariencia de los PDFs generados</p>
           </div>
         </div>
-        <UButton color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary" @click="openNew">
+        <UButton id="tour-create-template" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary" @click="openNew">
           Nueva plantilla
         </UButton>
       </div>
       <PdfDesignList @create="openNew" @edit="openEdit" />
-
-      <!-- Demo Data Cleanup Card -->
-      <div
-        v-if="onboardingStore.stepsCompleted.includes('load_demo_or_create_cycle')"
-        class="mt-6 p-5 rounded-2xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center gap-4"
-      >
-        <div class="flex-1">
-          <p class="text-sm font-bold text-amber-800 dark:text-amber-300 flex items-center gap-2">
-            <UIcon name="i-heroicons-beaker" class="w-4 h-4" />
-            Datos de demostración activos
-          </p>
-          <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-            La plataforma tiene ciclos y sílabos de prueba cargados. Elimínalos cuando estés listo para comenzar con información real.
-          </p>
-        </div>
-        <UButton
-          v-if="!showClearConfirm"
-          color="warning"
-          variant="soft"
-          size="sm"
-          icon="i-heroicons-trash"
-          @click="showClearConfirm = true"
-        >
-          Limpiar datos demo
-        </UButton>
-        <div v-else class="flex items-center gap-2">
-          <span class="text-xs text-amber-800 dark:text-amber-300 font-medium">¿Confirmar?</span>
-          <UButton size="xs" color="error" :loading="isClearing" @click="handleClearDemo">Sí, eliminar</UButton>
-          <UButton size="xs" color="neutral" variant="ghost" @click="showClearConfirm = false">Cancelar</UButton>
-        </div>
-      </div>
     </div>
   </template>
 

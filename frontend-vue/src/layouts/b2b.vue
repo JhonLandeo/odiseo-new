@@ -44,6 +44,8 @@
               <!-- Item WITH Submenu -->
               <template v-if="item.items && item.items.length > 0">
                 <button
+                  :id="item.menuKey ? 'menu-' + item.menuKey : undefined"
+                  :aria-expanded="!!expandedMenus[item.menuKey]"
                   @click="handleMenuToggle(item.menuKey)"
                   class="
                     w-full flex items-center justify-between px-3 py-2.5 rounded-lg
@@ -236,7 +238,8 @@
         </div>
       </div>
     </main>
-
+    
+    <AppTour />
   </div>
 </template>
 
@@ -245,6 +248,7 @@ import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRoute } from 'vue-router';
 import { useColorMode } from '#imports';
+import AppTour from '@/features/onboarding/components/AppTour.vue';
 
 const authStore = useAuthStore();
 const route = useRoute();
