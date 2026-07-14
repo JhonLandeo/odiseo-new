@@ -4,6 +4,7 @@ import { MaterialsController } from './materials.controller';
 import { MaterialsService } from './materials.service';
 import { MaterialsCron } from './materials.cron';
 import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
+import { GetMaterialReviewUseCase } from './use-cases/get-material-review.use-case';
 import { CoreApiService } from './services/core-api.service';
 import { PdfGeneratorService } from './services/pdf-generator.service';
 import { PdfGenerationProcessor } from './processors/pdf-generation.processor';
@@ -51,6 +52,7 @@ import { QuestionBankModule } from '../question-bank/question-bank.module';
     PdfDesignService,
     MaterialsCron,
     GenerateMaterialUseCase,
+    GetMaterialReviewUseCase,
     CoreApiService,
     PdfGeneratorService,
     PdfGenerationProcessor,

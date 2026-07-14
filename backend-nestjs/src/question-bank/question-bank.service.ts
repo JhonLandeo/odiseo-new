@@ -33,14 +33,25 @@ export class QuestionBankService {
 
     const numericSubtopicId = convertUuidToIntegerId(subtopicId);
 
-    // Get list of already used question IDs
-    const usedQuestionIds = await this.reviewRepository
-      .createQueryBuilder('mrq')
-      .select('mrq.question_id')
-      .where('mrq.question_id IS NOT NULL')
-      .getRawMany();
+    const tenantSchema = `tenant_${tenantId}`;
+    
+    // Get list of already used question IDs from the specific tenant schema, optionally filtered by cycle
+    let query = `SELECT mrq.question_id FROM ${tenantSchema}.material_review_questions mrq`;
+    const params: any[] = [];
+    
+    if (cycleId) {
+      query += ` INNER JOIN ${tenantSchema}.material_requests r ON mrq.material_request_id = r.id`;
+    }
+    query += ` WHERE mrq.question_id IS NOT NULL`;
+    
+    if (cycleId) {
+      query += ` AND r.cycle_id = $1`;
+      params.push(cycleId);
+    }
+    
+    const usedQuestionIds = await this.reviewRepository.manager.query(query, params);
 
-    const usedIdsList = usedQuestionIds.map((row) => row.question_id);
+    const usedIdsList = usedQuestionIds.map((row: any) => row.question_id);
 
     // Base query builder for unused questions
     const unusedIdsQb = this.questionRepository

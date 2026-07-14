@@ -18,6 +18,7 @@ import { WebhookStatusRequestDto } from './dto/webhook-status-request.dto';
 import { ApproveReviewDto } from './dto/approve-review.dto';
 import { MaterialsService } from './materials.service';
 import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case';
+import { GetMaterialReviewUseCase } from './use-cases/get-material-review.use-case';
 import { GetQuestionAlternativesDto } from './dto/get-question-alternatives.dto';
 
 @ApiTags('Materials')
@@ -26,6 +27,7 @@ export class MaterialsController {
   constructor(
     private readonly materialsService: MaterialsService,
     private readonly generateMaterialUseCase: GenerateMaterialUseCase,
+    private readonly getMaterialReviewUseCase: GetMaterialReviewUseCase,
     private readonly cls: ClsService,
   ) {}
 
@@ -76,7 +78,7 @@ export class MaterialsController {
   })
   @ApiResponse({ status: 404, description: 'La solicitud no existe.' })
   async getReviewData(@Param('id') id: string) {
-    return await this.materialsService.getReviewData(id);
+    return await this.getMaterialReviewUseCase.execute(id);
   }
 
   @Post(':id/draft')
