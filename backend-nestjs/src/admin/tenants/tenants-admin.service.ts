@@ -148,10 +148,10 @@ export class TenantsAdminService {
         UPDATE "${schemaName}".users 
         SET email = $1, password_hash = $2, updated_at = now()
         WHERE id = (
-          SELECT mhr.model_id 
-          FROM "${schemaName}".model_has_roles mhr 
-          JOIN "${schemaName}".roles r ON mhr.role_id = r.id 
-          WHERE r.name = 'Director' AND mhr.model_type = 'User'
+          SELECT ur.user_id 
+          FROM "${schemaName}".user_roles ur 
+          JOIN "${schemaName}".roles r ON ur.role_id = r.id 
+          WHERE r.name = 'Director'
           LIMIT 1
         )
       `;

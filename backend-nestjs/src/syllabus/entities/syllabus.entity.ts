@@ -24,7 +24,7 @@ export class Syllabus {
   @JoinColumn({ name: 'cycle_id' })
   cycle: Cycle;
 
-  @Column({ name: 'course_id', type: 'uuid' })
+  @Column({ name: 'course_id', type: 'bigint' })
   courseId: string;
 
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })

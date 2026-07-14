@@ -10,7 +10,7 @@ import { Topic } from '../../catalogs/entities/topic.entity';
 
 @Entity({ name: 'tenant_topic_visibility' })
 export class TenantTopicVisibility {
-  @PrimaryColumn({ name: 'topic_id', type: 'uuid' })
+  @PrimaryColumn({ name: 'topic_id', type: 'bigint' })
   topicId: string;
 
   @Column({ name: 'is_active', type: 'boolean', default: false })

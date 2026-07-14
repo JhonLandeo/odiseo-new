@@ -18,7 +18,7 @@ export class CycleMaterialTemplateCourse {
   @Column({ name: 'template_id', type: 'uuid' })
   templateId: string;
 
-  @Column({ name: 'course_id', type: 'uuid' })
+  @Column({ name: 'course_id', type: 'bigint' })
   courseId: string;
 
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })

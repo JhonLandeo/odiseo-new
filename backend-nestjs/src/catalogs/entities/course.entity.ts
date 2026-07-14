@@ -10,7 +10,7 @@ import { Topic } from './topic.entity';
 
 @Entity({ schema: 'public', name: 'courses' })
 export class Course {
-  @PrimaryColumn('uuid')
+  @PrimaryColumn({ type: 'bigint' })
   id: string;
 
   @Column({ type: 'varchar', length: 255 })

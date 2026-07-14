@@ -1,4 +1,6 @@
 -- DDL for provisioning a new tenant schema
+-- RBAC: Modelo JSONB simplificado (user_roles + roles.permissions JSONB)
+-- Catálogos: Referencias a public.courses/topics/subtopics usan BIGINT
 
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,35 +15,29 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(100) NOT NULL UNIQUE,
-  guard_name VARCHAR(50) NOT NULL DEFAULT 'web',
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  name VARCHAR(255) UNIQUE NOT NULL,
+  description TEXT,
+  is_system_default BOOLEAN DEFAULT false,
+  permissions JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS permissions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(100) NOT NULL UNIQUE,
-  guard_name VARCHAR(50) NOT NULL DEFAULT 'web',
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS role_inheritance (
+  parent_role_id UUID REFERENCES roles(id) ON DELETE RESTRICT,
+  child_role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
+  PRIMARY KEY (parent_role_id, child_role_id)
 );
 
-CREATE TABLE IF NOT EXISTS model_has_roles (
-  role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  model_id UUID NOT NULL,
-  model_type VARCHAR(100) NOT NULL DEFAULT 'User',
-  PRIMARY KEY (role_id, model_id, model_type)
-);
-
-CREATE TABLE IF NOT EXISTS role_has_permissions (
-  role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-  PRIMARY KEY (role_id, permission_id)
+CREATE TABLE IF NOT EXISTS user_roles (
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  role_id UUID REFERENCES roles(id) ON DELETE RESTRICT,
+  assigned_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  PRIMARY KEY (user_id, role_id)
 );
 
 CREATE TABLE IF NOT EXISTS tenant_topic_visibility (
-  topic_id UUID PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
+  topic_id BIGINT PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
   is_active BOOLEAN NOT NULL DEFAULT true,
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
@@ -86,7 +82,7 @@ CREATE TABLE IF NOT EXISTS cycle_material_templates (
 CREATE TABLE IF NOT EXISTS cycle_material_template_courses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   template_id UUID NOT NULL REFERENCES cycle_material_templates(id) ON DELETE CASCADE,
-  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
   questions_quantity INTEGER NOT NULL,
   easy_count INTEGER NOT NULL DEFAULT 0,
   medium_count INTEGER NOT NULL DEFAULT 0,
@@ -126,7 +122,7 @@ CREATE TABLE IF NOT EXISTS pdf_design_templates (
 CREATE TABLE IF NOT EXISTS syllabus (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
-  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   template_id UUID REFERENCES cycle_material_templates(id) ON DELETE SET NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
@@ -139,29 +135,103 @@ CREATE TABLE IF NOT EXISTS syllabus_distribution (
   syllabus_id UUID NOT NULL REFERENCES syllabus(id) ON DELETE RESTRICT,
   template_id UUID REFERENCES cycle_material_templates(id) ON DELETE SET NULL,
   week_number INTEGER NOT NULL,
-  topic_id UUID NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
-  subtopic_id UUID NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
+  topic_id BIGINT NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
+  subtopic_id BIGINT NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
   question_count INTEGER NOT NULL CHECK (question_count > 0),
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   CONSTRAINT UQ_syllabus_template_week_topic_subtopic UNIQUE (syllabus_id, template_id, week_number, topic_id, subtopic_id)
 );
 
--- Basic Seed for new tenant
-INSERT INTO roles (name, guard_name) VALUES ('admin', 'web')
-ON CONFLICT (name) DO NOTHING;
+-- Materials tables (tenant-scoped)
+CREATE TABLE IF NOT EXISTS materials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id VARCHAR(255) NOT NULL,
+  profile_id UUID NOT NULL REFERENCES cycle_material_templates(id) ON DELETE CASCADE,
+  cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  week_number INTEGER NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+  latest_request_id UUID,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
 
-INSERT INTO permissions (name, guard_name) VALUES
-  ('view_catalogs', 'web'),
-  ('edit_catalogs', 'web'),
-  ('view_materials', 'web'),
-  ('generate_material', 'web'),
-  ('review_material', 'web'),
-  ('view_syllabus', 'web'),
-  ('edit_syllabus', 'web'),
-  ('manage_academic_time', 'web')
-ON CONFLICT (name) DO NOTHING;
+CREATE TABLE IF NOT EXISTS material_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id VARCHAR(255) NOT NULL,
+  profile_id UUID NOT NULL REFERENCES cycle_material_templates(id) ON DELETE CASCADE,
+  cycle_id UUID NOT NULL REFERENCES cycles(id) ON DELETE CASCADE,
+  week_number INTEGER NOT NULL,
+  material_type VARCHAR(50) NOT NULL DEFAULT 'BALOTARIO',
+  version INTEGER NOT NULL DEFAULT 1,
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+  requires_review BOOLEAN NOT NULL DEFAULT true,
+  design_template_id UUID REFERENCES pdf_design_templates(id) ON DELETE SET NULL,
+  material_id UUID REFERENCES materials(id) ON DELETE CASCADE,
+  merged_download_url TEXT,
+  merged_key_download_url TEXT,
+  merged_solution_download_url TEXT,
+  created_by UUID,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
 
-INSERT INTO role_has_permissions (role_id, permission_id)
-  SELECT r.id, p.id FROM roles r, permissions p WHERE r.name = 'admin'
-ON CONFLICT DO NOTHING;
+-- Deferred FK for materials.latest_request_id
+ALTER TABLE materials
+  ADD CONSTRAINT fk_materials_latest_request
+  FOREIGN KEY (latest_request_id) REFERENCES material_requests(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS material_request_courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  material_request_id UUID NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
+  course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+  download_url TEXT,
+  key_download_url TEXT,
+  solution_download_url TEXT,
+  warnings JSONB,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS material_review_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  material_request_id UUID NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
+  question_id VARCHAR(36),
+  topic_id BIGINT NOT NULL,
+  subtopic_id BIGINT NOT NULL,
+  expected_level VARCHAR(20),
+  position INTEGER NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'FOUND',
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS material_question_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  material_request_id UUID NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
+  cycle_id UUID NOT NULL,
+  question_id VARCHAR(36) NOT NULL,
+  course_id BIGINT NOT NULL,
+  topic_id BIGINT NOT NULL,
+  subtopic_id BIGINT NOT NULL,
+  position_in_pdf INTEGER NOT NULL,
+  was_replacement BOOLEAN NOT NULL DEFAULT false,
+  used_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_material_question_usage_cycle_course_question
+  ON material_question_usage (cycle_id, course_id, question_id);
+
+CREATE TABLE IF NOT EXISTS onboarding_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  steps_completed JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_dismissed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+-- Seed: Director role with JSONB permissions
+INSERT INTO roles (name, description, is_system_default, permissions) VALUES (
+  'Director',
+  'Administrador Principal de la Institución',
+  true,
+  '["view_catalogs","edit_catalogs","view_materials","generate_material","review_material","view_syllabus","edit_syllabus","manage_academic_time"]'::jsonb
+) ON CONFLICT (name) DO NOTHING;

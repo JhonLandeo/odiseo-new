@@ -39,10 +39,10 @@ export class SyllabusDistribution {
   @Column({ name: 'week_number', type: 'int' })
   weekNumber: number;
 
-  @Column({ name: 'topic_id', type: 'uuid' })
+  @Column({ name: 'topic_id', type: 'bigint' })
   topicId: string;
 
-  @Column({ name: 'subtopic_id', type: 'uuid' })
+  @Column({ name: 'subtopic_id', type: 'bigint' })
   subtopicId: string;
 
   @Column({ name: 'question_count', type: 'int' })

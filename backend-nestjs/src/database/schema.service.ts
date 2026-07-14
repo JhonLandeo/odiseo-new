@@ -77,7 +77,7 @@ export class SchemaService {
           PRIMARY KEY (user_id, role_id)
         );
         CREATE TABLE IF NOT EXISTS "${schemaName}".tenant_topic_visibility (
-          topic_id UUID PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
+          topic_id BIGINT PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
           is_active BOOLEAN NOT NULL DEFAULT true,
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
         );
@@ -119,7 +119,7 @@ export class SchemaService {
         CREATE TABLE IF NOT EXISTS "${schemaName}".cycle_material_template_courses (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           template_id UUID NOT NULL REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE CASCADE,
-          course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+          course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
           questions_quantity INTEGER NOT NULL,
           easy_count INTEGER NOT NULL DEFAULT 0,
           medium_count INTEGER NOT NULL DEFAULT 0,
@@ -158,7 +158,7 @@ export class SchemaService {
         CREATE TABLE IF NOT EXISTS "${schemaName}".syllabus (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           cycle_id UUID NOT NULL REFERENCES "${schemaName}".cycles(id) ON DELETE CASCADE,
-          course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+          course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
           template_id UUID REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE SET NULL,
           is_active BOOLEAN NOT NULL DEFAULT true,
@@ -171,8 +171,8 @@ export class SchemaService {
           syllabus_id UUID NOT NULL REFERENCES "${schemaName}".syllabus(id) ON DELETE RESTRICT,
           template_id UUID REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE SET NULL,
           week_number INTEGER NOT NULL,
-          topic_id UUID NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
-          subtopic_id UUID NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
+          topic_id BIGINT NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
+          subtopic_id BIGINT NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
           question_count INTEGER NOT NULL CHECK (question_count > 0),
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
@@ -185,6 +185,76 @@ export class SchemaService {
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
         );
+        CREATE TABLE IF NOT EXISTS "${schemaName}".materials (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id VARCHAR(255) NOT NULL,
+          profile_id UUID NOT NULL REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE CASCADE,
+          cycle_id UUID NOT NULL REFERENCES "${schemaName}".cycles(id) ON DELETE CASCADE,
+          week_number INTEGER NOT NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+          latest_request_id UUID,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS "${schemaName}".material_requests (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id VARCHAR(255) NOT NULL,
+          profile_id UUID NOT NULL REFERENCES "${schemaName}".cycle_material_templates(id) ON DELETE CASCADE,
+          cycle_id UUID NOT NULL REFERENCES "${schemaName}".cycles(id) ON DELETE CASCADE,
+          week_number INTEGER NOT NULL,
+          material_type VARCHAR(50) NOT NULL DEFAULT 'BALOTARIO',
+          version INTEGER NOT NULL DEFAULT 1,
+          status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+          requires_review BOOLEAN NOT NULL DEFAULT true,
+          design_template_id UUID REFERENCES "${schemaName}".pdf_design_templates(id) ON DELETE SET NULL,
+          material_id UUID REFERENCES "${schemaName}".materials(id) ON DELETE CASCADE,
+          merged_download_url TEXT,
+          merged_key_download_url TEXT,
+          merged_solution_download_url TEXT,
+          created_by UUID,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+        );
+        ALTER TABLE "${schemaName}".materials DROP CONSTRAINT IF EXISTS fk_materials_latest_request;
+        ALTER TABLE "${schemaName}".materials
+          ADD CONSTRAINT fk_materials_latest_request
+          FOREIGN KEY (latest_request_id) REFERENCES "${schemaName}".material_requests(id) ON DELETE SET NULL;
+        CREATE TABLE IF NOT EXISTS "${schemaName}".material_request_courses (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          material_request_id UUID NOT NULL REFERENCES "${schemaName}".material_requests(id) ON DELETE CASCADE,
+          course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+          status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+          download_url TEXT,
+          key_download_url TEXT,
+          solution_download_url TEXT,
+          warnings JSONB,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS "${schemaName}".material_review_questions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          material_request_id UUID NOT NULL REFERENCES "${schemaName}".material_requests(id) ON DELETE CASCADE,
+          question_id VARCHAR(36),
+          topic_id BIGINT NOT NULL,
+          subtopic_id BIGINT NOT NULL,
+          expected_level VARCHAR(20),
+          position INTEGER NOT NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'FOUND',
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS "${schemaName}".material_question_usage (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          material_request_id UUID NOT NULL REFERENCES "${schemaName}".material_requests(id) ON DELETE CASCADE,
+          cycle_id UUID NOT NULL,
+          question_id VARCHAR(36) NOT NULL,
+          course_id BIGINT NOT NULL,
+          topic_id BIGINT NOT NULL,
+          subtopic_id BIGINT NOT NULL,
+          position_in_pdf INTEGER NOT NULL,
+          was_replacement BOOLEAN NOT NULL DEFAULT false,
+          used_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_${schemaName}_material_question_usage_cycle_course_question
+          ON "${schemaName}".material_question_usage (cycle_id, course_id, question_id);
       `);
 
       // 2. Insert Super Admin (Director) Role

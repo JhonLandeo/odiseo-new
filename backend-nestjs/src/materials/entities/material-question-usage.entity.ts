@@ -21,13 +21,13 @@ export class MaterialQuestionUsage {
   @Column({ name: 'question_id' })
   questionId: string;
 
-  @Column({ name: 'course_id' })
+  @Column({ name: 'course_id', type: 'bigint' })
   courseId: string;
 
-  @Column({ name: 'topic_id' })
+  @Column({ name: 'topic_id', type: 'bigint' })
   topicId: string;
 
-  @Column({ name: 'subtopic_id' })
+  @Column({ name: 'subtopic_id', type: 'bigint' })
   subtopicId: string;
 
   @Column({ name: 'position_in_pdf' })

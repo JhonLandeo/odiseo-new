@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, Inject } from '@nes
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
 import { GcsService } from '../../gcs/gcs.service';
-import { convertUuidToIntegerId } from '../../database/uuid-converter';
+
 
 @Injectable()
 export class GetMaterialQuestionsUseCase {
@@ -131,21 +131,21 @@ export class GetMaterialQuestionsUseCase {
       if (subtopicId) {
         const subtopicIds = subtopicId.split(',').filter(Boolean);
         if (subtopicIds.length > 0) {
-          const numericSubtopicIds = subtopicIds.map(convertUuidToIntegerId);
+          const numericSubtopicIds = subtopicIds.map(Number);
           sql += ` AND s.id IN (${numericSubtopicIds.map((_, i) => `\$${queryParams.length + 1 + i}`).join(', ')})`;
           queryParams.push(...numericSubtopicIds);
         }
       } else if (topicId) {
         const topicIds = topicId.split(',').filter(Boolean);
         if (topicIds.length > 0) {
-          const numericTopicIds = topicIds.map(convertUuidToIntegerId);
+          const numericTopicIds = topicIds.map(Number);
           sql += ` AND s.topic_id IN (${numericTopicIds.map((_, i) => `\$${queryParams.length + 1 + i}`).join(', ')})`;
           queryParams.push(...numericTopicIds);
         }
       } else if (courseId) {
         const courseIds = courseId.split(',').filter(Boolean);
         if (courseIds.length > 0) {
-          const numericCourseIds = courseIds.map(convertUuidToIntegerId);
+          const numericCourseIds = courseIds.map(Number);
           sql += ` AND t.course_id IN (${numericCourseIds.map((_, i) => `\$${queryParams.length + 1 + i}`).join(', ')})`;
           queryParams.push(...numericCourseIds);
         }
@@ -169,7 +169,7 @@ export class GetMaterialQuestionsUseCase {
         const numericExcludeIds = excludedQuestionIds
           .map(id => {
             const num = Number(id);
-            return isNaN(num) ? convertUuidToIntegerId(id) : num;
+            return isNaN(num) ? Number(id) : num;
           })
           .filter(id => !isNaN(id));
         if (numericExcludeIds.length > 0) {

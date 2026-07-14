@@ -22,7 +22,7 @@ export class CreateMaterialRequests1718640000003 implements MigrationInterface {
       CREATE TABLE IF NOT EXISTS material_request_courses (
         id UUID PRIMARY KEY,
         material_request_id UUID NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
-        course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+        course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
         status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
         download_url TEXT,
         warnings JSONB,
@@ -35,8 +35,8 @@ export class CreateMaterialRequests1718640000003 implements MigrationInterface {
         id UUID PRIMARY KEY,
         material_request_id UUID NOT NULL REFERENCES material_requests(id) ON DELETE CASCADE,
         question_id VARCHAR(36),
-        topic_id UUID NOT NULL,
-        subtopic_id UUID NOT NULL,
+        topic_id BIGINT NOT NULL,
+        subtopic_id BIGINT NOT NULL,
         position INTEGER NOT NULL,
         status VARCHAR(50) NOT NULL DEFAULT 'FOUND',
         created_at TIMESTAMPTZ DEFAULT NOW()

@@ -26,7 +26,7 @@ export class MaterialRequestCourse {
   @Column({ name: 'material_request_id', type: 'uuid' })
   materialRequestId: string;
 
-  @Column({ name: 'course_id', type: 'uuid' })
+  @Column({ name: 'course_id', type: 'bigint' })
   courseId: string;
 
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })

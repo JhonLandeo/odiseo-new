@@ -25,10 +25,10 @@ export class MaterialReviewQuestion {
   @Column({ name: 'question_id', nullable: true })
   questionId: string;
 
-  @Column({ name: 'topic_id' })
+  @Column({ name: 'topic_id', type: 'bigint' })
   topicId: string;
 
-  @Column({ name: 'subtopic_id' })
+  @Column({ name: 'subtopic_id', type: 'bigint' })
   subtopicId: string;
 
   @Column({ name: 'expected_level', nullable: true })

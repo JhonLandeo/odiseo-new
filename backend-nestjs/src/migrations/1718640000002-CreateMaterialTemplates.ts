@@ -18,7 +18,7 @@ export class CreateMaterialTemplates1718640000002 implements MigrationInterface 
       CREATE TABLE IF NOT EXISTS cycle_material_template_courses (
         id UUID PRIMARY KEY,
         template_id UUID NOT NULL REFERENCES cycle_material_templates(id) ON DELETE CASCADE,
-        course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+        course_id BIGINT NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
         questions_quantity INTEGER NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -1,7 +1,5 @@
+// This file is deprecated. UUID to BigInt conversions are no longer needed 
+// because catalogs have been migrated to use BigInt natively.
 export function convertUuidToIntegerId(uuid: string): number {
-  if (!uuid) return 0;
-  const parts = uuid.split('-');
-  const lastPart = parts[parts.length - 1];
-  const parsed = parseInt(lastPart, 10);
-  return isNaN(parsed) ? 0 : parsed;
+  return Number(uuid);
 }

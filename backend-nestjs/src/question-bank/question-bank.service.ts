@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Question } from './entities/question.entity';
 import { MaterialReviewQuestion } from '../materials/entities/material-review-question.entity';
-import { convertUuidToIntegerId } from '../database/uuid-converter';
+
 
 @Injectable()
 export class QuestionBankService {
@@ -31,7 +31,7 @@ export class QuestionBankService {
       `Buscando ${limit} preguntas para el subtema ${subtopicId} con dificultad ${difficulty || 'CUALQUIERA'}`,
     );
 
-    const numericSubtopicId = convertUuidToIntegerId(subtopicId);
+    const numericSubtopicId = Number(subtopicId);
 
     const tenantSchema = `tenant_${tenantId}`;
     

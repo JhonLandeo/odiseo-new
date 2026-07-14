@@ -4,7 +4,7 @@ export class CreateTenantAcademicTime1718640000001 implements MigrationInterface
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE tenant_topic_visibility (
-        topic_id UUID PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
+        topic_id BIGINT PRIMARY KEY REFERENCES public.topics(id) ON DELETE CASCADE,
         is_active BOOLEAN NOT NULL DEFAULT FALSE,
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );

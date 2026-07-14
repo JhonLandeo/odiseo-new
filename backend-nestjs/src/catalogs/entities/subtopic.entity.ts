@@ -11,10 +11,10 @@ import { Topic } from './topic.entity';
 
 @Entity({ schema: 'public', name: 'subtopics' })
 export class Subtopic {
-  @PrimaryColumn('uuid')
+  @PrimaryColumn({ type: 'bigint' })
   id: string;
 
-  @Column({ name: 'topic_id', type: 'uuid' })
+  @Column({ name: 'topic_id', type: 'bigint' })
   topicId: string;
 
   @Column({ type: 'varchar', length: 255 })

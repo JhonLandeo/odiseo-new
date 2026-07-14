@@ -23,7 +23,7 @@ import {
   ReviewQuestionStatus,
 } from '../entities/material-review-question.entity';
 import { Question } from '../../question-bank/entities/question.entity';
-import { convertUuidToIntegerId } from '../../database/uuid-converter';
+
 import { Material } from '../entities/material.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
@@ -254,7 +254,7 @@ export class GenerateMaterialUseCase {
           dist.topics.map((t: any) => t.subtopic_id),
         );
         const uniqueSubtopicIds = Array.from(new Set(allSubtopicIds));
-        const numericSubtopicIds = uniqueSubtopicIds.map(convertUuidToIntegerId);
+        const numericSubtopicIds = uniqueSubtopicIds.map(Number);
 
         if (numericSubtopicIds.length > 0) {
           // 2. Fetch the question mapping in a single query
@@ -298,7 +298,7 @@ export class GenerateMaterialUseCase {
           // 4. Construct review questions for all courses/topics
           for (const dist of realDistributions) {
             for (const t of dist.topics) {
-              const numericSubtopicId = convertUuidToIntegerId(t.subtopic_id);
+              const numericSubtopicId = Number(t.subtopic_id);
               const subtopicQuestionIds =
                 questionsByNumericSubtopic.get(numericSubtopicId) || [];
 
