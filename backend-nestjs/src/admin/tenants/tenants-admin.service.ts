@@ -3,14 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Company } from '../../tenants/entities/tenant.entity';
-import { SchemaService } from '../../database/schema.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TenantProvisioningEvent } from './events/tenant-provisioning.event';
 
 @Injectable()
 export class TenantsAdminService {
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
-    private readonly schemaService: SchemaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async findAll(): Promise<any[]> {
@@ -78,12 +79,12 @@ export class TenantsAdminService {
     });
     const savedCompany = await this.companyRepository.save(company);
 
-    // Create the schema
+    // Emit the provisioning event to handle schema creation asynchronously
     const schemaName = `tenant_${savedCompany.id}`;
-    await this.schemaService.createTenantSchema(schemaName);
-
-    // Provision tables and seed admin user
-    await this.schemaService.seedTenantSchema(schemaName, savedCompany.id, data.adminEmail, passwordHash);
+    this.eventEmitter.emit(
+      'tenant.provisioning.started',
+      new TenantProvisioningEvent(schemaName, savedCompany.id, data.adminEmail, passwordHash),
+    );
 
     return savedCompany;
   }

@@ -54,25 +54,4 @@ export class TenantsController {
     };
   }
 
-  @Post('admin/companies')
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @RequirePermissions(PERMISSIONS.MANAGE_TENANTS)
-  async createCompany(@Body() dto: CreateCompanyDto) {
-    const company = await this.tenantsService.createCompany({
-      subdomain: dto.subdomain,
-      commercialName: dto.commercialName,
-      logoUrl: dto.logoUrl,
-      primaryColor: dto.primaryColor,
-    });
-
-    return {
-      id: company.id,
-      subdomain: company.subdomain,
-      commercialName: company.commercialName,
-      logoUrl: company.logoUrl,
-      primaryColor: company.primaryColor,
-      schemaName: `tenant_${company.id}`,
-      createdAt: company.createdAt,
-    };
-  }
 }
