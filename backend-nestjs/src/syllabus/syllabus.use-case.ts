@@ -8,12 +8,14 @@ import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import type { ISyllabusRepository } from './repositories/i-syllabus.repository';
 import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
+import { TenantService } from '../database/tenant.service';
 
 @Injectable()
 export class SyllabusUseCase {
   constructor(
     @Inject(I_SYLLABUS_REPOSITORY)
     private readonly syllabusRepo: ISyllabusRepository,
+    private readonly tenantService: TenantService,
   ) {}
 
   async create(dto: CreateSyllabusDto) {
@@ -92,22 +94,24 @@ export class SyllabusUseCase {
     sourceSyllabusId: string,
     targetActiveWeeks?: number[],
   ) {
-    const targetSyllabus = await this.syllabusRepo.findById(syllabusId);
-    if (!targetSyllabus) throw new BadRequestException('Syllabus destino no encontrado.');
+    return this.tenantService.runInTenant(async () => {
+      const targetSyllabus = await this.syllabusRepo.findById(syllabusId);
+      if (!targetSyllabus) throw new BadRequestException('Syllabus destino no encontrado.');
 
-    const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
-    if (!sourceSyllabus) throw new BadRequestException('Syllabus origen no encontrado.');
+      const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
+      if (!sourceSyllabus) throw new BadRequestException('Syllabus origen no encontrado.');
 
-    const activeWeeks = targetActiveWeeks || await this.syllabusRepo.findActiveWeeksByCycle(targetSyllabus.cycleId);
-    const sourceDistributions = await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
+      const activeWeeks = targetActiveWeeks || await this.syllabusRepo.findActiveWeeksByCycle(targetSyllabus.cycleId);
+      const sourceDistributions = await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
 
-    const templateMap = await this.buildTemplateMapping(sourceSyllabus, targetSyllabus, sourceDistributions);
+      const templateMap = await this.buildTemplateMapping(sourceSyllabus, targetSyllabus, sourceDistributions);
 
-    await this.clearExistingDistributions(syllabusId);
-    await this.copyDistributions(syllabusId, sourceDistributions, activeWeeks, sourceSyllabus, targetSyllabus, templateMap);
-    await this.setDefaultTemplate(syllabusId, sourceSyllabus, targetSyllabus, templateMap);
+      await this.clearExistingDistributions(syllabusId);
+      await this.copyDistributions(syllabusId, sourceDistributions, activeWeeks, sourceSyllabus, targetSyllabus, templateMap);
+      await this.setDefaultTemplate(syllabusId, sourceSyllabus, targetSyllabus, templateMap);
 
-    return await this.getSummary(syllabusId);
+      return await this.getSummary(syllabusId);
+    });
   }
 
   private async buildTemplateMapping(sourceSyllabus: any, targetSyllabus: any, sourceDistributions: any[]) {
@@ -153,38 +157,41 @@ export class SyllabusUseCase {
   }
 
   private async clearExistingDistributions(syllabusId: string) {
-    const currentDistributions = await this.syllabusRepo.getSummaryBySyllabus(syllabusId);
-    for (const dist of currentDistributions) {
-      await this.syllabusRepo.deleteDistribution(dist.id);
-    }
+    await this.syllabusRepo.bulkDeleteDistributionsBySyllabus(syllabusId);
   }
 
   private async copyDistributions(
-    syllabusId: string, 
-    sourceDistributions: any[], 
-    activeWeeks: number[], 
-    sourceSyllabus: any, 
-    targetSyllabus: any, 
-    templateMap: Record<string, string | null>
+    syllabusId: string,
+    sourceDistributions: any[],
+    activeWeeks: number[],
+    sourceSyllabus: any,
+    targetSyllabus: any,
+    templateMap: Record<string, string | null>,
   ) {
+    const distributionsToCreate: any[] = [];
     for (const dist of sourceDistributions) {
       if (!activeWeeks.includes(dist.weekNumber)) continue;
 
-      let targetTemplateId: string | null = null;
+      let newTemplateId = dist.templateId;
       if (dist.templateId) {
-        targetTemplateId = sourceSyllabus.cycleId === targetSyllabus.cycleId 
-          ? dist.templateId 
-          : (templateMap[dist.templateId] || null);
+        newTemplateId = templateMap[dist.templateId] !== undefined 
+          ? templateMap[dist.templateId] 
+          : (sourceSyllabus.cycleId === targetSyllabus.cycleId ? dist.templateId : null);
+        if (newTemplateId === null && dist.templateId) continue;
       }
 
-      await this.syllabusRepo.createDistribution({
+      distributionsToCreate.push({
         syllabusId,
         weekNumber: dist.weekNumber,
         topicId: dist.topicId,
         subtopicId: dist.subtopicId,
         questionCount: dist.questionCount,
-        templateId: targetTemplateId,
+        templateId: newTemplateId,
       });
+    }
+
+    if (distributionsToCreate.length > 0) {
+      await this.syllabusRepo.bulkCreateDistributions(distributionsToCreate);
     }
   }
 
@@ -206,44 +213,46 @@ export class SyllabusUseCase {
   }
 
   async cloneCycleSyllabuses(targetCycleId: string, sourceCycleId: string) {
-    const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
+    return this.tenantService.runInTenant(async () => {
+      const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
 
-    if (sourceSyllabuses.length === 0) {
-      throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
-    }
-
-    const targetActiveWeeks =
-      await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
-
-    let clonedCount = 0;
-    for (const sourceSyllabus of sourceSyllabuses) {
-      const existingTarget = await this.syllabusRepo.findByCourseAndCycle(
-        sourceSyllabus.courseId,
-        targetCycleId,
-      );
-
-      let targetSyllabusId;
-      if (existingTarget) {
-        targetSyllabusId = existingTarget.id;
-      } else {
-        const newSyllabus = await this.syllabusRepo.createSyllabus({
-          cycleId: targetCycleId,
-          courseId: sourceSyllabus.courseId,
-          name: sourceSyllabus.name,
-          isActive: true,
-        });
-        targetSyllabusId = newSyllabus.id;
+      if (sourceSyllabuses.length === 0) {
+        throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
       }
 
-      await this.cloneSyllabus(
-        targetSyllabusId,
-        sourceSyllabus.id,
-        targetActiveWeeks,
-      );
-      clonedCount++;
-    }
+      const targetActiveWeeks =
+        await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
 
-    return { clonedCount };
+      let clonedCount = 0;
+      for (const sourceSyllabus of sourceSyllabuses) {
+        const existingTarget = await this.syllabusRepo.findByCourseAndCycle(
+          sourceSyllabus.courseId,
+          targetCycleId,
+        );
+
+        let targetSyllabusId;
+        if (existingTarget) {
+          targetSyllabusId = existingTarget.id;
+        } else {
+          const newSyllabus = await this.syllabusRepo.createSyllabus({
+            cycleId: targetCycleId,
+            courseId: sourceSyllabus.courseId,
+            name: sourceSyllabus.name,
+            isActive: true,
+          });
+          targetSyllabusId = newSyllabus.id;
+        }
+
+        await this.cloneSyllabus(
+          targetSyllabusId,
+          sourceSyllabus.id,
+          targetActiveWeeks,
+        );
+        clonedCount++;
+      }
+
+      return { clonedCount };
+    });
   }
 
   async setTemplate(syllabusId: string, templateId: string) {

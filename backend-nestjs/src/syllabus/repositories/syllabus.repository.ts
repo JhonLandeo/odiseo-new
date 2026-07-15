@@ -108,6 +108,22 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
+  async bulkCreateDistributions(
+    distributions: Partial<SyllabusDistribution>[],
+  ): Promise<SyllabusDistribution[]> {
+    if (!distributions || distributions.length === 0) return [];
+    return this.tenantService.runInTenant(async (manager) => {
+      const newDists = manager.create(SyllabusDistribution, distributions);
+      return await manager.save(SyllabusDistribution, newDists, { chunk: 500 });
+    });
+  }
+
+  async bulkDeleteDistributionsBySyllabus(syllabusId: string): Promise<void> {
+    await this.tenantService.runInTenant(async (manager) => {
+      await manager.delete(SyllabusDistribution, { syllabusId });
+    });
+  }
+
   async getSummaryBySyllabus(
     syllabusId: string,
     templateId?: string,

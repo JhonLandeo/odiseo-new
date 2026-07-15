@@ -23,10 +23,14 @@ export class TenantService {
       throw new Error('Tenant Schema no está definido en el contexto actual');
     }
 
+    const existingManager = this.cls.get('tx_manager') as EntityManager;
+    if (existingManager) {
+      return operation(existingManager);
+    }
+
     return this.dataSource.transaction(async (manager) => {
-      // Establecer search_path solo para la duración de esta transacción
       await manager.query(`SET LOCAL search_path TO "${tenantSchema}", public`);
-      return operation(manager);
+      return this.cls.runWith({ ...this.cls.get(), tx_manager: manager } as any, () => operation(manager));
     });
   }
 
@@ -37,9 +41,14 @@ export class TenantService {
     schema: string,
     operation: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
+    const existingManager = this.cls.get('tx_manager') as EntityManager;
+    if (existingManager) {
+      return operation(existingManager);
+    }
+
     return this.dataSource.transaction(async (manager) => {
       await manager.query(`SET LOCAL search_path TO "${schema}", public`);
-      return operation(manager);
+      return this.cls.runWith({ ...this.cls.get(), tx_manager: manager } as any, () => operation(manager));
     });
   }
 }

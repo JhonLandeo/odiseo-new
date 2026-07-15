@@ -33,6 +33,8 @@ export interface ISyllabusRepository {
   ): Promise<SyllabusDistribution>;
   updateDistributionQuantity(id: string, questionCount: number): Promise<void>;
   deleteDistribution(id: string): Promise<void>;
+  bulkCreateDistributions(distributions: Partial<SyllabusDistribution>[]): Promise<SyllabusDistribution[]>;
+  bulkDeleteDistributionsBySyllabus(syllabusId: string): Promise<void>;
 
   getSummaryBySyllabus(syllabusId: string, templateId?: string): Promise<SyllabusDistribution[]>;
   findGeneratedWeeks(syllabusId: string): Promise<number[]>;

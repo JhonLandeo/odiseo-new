@@ -23,6 +23,7 @@ import {
   ReviewQuestionStatus,
 } from '../entities/material-review-question.entity';
 import { Question } from '../../question-bank/entities/question.entity';
+import { getLevelIdsForDifficulty } from '../../question-bank/constants/question-levels.constant';
 
 import { Material } from '../entities/material.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
@@ -315,10 +316,7 @@ export class GenerateMaterialUseCase {
 
               for (let i = 0; i < t.quantity; i++) {
                 const expectedLevelStr = t.expected_levels[i];
-                let levelIds: number[] = [];
-                if (expectedLevelStr === 'EASY') levelIds = [43, 44];
-                else if (expectedLevelStr === 'MEDIUM') levelIds = [45];
-                else if (expectedLevelStr === 'HARD') levelIds = [46, 47, 48, 49, 50, 51, 52];
+                const levelIds: number[] = getLevelIdsForDifficulty(expectedLevelStr);
 
                 // Find first matching level
                 let selectedIdx = availablePool.findIndex(q => levelIds.includes(q.levelId));

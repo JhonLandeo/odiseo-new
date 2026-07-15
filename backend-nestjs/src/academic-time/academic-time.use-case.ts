@@ -120,18 +120,24 @@ export class AcademicTimeUseCase {
     if (needsRecalculation) {
       const start = dayjs.utc(finalStartDate);
 
+      // Fetch existing weeks to preserve their IDs
+      const existingWeeksResult = await this.repository.getCycles(1, 0, existingCycle.name);
+      const existingWeeks = existingWeeksResult.data[0]?.weeks || [];
+
       cycleUpdate.weeks = [];
       for (let i = 1; i <= finalTotalWeeks; i++) {
         const currentWeekStart = start.add((i - 1) * 7, 'day');
         const currentWeekEnd = currentWeekStart.add(finalDaysPerWeek - 1, 'day');
 
+        const existingWeek = existingWeeks.find((w: any) => w.weekNumber === i);
+
         cycleUpdate.weeks.push({
-          id: uuidv4(),
+          id: existingWeek ? existingWeek.id : uuidv4(),
           cycleId: id,
           weekNumber: i,
           startDate: currentWeekStart.format('YYYY-MM-DD'),
           endDate: currentWeekEnd.format('YYYY-MM-DD'),
-          isActive: true,
+          isActive: existingWeek ? existingWeek.isActive : true,
         });
       }
 

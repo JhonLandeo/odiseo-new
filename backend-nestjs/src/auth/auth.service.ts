@@ -189,7 +189,8 @@ export class AuthService {
       ) as string[];
     });
 
-    await this.cacheManager.set(cacheKey, permissions);
+    // Set cache with a 30-minute TTL (in milliseconds for cache-manager v5+)
+    await this.cacheManager.set(cacheKey, permissions, 30 * 60 * 1000);
     return permissions;
   }
 }

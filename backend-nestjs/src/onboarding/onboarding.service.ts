@@ -101,23 +101,37 @@ export class OnboardingService {
         VALUES ('Plantilla Demo Estándar', true, true)
       `);
 
-      // 4. Insert demo syllabus (Aritmética course)
-      const ARITH_COURSE_ID = '00000000-0000-0000-0000-000000000001';
-      const ARITH_TOPIC_ID  = '00000000-0000-0000-0000-000000000001';
-      const ARITH_SUBTOPIC_ID = '00000000-0000-0000-0000-000000000001';
+      // 4. Fetch real IDs from global catalog (odiseo schema)
+      const courseRes = await manager.query(`SELECT id FROM odiseo.courses LIMIT 1`);
+      if (courseRes.length === 0) {
+        throw new BadRequestException('El catálogo de cursos globales está vacío. Imposible cargar demo.');
+      }
+      const demoCourseId = courseRes[0].id;
 
+      const topicRes = await manager.query(`SELECT id FROM odiseo.course_topics WHERE course_id = $1 LIMIT 1`, [demoCourseId]);
+      const demoTopicId = topicRes.length > 0 ? topicRes[0].id : null;
+
+      let demoSubtopicId = null;
+      if (demoTopicId) {
+        const subtopicRes = await manager.query(`SELECT id FROM odiseo.course_subtopics WHERE topic_id = $1 LIMIT 1`, [demoTopicId]);
+        demoSubtopicId = subtopicRes.length > 0 ? subtopicRes[0].id : null;
+      }
+
+      // 5. Insert demo syllabus
       const syllabusRes = (await manager.query(`
         INSERT INTO syllabus (cycle_id, course_id, name, is_active, is_demo)
-        VALUES ($1, $2, 'Sílabo Demo - Aritmética', true, true) RETURNING id
-      `, [cycleId, ARITH_COURSE_ID])) as { id: string }[];
+        VALUES ($1, $2, 'Sílabo Demo - Generado', true, true) RETURNING id
+      `, [cycleId, demoCourseId])) as { id: string }[];
 
       const syllabusId = syllabusRes[0].id;
 
-      // 5. Insert 1 demo distribution entry
-      await manager.query(`
-        INSERT INTO syllabus_distribution (syllabus_id, week_number, topic_id, subtopic_id, question_count)
-        VALUES ($1, 1, $2, $3, 5)
-      `, [syllabusId, ARITH_TOPIC_ID, ARITH_SUBTOPIC_ID]);
+      // 6. Insert 1 demo distribution entry if topics exist
+      if (demoTopicId && demoSubtopicId) {
+        await manager.query(`
+          INSERT INTO syllabus_distribution (syllabus_id, week_number, topic_id, subtopic_id, question_count)
+          VALUES ($1, 1, $2, $3, 5)
+        `, [syllabusId, demoTopicId, demoSubtopicId]);
+      }
 
       // 6. Mark the first onboarding step as complete
       await this._upsertStepCompleted(manager, 'load_demo_or_create_cycle');

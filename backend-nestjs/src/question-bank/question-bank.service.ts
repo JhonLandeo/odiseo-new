@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Question } from './entities/question.entity';
 import { MaterialReviewQuestion } from '../materials/entities/material-review-question.entity';
+import { getLevelIdsForDifficulty } from './constants/question-levels.constant';
 
 
 @Injectable()
@@ -81,15 +82,7 @@ export class QuestionBankService {
 
     // Priority 1: Unused questions matching difficulty
     if (difficulty) {
-      let levelIds: number[] = [];
-      const upperDiff = String(difficulty).toUpperCase();
-      if (upperDiff === 'EASY' || upperDiff === 'FACIL') {
-        levelIds = [43, 44];
-      } else if (upperDiff === 'MEDIUM' || upperDiff === 'INTERMEDIO' || upperDiff === 'MEDIA') {
-        levelIds = [45];
-      } else if (upperDiff === 'HARD' || upperDiff === 'DIFICIL') {
-        levelIds = [46, 47, 48, 49, 50, 51, 52];
-      }
+      const levelIds = getLevelIdsForDifficulty(difficulty);
 
       if (levelIds.length > 0) {
         const diffPool = unusedPool.filter(q => levelIds.includes(q.levelId));
