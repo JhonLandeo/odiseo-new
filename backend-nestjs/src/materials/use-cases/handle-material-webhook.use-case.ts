@@ -8,6 +8,7 @@ import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestStatus } from '../entities/material-status.enum';
 import { Material } from '../entities/material.entity';
 import { ClsService } from 'nestjs-cls';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class HandleMaterialWebhookUseCase {
@@ -17,6 +18,7 @@ export class HandleMaterialWebhookUseCase {
     private readonly tenantService: TenantService,
     private readonly cls: ClsService,
     @InjectQueue('materials-queue') private readonly materialsQueue: Queue,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async execute(statusData: WebhookStatusRequestDto): Promise<void> {
@@ -66,6 +68,22 @@ export class HandleMaterialWebhookUseCase {
       this.logger.log(
         `MaterialRequestCourse ${courseReq.id} updated to ${courseStatus}`,
       );
+
+      const requestParent = await manager.findOne(MaterialRequest, {
+        where: { id: courseReq.materialRequestId },
+      });
+
+      if (
+        requestParent &&
+        (courseStatus === CourseMaterialStatus.COMPLETED ||
+          courseStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS)
+      ) {
+        this.eventEmitter.emit('material.course.generated', {
+          cycleId: requestParent.cycleId,
+          courseId: courseReq.courseId,
+          weekNumber: requestParent.weekNumber,
+        });
+      }
 
       // Check if all courses in the parent MaterialRequest are complete
       const siblingCourses = await manager.find(MaterialRequestCourse, {

@@ -7,6 +7,8 @@ import { GenerateMaterialUseCase } from './use-cases/generate-material.use-case'
 import { TenantService } from '../database/tenant.service';
 import { Company } from '../tenants/entities/tenant.entity';
 import { CycleMaterialTemplate } from '../academic-time/entities/cycle-material-template.entity';
+import { Cycle } from '../academic-time/entities/cycle.entity';
+import { Material } from './entities/material.entity';
 
 @Injectable()
 export class MaterialsCron {
@@ -52,34 +54,53 @@ export class MaterialsCron {
       return;
     }
 
-    // Mock de base de datos para la configuración de ciclos
-    const cycles = [
-      {
-        cycle_id: 'c-1',
-        name: 'Ciclo Verano 2026',
-        cycle_weeks: [
-          { week_num: 1, active: true, course_id: 'course-math' },
-          { week_num: 2, active: false, course_id: null }, // Semana inactiva (NULL)
-          { week_num: 3, active: true, course_id: 'course-math' },
-        ],
+    // Buscar todos los ciclos activos con sus semanas en el esquema del tenant
+    const cycles = await this.tenantService.runInSchema(
+      schemaName,
+      async (manager) => {
+        return manager.find(Cycle, {
+          where: { isActive: true },
+          relations: ['weeks'],
+        });
       },
-    ];
+    );
 
     for (const cycle of cycles) {
       this.logger.log(`Processing cycle: ${cycle.name}`);
 
-      for (const week of cycle.cycle_weeks) {
+      for (const week of cycle.weeks || []) {
         // T026 [US5]: Lógica de iteración alineada a CR-004
-        // Preservación ESTRICTA de las semanas nulas (inactivas)
-        if (!week.active || week.course_id === null) {
+        // Preservación ESTRICTA de las semanas inactivas
+        if (!week.isActive) {
           this.logger.log(
-            `CR-004 Validated: Preserving inactive NULL week ${week.week_num} for cycle ${cycle.cycle_id} without deletion.`,
+            `CR-004 Validated: Preserving inactive week ${week.weekNumber} for cycle ${cycle.id} without deletion.`,
           );
-          continue; // Se omite el procesamiento físico, pero el registro original no se muta ni se borra
+          continue; // Se omite el procesamiento físico
+        }
+
+        // Check if material is already generated or enqueued
+        const existingMaterial = await this.tenantService.runInSchema(
+          schemaName,
+          async (manager) => {
+            return manager.findOne(Material, {
+              where: {
+                profileId: template.id,
+                cycleId: cycle.id,
+                weekNumber: week.weekNumber,
+              },
+            });
+          },
+        );
+
+        if (existingMaterial) {
+          this.logger.log(
+            `Material for cycle ${cycle.id} week ${week.weekNumber} already exists. Skipping auto-generation.`,
+          );
+          continue;
         }
 
         this.logger.log(
-          `Triggering generation for active week ${week.week_num} in cycle ${cycle.cycle_id}`,
+          `Triggering generation for active week ${week.weekNumber} in cycle ${cycle.id}`,
         );
         try {
           // Invocamos el flujo de US1 usando el caso de uso
@@ -91,15 +112,15 @@ export class MaterialsCron {
             async () => {
               await this.generateMaterialUseCase.execute(tenantId, tenantId, {
                 profile_id: template.id,
-                week_number: week.week_num,
+                week_number: week.weekNumber,
                 requires_review: false,
-                courses: [{ course_id: week.course_id }],
+                // Si no enviamos courses, el caso de uso toma todos los cursos del perfil por defecto
               });
             },
           );
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(
-            `Error auto-generating material for week ${week.week_num}: ${error.message}`,
+            `Error auto-generating material for week ${week.weekNumber}: ${error.message}`,
           );
         }
       }

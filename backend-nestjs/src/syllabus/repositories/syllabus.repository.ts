@@ -139,19 +139,11 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
 
   async findGeneratedWeeks(syllabusId: string): Promise<number[]> {
     return this.tenantService.runInTenant(async (manager) => {
-      const syllabus = await manager.findOne(Syllabus, {
-        where: { id: syllabusId },
-      });
-      if (!syllabus) return [];
-
       const rows = await manager.query(
-        `SELECT DISTINCT mr.week_number
-         FROM material_requests mr
-         INNER JOIN material_request_courses mrc ON mrc.material_request_id = mr.id
-         WHERE mr.cycle_id = $1
-           AND mrc.course_id = $2
-           AND mrc.status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS')`,
-        [syllabus.cycleId, syllabus.courseId],
+        `SELECT DISTINCT week_number
+         FROM syllabus_distribution
+         WHERE syllabus_id = $1 AND is_generated = true`,
+        [syllabusId],
       );
       return rows.map((r: any) => r.week_number);
     });

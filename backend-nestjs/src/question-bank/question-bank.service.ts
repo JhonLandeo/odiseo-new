@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Question } from './entities/question.entity';
 import { MaterialReviewQuestion } from '../materials/entities/material-review-question.entity';
 import { getLevelIdsForDifficulty } from './constants/question-levels.constant';
+import { QuestionSelectionStrategy, SelectionRequest } from './strategies/question-selection.strategy';
 
 
 @Injectable()
@@ -66,57 +67,17 @@ export class QuestionBankService {
       .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)')
       .getMany();
 
-    const usedSet = new Set(usedIdsList);
-    const unusedPool = pool.filter(q => !usedSet.has(q.id));
+    const requests: SelectionRequest[] = Array(limit).fill({ expectedLevel: difficulty });
     
-    // Fisher-Yates shuffle helper
-    const shuffle = (array: any[]) => {
-      for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-      }
-      return array;
-    };
+    // Call the centralized strategy. QuestionBankService allows recycling (Fallback 2)
+    const selectedQ = QuestionSelectionStrategy.selectBestQuestions(
+      pool,
+      usedIdsList,
+      requests,
+      true // allowRecycling
+    );
 
-    let selectedIds: string[] = [];
-
-    // Priority 1: Unused questions matching difficulty
-    if (difficulty) {
-      const levelIds = getLevelIdsForDifficulty(difficulty);
-
-      if (levelIds.length > 0) {
-        const diffPool = unusedPool.filter(q => levelIds.includes(q.levelId));
-        shuffle(diffPool);
-        const take = Math.min(limit, diffPool.length);
-        selectedIds = diffPool.slice(0, take).map(q => String(q.id));
-      }
-    }
-
-    // Priority 2: Unused questions of any difficulty (Fallback 1)
-    if (selectedIds.length < limit) {
-      const remainingLimit = limit - selectedIds.length;
-      const selectedSet = new Set(selectedIds);
-      const fallbackPool = unusedPool.filter(q => !selectedSet.has(q.id));
-      
-      shuffle(fallbackPool);
-      const take = Math.min(remainingLimit, fallbackPool.length);
-      selectedIds.push(...fallbackPool.slice(0, take).map(q => String(q.id)));
-    }
-
-    // Priority 3: Used questions (Fallback 2: Agotamiento del Banco)
-    if (selectedIds.length < limit) {
-      const missingCount = limit - selectedIds.length;
-      this.logger.warn(
-         `Banco agotado para subtema ${subtopicId}. Faltan ${missingCount} preguntas. Relajando regla de no-repetición.`,
-      );
-      
-      const selectedSet = new Set(selectedIds);
-      const usedPool = pool.filter(q => usedSet.has(q.id) && !selectedSet.has(q.id));
-      
-      shuffle(usedPool);
-      const take = Math.min(missingCount, usedPool.length);
-      selectedIds.push(...usedPool.slice(0, take).map(q => String(q.id)));
-    }
+    const selectedIds = selectedQ.filter(q => q !== null).map(q => String(q!.id));
 
     if (selectedIds.length === 0) {
       return [];

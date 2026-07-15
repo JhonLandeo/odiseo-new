@@ -48,6 +48,9 @@ export class SyllabusDistribution {
   @Column({ name: 'question_count', type: 'int' })
   questionCount: number;
 
+  @Column({ name: 'is_generated', type: 'boolean', default: false })
+  isGenerated: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

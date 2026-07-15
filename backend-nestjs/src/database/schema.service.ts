@@ -174,6 +174,7 @@ export class SchemaService {
           topic_id BIGINT NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
           subtopic_id BIGINT NOT NULL REFERENCES public.subtopics(id) ON DELETE CASCADE,
           question_count INTEGER NOT NULL CHECK (question_count > 0),
+          is_generated BOOLEAN NOT NULL DEFAULT false,
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
           CONSTRAINT UQ_syllabus_template_week_topic_subtopic UNIQUE (syllabus_id, template_id, week_number, topic_id, subtopic_id)

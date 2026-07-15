@@ -24,6 +24,7 @@ import {
 } from '../entities/material-review-question.entity';
 import { Question } from '../../question-bank/entities/question.entity';
 import { getLevelIdsForDifficulty } from '../../question-bank/constants/question-levels.constant';
+import { QuestionSelectionStrategy, SelectionRequest } from '../../question-bank/strategies/question-selection.strategy';
 
 import { Material } from '../entities/material.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
@@ -310,25 +311,24 @@ export class GenerateMaterialUseCase {
                     !!q && !dist.exclude_question_ids.includes(q.id),
                 );
 
-              // Shuffle the pool initially
-              const availablePool = subtopicQuestions.sort(() => 0.5 - Math.random());
-              const selectedQuestions: (Question | null)[] = [];
+              const availablePool = subtopicQuestions;
+              
+              const requests: SelectionRequest[] = [];
+              for (let i = 0; i < t.quantity; i++) {
+                requests.push({ expectedLevel: t.expected_levels[i] });
+              }
+
+              // Use strategy. GenerateMaterialUseCase does NOT recycle used questions (allowRecycling: false)
+              const selectedQuestions = QuestionSelectionStrategy.selectBestQuestions(
+                availablePool,
+                [], // exclude_question_ids were already filtered out of subtopicQuestions earlier
+                requests,
+                false
+              );
 
               for (let i = 0; i < t.quantity; i++) {
                 const expectedLevelStr = t.expected_levels[i];
-                const levelIds: number[] = getLevelIdsForDifficulty(expectedLevelStr);
-
-                // Find first matching level
-                let selectedIdx = availablePool.findIndex(q => levelIds.includes(q.levelId));
-                // If not found, just grab any from pool (fallback)
-                if (selectedIdx === -1 && availablePool.length > 0) {
-                  selectedIdx = 0;
-                }
-
-                let dbQ: Question | null = null;
-                if (selectedIdx !== -1) {
-                  dbQ = availablePool.splice(selectedIdx, 1)[0];
-                }
+                const dbQ = selectedQuestions[i];
 
                 const isVacant = !dbQ;
                 const reviewQ = manager.create(MaterialReviewQuestion, {
