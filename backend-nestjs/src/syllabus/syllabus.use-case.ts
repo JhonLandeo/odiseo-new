@@ -213,46 +213,44 @@ export class SyllabusUseCase {
   }
 
   async cloneCycleSyllabuses(targetCycleId: string, sourceCycleId: string) {
-    return this.tenantService.runInTenant(async () => {
-      const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
+    const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
 
-      if (sourceSyllabuses.length === 0) {
-        throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
+    if (sourceSyllabuses.length === 0) {
+      throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
+    }
+
+    const targetActiveWeeks =
+      await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
+
+    const existingTargets = await this.syllabusRepo.findByCycle(targetCycleId);
+    const existingTargetMap = new Map(existingTargets.map(s => [s.courseId, s]));
+
+    let clonedCount = 0;
+    for (const sourceSyllabus of sourceSyllabuses) {
+      const existingTarget = existingTargetMap.get(sourceSyllabus.courseId);
+
+      let targetSyllabusId;
+      if (existingTarget) {
+        targetSyllabusId = existingTarget.id;
+      } else {
+        const newSyllabus = await this.syllabusRepo.createSyllabus({
+          cycleId: targetCycleId,
+          courseId: sourceSyllabus.courseId,
+          name: sourceSyllabus.name,
+          isActive: true,
+        });
+        targetSyllabusId = newSyllabus.id;
       }
 
-      const targetActiveWeeks =
-        await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
+      await this.cloneSyllabus(
+        targetSyllabusId,
+        sourceSyllabus.id,
+        targetActiveWeeks,
+      );
+      clonedCount++;
+    }
 
-      let clonedCount = 0;
-      for (const sourceSyllabus of sourceSyllabuses) {
-        const existingTarget = await this.syllabusRepo.findByCourseAndCycle(
-          sourceSyllabus.courseId,
-          targetCycleId,
-        );
-
-        let targetSyllabusId;
-        if (existingTarget) {
-          targetSyllabusId = existingTarget.id;
-        } else {
-          const newSyllabus = await this.syllabusRepo.createSyllabus({
-            cycleId: targetCycleId,
-            courseId: sourceSyllabus.courseId,
-            name: sourceSyllabus.name,
-            isActive: true,
-          });
-          targetSyllabusId = newSyllabus.id;
-        }
-
-        await this.cloneSyllabus(
-          targetSyllabusId,
-          sourceSyllabus.id,
-          targetActiveWeeks,
-        );
-        clonedCount++;
-      }
-
-      return { clonedCount };
-    });
+    return { clonedCount };
   }
 
   async setTemplate(syllabusId: string, templateId: string) {

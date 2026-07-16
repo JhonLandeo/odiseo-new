@@ -1,82 +1,13 @@
-src/app.module.ts(15,10): error TS2300: Duplicate identifier 'MaterialsModule'.
-src/app.module.ts(20,10): error TS2300: Duplicate identifier 'MaterialsModule'.
-src/app.module.ts(20,33): error TS2307: Cannot find module './src/materials/materials.module' or its corresponding type declarations.
-src/materials/materials.service.spec.ts(12,10): error TS2305: Module '"./entities/material-request-course.entity"' has no exported member 'CourseRequestStatus'.
-src/materials/materials.service.spec.ts(71,11): error TS2561: Object literal may only specify known properties, but 'profileId' does not exist in type 'GenerateMaterialDto'. Did you mean to write 'profile_id'?
-src/materials/materials.service.spec.ts(87,53): error TS7006: Parameter 'entityClass' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(87,66): error TS7006: Parameter 'options' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(96,11): error TS2561: Object literal may only specify known properties, but 'profileId' does not exist in type 'GenerateMaterialDto'. Did you mean to write 'profile_id'?
-src/materials/materials.service.spec.ts(115,53): error TS7006: Parameter 'entityClass' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(115,66): error TS7006: Parameter 'options' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(123,9): error TS2561: Object literal may only specify known properties, but 'profileId' does not exist in type 'GenerateMaterialDto'. Did you mean to write 'profile_id'?
-src/materials/materials.service.spec.ts(153,50): error TS7006: Parameter 'entityClass' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(153,63): error TS7006: Parameter 'options' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(214,53): error TS7006: Parameter 'entityClass' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(214,66): error TS7006: Parameter 'options' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(220,50): error TS7006: Parameter 'entityClass' implicitly has an 'any' type.
-src/materials/materials.service.spec.ts(220,63): error TS7006: Parameter 'options' implicitly has an 'any' type.
-src/materials/materials.service.ts(9,33): error TS2305: Module '"./entities/material-request-course.entity"' has no exported member 'CourseRequestStatus'.
-src/materials/materials.service.ts(51,26): error TS2551: Property 'profileId' does not exist on type 'GenerateMaterialDto'. Did you mean 'profile_id'?
-src/materials/materials.service.ts(77,63): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(81,31): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(86,50): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(141,24): error TS2551: Property 'profileId' does not exist on type 'GenerateMaterialDto'. Did you mean 'profile_id'?
-src/materials/materials.service.ts(142,25): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(143,29): error TS2551: Property 'requiresReview' does not exist on type 'GenerateMaterialDto'. Did you mean 'requires_review'?
-src/materials/materials.service.ts(144,21): error TS2551: Property 'requiresReview' does not exist on type 'GenerateMaterialDto'. Did you mean 'requires_review'?
-src/materials/materials.service.ts(158,15): error TS2551: Property 'requiresReview' does not exist on type 'GenerateMaterialDto'. Did you mean 'requires_review'?
-src/materials/materials.service.ts(170,65): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(174,33): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(179,52): error TS2551: Property 'weekNumber' does not exist on type 'GenerateMaterialDto'. Did you mean 'week_number'?
-src/materials/materials.service.ts(199,39): error TS2769: No overload matches this call.
-  Overload 1 of 2, '(entityClass: EntityTarget<MaterialReviewQuestion>, plainObject?: DeepPartial<MaterialReviewQuestion> | undefined): MaterialReviewQuestion', gave the following error.
-    Type 'string | null' is not assignable to type 'string | undefined'.
-      Type 'null' is not assignable to type 'string | undefined'.
-  Overload 2 of 2, '(entityClass: EntityTarget<MaterialReviewQuestion>, plainObjects?: DeepPartial<MaterialReviewQuestion>[] | undefined): MaterialReviewQuestion[]', gave the following error.
-    Object literal may only specify known properties, and 'id' does not exist in type 'DeepPartial<MaterialReviewQuestion>[]'.
-src/materials/materials.service.ts(227,21): error TS2551: Property 'requiresReview' does not exist on type 'GenerateMaterialDto'. Did you mean 'requires_review'?
-src/materials/materials.service.ts(228,22): error TS2551: Property 'requiresReview' does not exist on type 'GenerateMaterialDto'. Did you mean 'requires_review'?
-src/materials/materials.service.ts(275,9): error TS2322: Type 'string | null' is not assignable to type 'string | (() => string) | undefined'.
-  Type 'null' is not assignable to type 'string | (() => string) | undefined'.
-src/materials/materials.service.ts(348,26): error TS2339: Property 'version' does not exist on type 'MaterialRequest'.
-src/materials/materials.service.ts(367,19): error TS2339: Property 'version' does not exist on type 'MaterialRequest'.
-src/materials/materials.service.ts(408,15): error TS2339: Property 'version' does not exist on type 'MaterialRequest'.
-src/materials/processors/pdf-generation.processor.ts(8,10): error TS2305: Module '"../entities/material-request-course.entity"' has no exported member 'CourseRequestStatus'.
-src/materials/processors/pdf-generation.processor.ts(19,37): error TS1272: A type referenced in a decorated signature must be imported with 'import type' or a namespace import when 'isolatedModules' and 'emitDecoratorMetadata' are enabled.
-src/materials/use-cases/generate-material.use-case.ts(14,37): error TS1272: A type referenced in a decorated signature must be imported with 'import type' or a namespace import when 'isolatedModules' and 'emitDecoratorMetadata' are enabled.
-src/materials/use-cases/generate-material.use-case.ts(39,7): error TS2322: Type 'string[]' is not assignable to type 'never[]'.
-  Type 'string' is not assignable to type 'never'.
-src/worker/materials.consumer.ts(54,62): error TS2339: Property 'findCourseRequest' does not exist on type 'IMaterialsRepository'.
-src/worker/materials.consumer.ts(56,42): error TS2551: Property 'updateCourseStatus' does not exist on type 'IMaterialsRepository'. Did you mean 'updateCourse'?
-src/worker/materials.consumer.ts(75,64): error TS2339: Property 'findCourseRequest' does not exist on type 'IMaterialsRepository'.
-src/worker/materials.consumer.ts(77,44): error TS2551: Property 'updateCourseStatus' does not exist on type 'IMaterialsRepository'. Did you mean 'updateCourse'?
-test/catalog.e2e-spec.ts(8,36): error TS2307: Cannot find module '../src/catalogs/sqs-catalog.consumer' or its corresponding type declarations.
-test/companies.e2e-spec.ts(42,5): error TS2322: Type 'string' is not assignable to type 'string[]'.
-test/materials-failure.e2e-spec.ts(11,28): error TS2307: Cannot find module '../src/aws/sqs.service' or its corresponding type declarations.
-test/materials-failure.e2e-spec.ts(37,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials-failure.e2e-spec.ts(51,11): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials-failure.e2e-spec.ts(60,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials.e2e-spec.ts(11,28): error TS2307: Cannot find module '../src/aws/sqs.service' or its corresponding type declarations.
-test/materials.e2e-spec.ts(41,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials.e2e-spec.ts(58,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials.e2e-spec.ts(78,11): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/materials.e2e-spec.ts(92,11): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(11,28): error TS2307: Cannot find module '../src/aws/sqs.service' or its corresponding type declarations.
-test/webhook.e2e-spec.ts(34,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(47,28): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(60,11): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(67,11): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(75,7): error TS2349: This expression is not callable.
-  Type '{ default: SuperTestStatic; Test: typeof Test; agent: typeof TestAgent & ((app?: App | undefined, options?: AgentOptions | undefined) => TestAgent<...>); cookies: ExpectCookiesStatic; }' has no call signatures.
-test/webhook.e2e-spec.ts(87,24): error TS7006: Parameter 'res' implicitly has an 'any' type.
+src/materials/materials.cron.ts(113,78): error TS2345: Argument of type '{ profile_id: string; week_number: number; requires_review: false; }' is not assignable to parameter of type 'GenerateMaterialDto'.
+  Property 'courses' is missing in type '{ profile_id: string; week_number: number; requires_review: false; }' but required in type 'GenerateMaterialDto'.
+src/materials/processors/pdf-generation.processor.ts(205,17): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/materials/processors/pdf-generation.processor.ts(582,15): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/materials/processors/pdf-generation.processor.ts(735,19): error TS2304: Cannot find name 'manager'.
+src/tenants/tenants.service.spec.ts(75,36): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.
+src/tenants/tenants.service.spec.ts(98,17): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.
+src/tenants/tenants.service.spec.ts(113,21): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.
+src/tenants/tenants.service.spec.ts(129,21): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.
+src/tenants/tenants.service.spec.ts(146,21): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.
+src/tenants/tenants.service.spec.ts(171,21): error TS2339: Property 'createCompany' does not exist on type 'TenantsService'.

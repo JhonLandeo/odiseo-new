@@ -377,8 +377,8 @@ export class GenerateMaterialUseCase {
 
       if (!dto.requires_review) {
         // Update courses to PROCESSING
-        for (const cr of createdCourses) {
-          await manager.update(MaterialRequestCourse, cr.id, {
+        if (createdCourses.length > 0) {
+          await manager.update(MaterialRequestCourse, { id: In(createdCourses.map(c => c.id)) }, {
             status: CourseMaterialStatus.PROCESSING,
           });
         }

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { Between } from 'typeorm';
+import { Between, In } from 'typeorm';
 import { TenantService } from '../../database/tenant.service';
 import { ApproveReviewDto } from '../dto/approve-review.dto';
 import { MaterialRequest } from '../entities/material-request.entity';
@@ -136,9 +136,14 @@ export class ApproveMaterialReviewUseCase {
           await manager.update(Material, request.materialId, { status: finalStatus });
         }
         
-        for (const courseReq of request.courses) {
-          const courseStatus = courseReq.warnings ? CourseMaterialStatus.COMPLETED_WITH_WARNINGS : CourseMaterialStatus.COMPLETED;
-          await manager.update(MaterialRequestCourse, courseReq.id, { status: courseStatus });
+        const coursesWithWarnings = request.courses.filter(c => c.warnings).map(c => c.id);
+        const coursesWithoutWarnings = request.courses.filter(c => !c.warnings).map(c => c.id);
+
+        if (coursesWithWarnings.length > 0) {
+          await manager.update(MaterialRequestCourse, { id: In(coursesWithWarnings) }, { status: CourseMaterialStatus.COMPLETED_WITH_WARNINGS });
+        }
+        if (coursesWithoutWarnings.length > 0) {
+          await manager.update(MaterialRequestCourse, { id: In(coursesWithoutWarnings) }, { status: CourseMaterialStatus.COMPLETED });
         }
 
         this.logger.log(`Curation approved for MaterialRequest ${id} without changes. Bypassing regeneration.`);
@@ -158,12 +163,18 @@ export class ApproveMaterialReviewUseCase {
       }
 
       const company = await manager.findOne(Company, { where: { id: tenantId } });
+      const template = await manager.findOne(CycleMaterialTemplate, {
+        where: { id: request.profileId },
+      });
 
-      for (const courseReq of request.courses) {
-        await manager.update(MaterialRequestCourse, courseReq.id, {
+      const allCourseReqIds = request.courses.map((c) => c.id);
+      if (allCourseReqIds.length > 0) {
+        await manager.update(MaterialRequestCourse, { id: In(allCourseReqIds) }, {
           status: CourseMaterialStatus.PROCESSING,
         });
+      }
 
+      for (const courseReq of request.courses) {
         const syllabus = await manager.findOne(Syllabus, {
           where: {
             courseId: courseReq.courseId,
@@ -173,9 +184,6 @@ export class ApproveMaterialReviewUseCase {
         });
 
         let distributions: SyllabusDistribution[] = [];
-        const template = await manager.findOne(CycleMaterialTemplate, {
-          where: { id: request.profileId },
-        });
         
         if (template && syllabus) {
           if (template.scope === 'CURRENT_WEEK') {

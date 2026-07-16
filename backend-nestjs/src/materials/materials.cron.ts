@@ -114,6 +114,7 @@ export class MaterialsCron {
                 profile_id: template.id,
                 week_number: week.weekNumber,
                 requires_review: false,
+                courses: [],
                 // Si no enviamos courses, el caso de uso toma todos los cursos del perfil por defecto
               });
             },

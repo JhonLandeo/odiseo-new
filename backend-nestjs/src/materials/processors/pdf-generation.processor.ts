@@ -139,8 +139,7 @@ export class PdfGenerationProcessor extends WorkerHost {
     const schemaName = 'tenant_' + tenant_id;
 
     return this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
-      return this.tenantService.runInSchema(schemaName, async (manager) => {
-        const tenantMock = tenant || {
+              const tenantMock = tenant || {
           commercial_name: 'Odiseo',
           logo_url: '',
         };
@@ -169,16 +168,18 @@ export class PdfGenerationProcessor extends WorkerHost {
           try {
             // Try to load curated review questions first
             let reviewQuestions: MaterialReviewQuestion[] = [];
-            reviewQuestions = await manager
-              .createQueryBuilder(MaterialReviewQuestion, 'mrq')
-              .innerJoin(Topic, 't', 't.id = CAST(mrq.topic_id AS uuid)')
-              .where(
-                'mrq.material_request_id = CAST(:materialRequestId AS uuid)',
-                { materialRequestId: material_request_id },
-              )
-              .andWhere('t.course_id = CAST(:courseId AS uuid)', { courseId })
-              .orderBy('mrq.position', 'ASC')
-              .getMany();
+            await this.tenantService.runInSchema(schemaName, async (manager) => {
+              reviewQuestions = await manager
+                .createQueryBuilder(MaterialReviewQuestion, 'mrq')
+                .innerJoin(Topic, 't', 't.id = CAST(mrq.topic_id AS uuid)')
+                .where(
+                  'mrq.material_request_id = CAST(:materialRequestId AS uuid)',
+                  { materialRequestId: material_request_id },
+                )
+                .andWhere('t.course_id = CAST(:courseId AS uuid)', { courseId })
+                .orderBy('mrq.position', 'ASC')
+                .getMany();
+            });
 
             if (reviewQuestions.length > 0) {
               this.logger.log(
@@ -198,8 +199,11 @@ export class PdfGenerationProcessor extends WorkerHost {
                 questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
               }
 
-              const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
-              const universityId = cycle?.universityId;
+              let universityId: string | undefined | null;
+              await this.tenantService.runInSchema(schemaName, async (manager) => {
+                const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
+                universityId = cycle?.universityId;
+              });
 
               for (const mrq of reviewQuestions) {
                 if (mrq.status === ReviewQuestionStatus.EMPTY) {
@@ -378,7 +382,9 @@ export class PdfGenerationProcessor extends WorkerHost {
 
             // Save question usages
             if (allQuestions.length > 0) {
-              const usages = allQuestions.map((q, idx) => {
+              await this.tenantService.runInSchema(schemaName, async (manager) => {
+                await this.tenantService.runInSchema(schemaName, async (manager) => {
+                  const usages = allQuestions.map((q, idx) => {
                 const u = new MaterialQuestionUsage();
                 u.materialRequestId = material_request_id;
                 u.cycleId = cycle_id;
@@ -391,6 +397,10 @@ export class PdfGenerationProcessor extends WorkerHost {
                 return u;
               });
               await manager.save(MaterialQuestionUsage, usages);
+
+                });
+
+              });
             }
 
             results.push({
@@ -498,7 +508,6 @@ export class PdfGenerationProcessor extends WorkerHost {
         }
 
         return { processed: results.length };
-      });
     });
   }
 
@@ -515,8 +524,7 @@ export class PdfGenerationProcessor extends WorkerHost {
     const schemaName = 'tenant_' + tenant_id;
 
     return this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
-      return this.tenantService.runInSchema(schemaName, async (manager) => {
-        const tenantMock = tenant || {
+              const tenantMock = tenant || {
           commercial_name: 'Odiseo',
           logo_url: '',
         };
@@ -537,16 +545,18 @@ export class PdfGenerationProcessor extends WorkerHost {
         try {
           // Try to load curated review questions first
           let reviewQuestions: MaterialReviewQuestion[] = [];
-          reviewQuestions = await manager
-            .createQueryBuilder(MaterialReviewQuestion, 'mrq')
-            .innerJoin(Topic, 't', 't.id = CAST(mrq.topic_id AS uuid)')
-            .where(
-              'mrq.material_request_id = CAST(:materialRequestId AS uuid)',
-              { materialRequestId: material_request_id },
-            )
-            .andWhere('t.course_id = CAST(:courseId AS uuid)', { courseId })
-            .orderBy('mrq.position', 'ASC')
-            .getMany();
+          await this.tenantService.runInSchema(schemaName, async (manager) => {
+            reviewQuestions = await manager
+              .createQueryBuilder(MaterialReviewQuestion, 'mrq')
+              .innerJoin(Topic, 't', 't.id = CAST(mrq.topic_id AS uuid)')
+              .where(
+                'mrq.material_request_id = CAST(:materialRequestId AS uuid)',
+                { materialRequestId: material_request_id },
+              )
+              .andWhere('t.course_id = CAST(:courseId AS uuid)', { courseId })
+              .orderBy('mrq.position', 'ASC')
+              .getMany();
+          });
 
           if (reviewQuestions.length > 0) {
             this.logger.log(
@@ -566,8 +576,11 @@ export class PdfGenerationProcessor extends WorkerHost {
               questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
             }
 
-            const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
-            const universityId = cycle?.universityId;
+            let universityId: string | undefined | null;
+            await this.tenantService.runInSchema(schemaName, async (manager) => {
+              const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
+              universityId = cycle?.universityId;
+            });
 
             for (const mrq of reviewQuestions) {
               if (mrq.status === ReviewQuestionStatus.EMPTY) {
@@ -719,7 +732,7 @@ export class PdfGenerationProcessor extends WorkerHost {
               u.wasReplacement = false;
               return u;
             });
-            await manager.save(MaterialQuestionUsage, usages);
+            await this.tenantService.runInSchema(schemaName, async (m) => m.save(MaterialQuestionUsage, usages));
           }
 
           return { course_id: courseId, download_url: downloadUrl, status };
@@ -738,7 +751,6 @@ export class PdfGenerationProcessor extends WorkerHost {
 
           throw error;
         }
-      });
     });
   }
 
