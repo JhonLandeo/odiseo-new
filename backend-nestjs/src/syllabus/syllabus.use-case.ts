@@ -9,6 +9,7 @@ import type { ISyllabusRepository } from './repositories/i-syllabus.repository';
 import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
 import { TenantService } from '../database/tenant.service';
+import { AcademicTimeUseCase } from '../academic-time/academic-time.use-case';
 
 @Injectable()
 export class SyllabusUseCase {
@@ -16,6 +17,7 @@ export class SyllabusUseCase {
     @Inject(I_SYLLABUS_REPOSITORY)
     private readonly syllabusRepo: ISyllabusRepository,
     private readonly tenantService: TenantService,
+    private readonly academicTimeUseCase: AcademicTimeUseCase,
   ) {}
 
   async create(dto: CreateSyllabusDto) {
@@ -101,7 +103,7 @@ export class SyllabusUseCase {
       const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
       if (!sourceSyllabus) throw new BadRequestException('Syllabus origen no encontrado.');
 
-      const activeWeeks = targetActiveWeeks || await this.syllabusRepo.findActiveWeeksByCycle(targetSyllabus.cycleId);
+      const activeWeeks = targetActiveWeeks || await this.academicTimeUseCase.getActiveWeekNumbers(targetSyllabus.cycleId);
       const sourceDistributions = await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
 
       const templateMap = await this.buildTemplateMapping(sourceSyllabus, targetSyllabus, sourceDistributions);
@@ -126,8 +128,8 @@ export class SyllabusUseCase {
 
     if (referencedTemplateIds.size === 0) return templateMap;
 
-    const sourceTemplates = await this.syllabusRepo.findTemplatesByCycle(sourceSyllabus.cycleId);
-    const targetTemplates = await this.syllabusRepo.findTemplatesByCycle(targetSyllabus.cycleId);
+    const sourceTemplates = await this.academicTimeUseCase.getTemplates(sourceSyllabus.cycleId);
+    const targetTemplates = await this.academicTimeUseCase.getTemplates(targetSyllabus.cycleId);
 
     if (targetTemplates.length === 0) {
       referencedTemplateIds.forEach(id => (templateMap[id] = null));
@@ -220,7 +222,7 @@ export class SyllabusUseCase {
     }
 
     const targetActiveWeeks =
-      await this.syllabusRepo.findActiveWeeksByCycle(targetCycleId);
+      await this.academicTimeUseCase.getActiveWeekNumbers(targetCycleId);
 
     const existingTargets = await this.syllabusRepo.findByCycle(targetCycleId);
     const existingTargetMap = new Map(existingTargets.map(s => [s.courseId, s]));

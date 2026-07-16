@@ -25,35 +25,15 @@ export class QuestionBankService {
   async getRandomQuestions(
     subtopicId: string,
     limit: number,
-    tenantId: string,
+    excludeIds: string[] = [],
     difficulty?: 'EASY' | 'MEDIUM' | 'HARD' | string,
-    cycleId?: string, // En un entorno real se usaría para cruzar con el material_request y filtrar por ciclo
   ): Promise<Question[]> {
     this.logger.debug(
       `Buscando ${limit} preguntas para el subtema ${subtopicId} con dificultad ${difficulty || 'CUALQUIERA'}`,
     );
 
     const numericSubtopicId = Number(subtopicId);
-
-    const tenantSchema = `tenant_${tenantId}`;
-    
-    // Get list of already used question IDs from the specific tenant schema, optionally filtered by cycle
-    let query = `SELECT mrq.question_id FROM ${tenantSchema}.material_review_questions mrq`;
-    const params: any[] = [];
-    
-    if (cycleId) {
-      query += ` INNER JOIN ${tenantSchema}.material_requests r ON mrq.material_request_id = r.id`;
-    }
-    query += ` WHERE mrq.question_id IS NOT NULL`;
-    
-    if (cycleId) {
-      query += ` AND r.cycle_id = $1`;
-      params.push(cycleId);
-    }
-    
-    const usedQuestionIds = await this.reviewRepository.manager.query(query, params);
-
-    const usedIdsList = usedQuestionIds.map((row: any) => row.question_id);
+    const usedIdsList = excludeIds;
 
     // Fetch all valid question IDs and their levels for this subtopic
     const pool = await this.questionRepository
@@ -86,6 +66,29 @@ export class QuestionBankService {
     // Retrieve full question entities with alternatives for selected IDs
     return this.questionRepository.find({
       where: { id: In(selectedIds) },
+      relations: ['alternatives'],
+    });
+  }
+
+  async getSubtopicQuestionMappings(subtopicIds: number[]): Promise<any[]> {
+    if (subtopicIds.length === 0) return [];
+    
+    return this.questionRepository.manager
+      .createQueryBuilder()
+      .select('question_id', 'questionId')
+      .addSelect('subtopic_id', 'subtopicId')
+      .from('odiseo.question_subtopic', 'qs')
+      .where(
+        'qs.subtopic_id IN (:...subtopicIds) AND qs.fl_status = true AND qs.question_id IN (SELECT question_id FROM odiseo.flat_questions)',
+        { subtopicIds },
+      )
+      .getRawMany();
+  }
+
+  async getQuestionsByIds(questionIds: string[]): Promise<Question[]> {
+    if (questionIds.length === 0) return [];
+    return this.questionRepository.find({
+      where: { id: In(questionIds) },
       relations: ['alternatives'],
     });
   }

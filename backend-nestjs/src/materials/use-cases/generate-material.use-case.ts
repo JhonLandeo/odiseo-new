@@ -22,6 +22,7 @@ import {
   MaterialReviewQuestion,
   ReviewQuestionStatus,
 } from '../entities/material-review-question.entity';
+import { QuestionBankService } from '../../question-bank/question-bank.service';
 import { Question } from '../../question-bank/entities/question.entity';
 import { getLevelIdsForDifficulty } from '../../question-bank/constants/question-levels.constant';
 import { QuestionSelectionStrategy, SelectionRequest } from '../../question-bank/strategies/question-selection.strategy';
@@ -40,6 +41,7 @@ export class GenerateMaterialUseCase {
     private readonly tenantService: TenantService,
     @InjectEntityManager('questionsConnection')
     private readonly questionsEntityManager: EntityManager,
+    private readonly questionBankService: QuestionBankService,
   ) {}
 
   async execute(
@@ -259,17 +261,8 @@ export class GenerateMaterialUseCase {
         const numericSubtopicIds = uniqueSubtopicIds.map(Number);
 
         if (numericSubtopicIds.length > 0) {
-          // 2. Fetch the question mapping in a single query
-          const mappings = await this.questionsEntityManager
-            .createQueryBuilder()
-            .select('question_id', 'questionId')
-            .addSelect('subtopic_id', 'subtopicId')
-            .from('odiseo.question_subtopic', 'qs')
-            .where(
-              'qs.subtopic_id IN (:...subtopicIds) AND qs.fl_status = true AND qs.question_id IN (SELECT question_id FROM odiseo.flat_questions)',
-              { subtopicIds: numericSubtopicIds },
-            )
-            .getRawMany();
+          // 2. Fetch the question mapping using QuestionBankService
+          const mappings = await this.questionBankService.getSubtopicQuestionMappings(numericSubtopicIds);
 
           // Group question IDs by numeric subtopic ID
           const questionsByNumericSubtopic = new Map<number, string[]>();
@@ -287,13 +280,7 @@ export class GenerateMaterialUseCase {
           // 3. Load all questions and their alternatives in a single query
           let questionMap = new Map<string, Question>();
           if (allQuestionIds.size > 0) {
-            const dbQuestions = await this.questionsEntityManager.find(
-              Question,
-              {
-                where: { id: In(Array.from(allQuestionIds)) },
-                relations: ['alternatives'],
-              },
-            );
+            const dbQuestions = await this.questionBankService.getQuestionsByIds(Array.from(allQuestionIds));
             questionMap = new Map(dbQuestions.map((q) => [q.id, q]));
           }
 

@@ -26,5 +26,6 @@ import { CycleMaterialTemplateCourse } from './entities/cycle-material-template-
       useClass: AcademicTimeRepositoryImpl,
     },
   ],
+  exports: [AcademicTimeUseCase],
 })
 export class AcademicTimeModule {}

@@ -64,8 +64,7 @@ export class CoreApiService {
     const dbQuestions = await this.questionBankService.getRandomQuestions(
       subtopicId,
       quantity,
-      activeTenantId,
-      cycleId,
+      excludeIds,
     );
 
     const filteredQuestions = dbQuestions.filter(

@@ -7,9 +7,13 @@ import { SyllabusRepositoryImpl } from './repositories/syllabus.repository';
 import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import { SyllabusUseCase } from './syllabus.use-case';
 import { MaterialGeneratedListener } from './listeners/material-generated.listener';
+import { AcademicTimeModule } from '../academic-time/academic-time.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Syllabus, SyllabusDistribution])],
+  imports: [
+    TypeOrmModule.forFeature([Syllabus, SyllabusDistribution]),
+    AcademicTimeModule,
+  ],
   controllers: [SyllabusController],
   providers: [
     SyllabusUseCase,

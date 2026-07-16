@@ -149,23 +149,4 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
-  async findActiveWeeksByCycle(cycleId: string): Promise<number[]> {
-    return this.tenantService.runInTenant(async (manager) => {
-      const rows = await manager.query(
-        `SELECT week_number FROM cycle_weeks WHERE cycle_id = $1 AND is_active = true AND deleted_at IS NULL ORDER BY week_number ASC`,
-        [cycleId],
-      );
-      return rows.map((r: any) => r.week_number);
-    });
-  }
-
-  async findTemplatesByCycle(cycleId: string): Promise<{ id: string; name: string }[]> {
-    return this.tenantService.runInTenant(async (manager) => {
-      const rows = await manager.query(
-        `SELECT id, name FROM cycle_material_templates WHERE cycle_id = $1`,
-        [cycleId],
-      );
-      return rows.map((r: any) => ({ id: r.id, name: r.name }));
-    });
-  }
 }

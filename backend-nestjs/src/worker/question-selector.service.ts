@@ -96,6 +96,19 @@ export class QuestionSelectorService {
       );
       let selectedQuestions: any[] = [];
 
+      let usedQuestionIds: string[] = [];
+      if (job.cycle_id) {
+        const tenantSchema = `tenant_${job.tenant.tenant_id}`;
+        const query = `
+          SELECT mrq.question_id 
+          FROM ${tenantSchema}.material_review_questions mrq
+          INNER JOIN ${tenantSchema}.material_requests r ON mrq.material_request_id = r.id
+          WHERE mrq.question_id IS NOT NULL AND r.cycle_id = $1
+        `;
+        const result = await manager.query(query, [job.cycle_id]);
+        usedQuestionIds = result.map((row: any) => row.question_id);
+      }
+
       for (const dist of job.syllabus_distribution) {
         const subQuestions: any[] = [];
 
@@ -108,9 +121,8 @@ export class QuestionSelectorService {
             const easyQs = await this.questionBankService.getRandomQuestions(
               dist.subtopic_id,
               easyTarget,
-              job.tenant.tenant_id,
+              usedQuestionIds,
               'EASY',
-              job.cycle_id,
             );
             subQuestions.push(...easyQs);
           }
@@ -118,9 +130,8 @@ export class QuestionSelectorService {
             const mediumQs = await this.questionBankService.getRandomQuestions(
               dist.subtopic_id,
               mediumTarget,
-              job.tenant.tenant_id,
+              usedQuestionIds,
               'MEDIUM',
-              job.cycle_id,
             );
             subQuestions.push(...mediumQs);
           }
@@ -128,9 +139,8 @@ export class QuestionSelectorService {
             const hardQs = await this.questionBankService.getRandomQuestions(
               dist.subtopic_id,
               hardTarget,
-              job.tenant.tenant_id,
+              usedQuestionIds,
               'HARD',
-              job.cycle_id,
             );
             subQuestions.push(...hardQs);
           }
@@ -141,9 +151,8 @@ export class QuestionSelectorService {
             const fallbackQs = await this.questionBankService.getRandomQuestions(
               dist.subtopic_id,
               missing,
-              job.tenant.tenant_id,
+              usedQuestionIds,
               undefined,
-              job.cycle_id,
             );
             subQuestions.push(...fallbackQs);
           }
@@ -151,9 +160,8 @@ export class QuestionSelectorService {
           const normalQs = await this.questionBankService.getRandomQuestions(
             dist.subtopic_id,
             dist.quantity,
-            job.tenant.tenant_id,
+            usedQuestionIds,
             job.difficulty_level,
-            job.cycle_id,
           );
           subQuestions.push(...normalQs);
         }

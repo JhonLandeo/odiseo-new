@@ -38,6 +38,4 @@ export interface ISyllabusRepository {
 
   getSummaryBySyllabus(syllabusId: string, templateId?: string): Promise<SyllabusDistribution[]>;
   findGeneratedWeeks(syllabusId: string): Promise<number[]>;
-  findActiveWeeksByCycle(cycleId: string): Promise<number[]>;
-  findTemplatesByCycle(cycleId: string): Promise<{ id: string; name: string }[]>;
 }

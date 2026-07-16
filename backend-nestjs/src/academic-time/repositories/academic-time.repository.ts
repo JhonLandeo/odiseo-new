@@ -108,6 +108,16 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
     });
   }
 
+  async getActiveWeekNumbers(cycleId: string): Promise<number[]> {
+    return this.tenantService.runInTenant(async (manager) => {
+      const weeks = await manager.find(CycleWeek, {
+        where: { cycle: { id: cycleId }, isActive: true },
+        order: { weekNumber: 'ASC' },
+      });
+      return weeks.map((w) => w.weekNumber);
+    });
+  }
+
   async getCycleWithSyllabus(id: string): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const cycle = await manager.findOne(Cycle, { where: { id } });

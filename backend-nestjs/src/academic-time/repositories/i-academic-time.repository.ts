@@ -11,6 +11,7 @@ export interface IAcademicTimeRepository {
   createCycle(data: any): Promise<void>;
   updateCycleVisibility(id: string, isActive: boolean): Promise<void>;
   updateWeekVisibility(id: string, isActive: boolean): Promise<void>;
+  getActiveWeekNumbers(cycleId: string): Promise<number[]>;
   getCycleWithSyllabus(id: string): Promise<any>;
   updateCycle(id: string, data: any): Promise<void>;
   softDeleteCycle(id: string): Promise<void>;

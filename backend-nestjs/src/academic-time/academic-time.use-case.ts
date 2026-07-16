@@ -159,6 +159,10 @@ export class AcademicTimeUseCase {
     await this.repository.updateWeekVisibility(id, isActive);
   }
 
+  async getActiveWeekNumbers(cycleId: string): Promise<number[]> {
+    return this.repository.getActiveWeekNumbers(cycleId);
+  }
+
   async deleteCycle(id: string) {
     const cycle = await this.repository.getCycleWithSyllabus(id);
     if (cycle && cycle.hasSyllabus) {
