@@ -28,24 +28,6 @@ function goBack() {
 
 const onboardingStore = useOnboardingStore()
 const toast = useToast()
-const isResetting = ref(false)
-
-async function handleResetTour() {
-  isResetting.value = true
-  try {
-    await onboardingStore.resetTour()
-    toast.add({
-      title: 'Tour reiniciado',
-      description: 'El tutorial interactivo se mostrará de nuevo.',
-      color: 'success',
-      timeout: 4000,
-    })
-  } catch (e: any) {
-    toast.add({ title: 'Error', description: e.message, color: 'error', timeout: 5000 })
-  } finally {
-    isResetting.value = false
-  }
-}
 </script>
 
 <template>
@@ -63,9 +45,6 @@ async function handleResetTour() {
           </div>
         </div>
         <div class="flex gap-2">
-          <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-path" size="md" :loading="isResetting" @click="handleResetTour">
-            Reiniciar Tour
-          </UButton>
           <UButton id="tour-create-template" color="neutral" variant="ghost" icon="i-heroicons-plus" size="md" class="btn-premium-primary" @click="openNew">
             Nueva plantilla
           </UButton>

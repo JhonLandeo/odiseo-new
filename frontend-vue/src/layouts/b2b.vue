@@ -240,6 +240,7 @@
     </main>
     
     <AppTour />
+    <GlobalHelperWidget />
   </div>
 </template>
 
@@ -249,6 +250,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useRoute } from 'vue-router';
 import { useColorMode } from '#imports';
 import AppTour from '@/features/onboarding/components/AppTour.vue';
+import GlobalHelperWidget from '@/components/GlobalHelperWidget.vue';
 
 const authStore = useAuthStore();
 const route = useRoute();

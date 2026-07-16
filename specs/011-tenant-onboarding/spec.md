@@ -51,6 +51,26 @@ The admin sees the tour popover, clicks the always-visible "Saltar tutorial" but
 
 ---
 
+### User Story 3 - Global Support Helper Widget (Priority: P3)
+
+**Description**: 
+A floating "Help" or "Support" widget is permanently accessible in the bottom right corner of the application. When clicked, it opens a popover or modal that provides contextual help. It includes a link to contact high-touch support via WhatsApp, a visual "Mental Model" diagram of the system flow (Cycle ➔ Template ➔ Syllabus ➔ Material), contextual FAQs based on the current page, and an option to reactivate the onboarding tour if the user previously dismissed it. This centralized helper replaces the need for an isolated "Reset Tour" button in the configuration settings.
+
+**Why this priority**: 
+Provides a safety net for users who skip the tour but still need guidance, and facilitates direct communication for B2B relationship building.
+
+**Independent Test**: 
+The user clicks the floating help icon. A menu appears. They click "Ver cómo funciona Odiseo" and a diagram opens. They click "Contactar por WhatsApp" and a new tab opens to the support line. They click "Volver a mostrar el tutorial" and the spotlight tour starts again.
+
+**Acceptance Scenarios**:
+
+1. **Given** the user is anywhere in the dashboard, **When** they click the floating help button, **Then** a support menu opens.
+2. **Given** the support menu is open, **When** the user clicks the WhatsApp option, **Then** they are redirected to a WhatsApp chat with support.
+3. **Given** the support menu is open, **When** the user clicks "Reiniciar Tour", **Then** the onboarding tour state resets and begins immediately.
+4. **Given** the user wants to understand the system, **When** they select the diagram option, **Then** a visual representation of the core system flow is displayed.
+
+---
+
 ### Edge Cases
 
 - **Dynamic Element Loading**: The spotlight must wait for the target DOM element (like a button) to be rendered before calculating its position and applying the highlight mask.
@@ -68,6 +88,8 @@ The admin sees the tour popover, clicks the always-visible "Saltar tutorial" but
 - **FR-004**: The system MUST track the sequential status of the 4 onboarding steps (`create_cycle`, `create_pdf_template`, `setup_syllabus`, `generate_material`) at the tenant level, waiting for successful saves to advance.
 - **FR-005**: The frontend MUST integrate `canvas-confetti` to trigger visual feedback upon step completion.
 - **FR-006**: The tour popover MUST always include a "Saltar tutorial" (dismiss) action in every step.
+- **FR-007**: The frontend MUST implement a globally accessible floating action button (FAB) for the Support Helper Widget.
+- **FR-008**: The Support Helper Widget MUST contain an external link to WhatsApp, a modal/view for the system flow diagram, and the "Reset Tour" action.
 
 ### Key Entities
 

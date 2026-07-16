@@ -3,7 +3,7 @@ import { OnboardingService, OnboardingProgressDto } from './onboarding.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
-@Controller('onboarding')
+@Controller('v1/onboarding')
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}
 
