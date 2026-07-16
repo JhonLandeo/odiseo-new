@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { OnboardingService, OnboardingProgressDto } from './onboarding.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/auth.guard';
 
 @UseGuards(JwtAuthGuard)
 @Controller('v1/onboarding')
