@@ -24,7 +24,7 @@ onMounted(async () => {
   evaluateTourState()
 })
 
-// Evaluar la ruta cuando cambie, con un pequeño delay para que monte la vista
+// Evaluar la ruta cuando cambie
 watch(() => route.path, () => {
   setTimeout(() => {
     evaluateTourState()
@@ -46,7 +46,7 @@ watch(() => store.progressPercentage, (newVal, oldVal) => {
 })
 
 function getMenuIdForStep(stepId: string) {
-  if (stepId === 'load_demo_or_create_cycle' || stepId === 'setup_syllabus') return 'menu-academics'
+  if (stepId === 'create_cycle' || stepId === 'setup_syllabus') return 'menu-academics'
   if (stepId === 'create_pdf_template') return 'menu-config'
   if (stepId === 'generate_material') return 'menu-operations'
   return null
@@ -82,7 +82,7 @@ function evaluateTourState() {
 
   let steps = []
   
-  if (nextStep.id === 'load_demo_or_create_cycle') {
+  if (nextStep.id === 'create_cycle') {
     if (route.path !== '/academic-time') {
       steps = [{
         element: 'a[href="/academic-time"]',
@@ -175,13 +175,30 @@ function evaluateTourState() {
   if (steps.length > 0) {
     driverObj = driver({
       showProgress: false,
-      doneBtnText: 'Entendido',
-      closeBtnText: 'Ocultar',
-      nextBtnText: 'Siguiente',
-      prevBtnText: 'Anterior',
-      allowClose: true,
+      allowClose: false, // We will manually add our Skip button
       onDestroyStarted: () => {
         driverObj.destroy()
+      },
+      onPopoverRendered: (popover) => {
+        const footer = popover.wrapper.querySelector('.driver-popover-footer');
+        if (footer) {
+          let skipBtn = document.createElement('button');
+          skipBtn.innerText = 'Saltar tutorial';
+          skipBtn.className = 'text-xs text-red-500 font-bold ml-2 hover:underline cursor-pointer border border-red-200 bg-red-50 px-2 py-1 rounded';
+          skipBtn.onclick = () => {
+            store.dismissTour();
+            driverObj.destroy();
+          };
+          footer.appendChild(skipBtn);
+        }
+      },
+      onHighlighted: (el) => {
+        if (el) {
+          el.addEventListener('click', () => {
+            // Once they click the target, destroy the tour to unblock the UI
+            driverObj.destroy();
+          }, { once: true });
+        }
       },
       steps: steps
     })
@@ -249,20 +266,12 @@ function fireGrandConfetti() {
   @apply text-sm text-slate-600 dark:text-slate-300;
 }
 .driver-popover-footer {
-  @apply mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/50 flex justify-between items-center;
+  @apply mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/50 flex flex-row-reverse justify-between items-center;
 }
 .driver-popover-progress-text {
   @apply text-xs font-bold text-slate-400;
 }
 .driver-popover-navigation-btns {
   @apply flex gap-2;
-}
-.driver-popover-next-btn,
-.driver-popover-prev-btn,
-.driver-popover-done-btn {
-  @apply bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 font-bold px-3 py-1.5 rounded-lg transition-colors text-xs shadow-sm;
-}
-.driver-popover-close-btn {
-  @apply absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300;
 }
 </style>

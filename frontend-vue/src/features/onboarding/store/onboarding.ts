@@ -31,7 +31,6 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     return { 'x-subdomain': authStore.getSubdomain() }
   }
 
-  /** T019: Fetch onboarding progress from backend */
   async function fetchProgress() {
     if (isLoading.value) return
     isLoading.value = true
@@ -53,29 +52,7 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     }
   }
 
-  /** T013: Seed demo data */
-  async function seedDemo() {
-    isLoading.value = true
-    error.value = null
-    try {
-      // @ts-ignore
-      const result = await $fetch('/api/v1/onboarding/seed-demo', {
-        method: 'POST',
-        headers: getHeaders(),
-      })
-      await fetchProgress()
-      return result
-    } catch (e: any) {
-      const msg = e?.data?.message || e.message || 'Error al cargar datos demo'
-      error.value = msg
-      throw new Error(msg)
-    } finally {
-      isLoading.value = false
-    }
-  }
-
-  /** T026: Dismiss the onboarding checklist widget */
-  async function dismissChecklist() {
+  async function dismissTour() {
     try {
       // @ts-ignore
       await $fetch('/api/v1/onboarding/dismiss', {
@@ -88,20 +65,18 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     }
   }
 
-  /** T026: Clear all demo data */
-  async function clearDemoData() {
+  async function resetTour() {
     isLoading.value = true
     try {
       // @ts-ignore
-      await $fetch('/api/v1/onboarding/clear-demo', {
-        method: 'POST',
+      await $fetch('/api/v1/onboarding/reset', {
+        method: 'PATCH',
         headers: getHeaders(),
       })
-      stepsCompleted.value = []
-      progressPercentage.value = 0
-      availableSteps.value = availableSteps.value.map((s) => ({ ...s, completed: false }))
+      isDismissed.value = false
+      await fetchProgress()
     } catch (e: any) {
-      throw new Error(e.message || 'Error al limpiar los datos de demostración')
+      throw new Error(e.message || 'Error al reiniciar el tour')
     } finally {
       isLoading.value = false
     }
@@ -117,8 +92,7 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     error,
     isComplete,
     fetchProgress,
-    seedDemo,
-    dismissChecklist,
-    clearDemoData,
+    dismissTour,
+    resetTour,
   }
 })
