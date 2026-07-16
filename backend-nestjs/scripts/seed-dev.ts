@@ -68,22 +68,22 @@ async function seed() {
       );
 
       CREATE TABLE IF NOT EXISTS public.courses (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
 
       CREATE TABLE IF NOT EXISTS public.topics (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+        course_id BIGINT REFERENCES public.courses(id) ON DELETE CASCADE,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
 
       CREATE TABLE IF NOT EXISTS public.subtopics (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        topic_id UUID REFERENCES public.topics(id) ON DELETE CASCADE,
+        topic_id BIGINT REFERENCES public.topics(id) ON DELETE CASCADE,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
     `);

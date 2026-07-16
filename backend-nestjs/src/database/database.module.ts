@@ -27,7 +27,7 @@ import { Alternative } from '../question-bank/entities/alternative.entity';
           password: config.get<string>('DB_PASS', 'postgres'),
           database: dbName,
           autoLoadEntities: true,
-          synchronize: true,
+          synchronize: false,
           logging: ['error', 'warn'],
         };
       },

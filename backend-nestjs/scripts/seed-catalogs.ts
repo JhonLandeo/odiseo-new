@@ -47,29 +47,29 @@ async function seedCatalogs() {
     // Create tables if they somehow don't exist (though they should)
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.courses (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
 
       CREATE TABLE IF NOT EXISTS public.topics (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+        course_id BIGINT REFERENCES public.courses(id) ON DELETE CASCADE,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
       
       CREATE TABLE IF NOT EXISTS public.subtopics (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id BIGINT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        topic_id UUID REFERENCES public.topics(id) ON DELETE CASCADE,
+        topic_id BIGINT REFERENCES public.topics(id) ON DELETE CASCADE,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
       );
 
       CREATE TABLE IF NOT EXISTS public.questions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        topic_id UUID NOT NULL,
-        subtopic_id UUID NOT NULL,
+        topic_id BIGINT NOT NULL,
+        subtopic_id BIGINT NOT NULL,
         difficulty_level VARCHAR(50) DEFAULT 'MEDIUM',
         html_content TEXT NOT NULL,
         options JSONB NOT NULL,
@@ -80,8 +80,7 @@ async function seedCatalogs() {
 
     // Insert Courses
     for (const c of courses) {
-      const uuid = String(c.id).padStart(12, '0');
-      const courseId = `00000000-0000-0000-0000-${uuid}`;
+      const courseId = BigInt(c.id);
       
       await client.query(
         `INSERT INTO public.courses (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
@@ -91,11 +90,8 @@ async function seedCatalogs() {
 
     // Insert Topics
     for (const t of topics) {
-      const uuid = String(t.id).padStart(12, '0');
-      const topicId = `00000000-0000-0000-0000-${uuid}`;
-      
-      const courseUuid = String(t.course_id).padStart(12, '0');
-      const courseId = `00000000-0000-0000-0000-${courseUuid}`;
+      const topicId = BigInt(t.id);
+      const courseId = BigInt(t.course_id);
 
       // Asegurar que el curso referenciado exista en public.courses para evitar violación de FK
       await client.query(
@@ -134,16 +130,13 @@ async function seedCatalogs() {
     };
 
     for (const s of subtopics) {
-      const uuid = String(s.id).padStart(12, '0');
-      const subtopicId = `00000000-0000-0000-0000-${uuid}`;
-      
-      const topicUuid = String(s.topic_id).padStart(12, '0');
-      const topicId = `00000000-0000-0000-0000-${topicUuid}`;
+      const subtopicId = BigInt(s.id);
+      const topicId = BigInt(s.topic_id);
 
       // Asegurar que el topic referenciado exista para evitar violación de FK
       await client.query(
         `INSERT INTO public.topics (id, name, course_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
-        [topicId, `Tópico Faltante ${s.topic_id}`, '00000000-0000-0000-0000-000000000001']
+        [topicId, `Tópico Faltante ${s.topic_id}`, 1] // 1 is dummy course
       );
 
       await client.query(
