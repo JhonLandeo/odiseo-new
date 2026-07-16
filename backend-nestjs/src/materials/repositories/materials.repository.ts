@@ -6,83 +6,104 @@ import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestCourse } from '../entities/material-request-course.entity';
 import { MaterialReviewQuestion } from '../entities/material-review-question.entity';
 import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
+import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
 export class MaterialsRepository implements IMaterialsRepository {
   constructor(
-    @InjectRepository(MaterialRequest)
-    private requestRepo: Repository<MaterialRequest>,
-    @InjectRepository(MaterialRequestCourse)
-    private courseRepo: Repository<MaterialRequestCourse>,
-    @InjectRepository(MaterialReviewQuestion)
-    private reviewRepo: Repository<MaterialReviewQuestion>,
-    @InjectRepository(MaterialQuestionUsage)
-    private usageRepo: Repository<MaterialQuestionUsage>,
+    private readonly tenantService: TenantService,
   ) {}
 
   async createRequest(
     request: Partial<MaterialRequest>,
   ): Promise<MaterialRequest> {
-    const entity = this.requestRepo.create(request);
-    return this.requestRepo.save(entity);
+    return this.tenantService.runInTenant(async (manager) => {
+      const requestRepo = manager.getRepository(MaterialRequest);
+      const entity = requestRepo.create(request);
+      return requestRepo.save(entity);
+    });
   }
 
   async getRequestById(id: string): Promise<MaterialRequest | null> {
-    return this.requestRepo.findOne({
-      where: { id },
-      relations: ['courses', 'reviewQuestions'],
+    return this.tenantService.runInTenant(async (manager) => {
+      const requestRepo = manager.getRepository(MaterialRequest);
+      return requestRepo.findOne({
+        where: { id },
+        relations: ['courses', 'reviewQuestions'],
+      });
     });
   }
 
   async updateRequestStatus(id: string, status: any): Promise<void> {
-    await this.requestRepo.update(id, { status });
+    return this.tenantService.runInTenant(async (manager) => {
+      const requestRepo = manager.getRepository(MaterialRequest);
+      await requestRepo.update(id, { status });
+    });
   }
 
   async createCourses(
     courses: Partial<MaterialRequestCourse>[],
   ): Promise<MaterialRequestCourse[]> {
-    const entities = this.courseRepo.create(courses);
-    return this.courseRepo.save(entities);
+    return this.tenantService.runInTenant(async (manager) => {
+      const courseRepo = manager.getRepository(MaterialRequestCourse);
+      const entities = courseRepo.create(courses);
+      return courseRepo.save(entities);
+    });
   }
 
   async updateCourse(
     courseId: string,
     data: Partial<MaterialRequestCourse>,
   ): Promise<void> {
-    await this.courseRepo.update(courseId, data);
+    return this.tenantService.runInTenant(async (manager) => {
+      const courseRepo = manager.getRepository(MaterialRequestCourse);
+      await courseRepo.update(courseId, data);
+    });
   }
 
   async saveReviewQuestions(
     questions: Partial<MaterialReviewQuestion>[],
   ): Promise<void> {
-    const entities = this.reviewRepo.create(questions);
-    await this.reviewRepo.save(entities);
+    return this.tenantService.runInTenant(async (manager) => {
+      const reviewRepo = manager.getRepository(MaterialReviewQuestion);
+      const entities = reviewRepo.create(questions);
+      await reviewRepo.save(entities);
+    });
   }
 
   async getReviewQuestions(
     requestId: string,
   ): Promise<MaterialReviewQuestion[]> {
-    return this.reviewRepo.find({
-      where: { materialRequestId: requestId },
-      order: { position: 'ASC' },
+    return this.tenantService.runInTenant(async (manager) => {
+      const reviewRepo = manager.getRepository(MaterialReviewQuestion);
+      return reviewRepo.find({
+        where: { materialRequestId: requestId },
+        order: { position: 'ASC' },
+      });
     });
   }
 
   async saveQuestionUsage(
     usages: Partial<MaterialQuestionUsage>[],
   ): Promise<void> {
-    const entities = this.usageRepo.create(usages);
-    await this.usageRepo.save(entities);
+    return this.tenantService.runInTenant(async (manager) => {
+      const usageRepo = manager.getRepository(MaterialQuestionUsage);
+      const entities = usageRepo.create(usages);
+      await usageRepo.save(entities);
+    });
   }
 
   async getUsedQuestionsInCycle(
     cycleId: string,
     courseId: string,
   ): Promise<string[]> {
-    const usages = await this.usageRepo.find({
-      where: { cycleId, courseId },
-      select: ['questionId'],
+    return this.tenantService.runInTenant(async (manager) => {
+      const usageRepo = manager.getRepository(MaterialQuestionUsage);
+      const usages = await usageRepo.find({
+        where: { cycleId, courseId },
+        select: ['questionId'],
+      });
+      return usages.map((u) => u.questionId);
     });
-    return usages.map((u) => u.questionId);
   }
 }

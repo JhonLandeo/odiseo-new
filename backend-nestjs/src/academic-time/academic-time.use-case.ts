@@ -3,10 +3,10 @@ import { IAcademicTimeRepository } from './repositories/i-academic-time.reposito
 import { v4 as uuidv4 } from 'uuid';
 import { CreateCycleMaterialTemplateDto, CreateTemplateCourseDto } from './dtos/create-material-template.dto';
 import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
-import * as dayjs from 'dayjs';
-import * as utcPlugin from 'dayjs/plugin/utc';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 
-dayjs.extend((utcPlugin as any).default || utcPlugin);
+dayjs.extend(utc);
 
 @Injectable()
 export class AcademicTimeUseCase {

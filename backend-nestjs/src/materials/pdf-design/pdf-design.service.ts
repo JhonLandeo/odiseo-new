@@ -10,6 +10,7 @@ import { PdfDesignTemplate } from '../entities/pdf-design-template.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { CreatePdfDesignDto } from '../dto/create-pdf-design.dto';
 import { S3Service } from '../../aws/s3.service';
+import { TenantService } from '../../database/tenant.service';
 import sharp from 'sharp';
 
 @Injectable()
@@ -17,62 +18,70 @@ export class PdfDesignService {
   private readonly logger = new Logger(PdfDesignService.name);
 
   constructor(
-    @InjectRepository(PdfDesignTemplate)
-    private readonly designRepo: Repository<PdfDesignTemplate>,
-    @InjectRepository(MaterialRequest)
-    private readonly materialRequestRepo: Repository<MaterialRequest>,
+    private readonly tenantService: TenantService,
     private readonly s3Service: S3Service,
   ) {}
 
   async findAll(
     tenantId: string,
   ): Promise<(PdfDesignTemplate & { cycleCount: number })[]> {
-    const designs = await this.designRepo.find({
-      where: { tenantId },
-      order: { isDefault: 'DESC', createdAt: 'DESC' },
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const materialRequestRepo = manager.getRepository(MaterialRequest);
+
+      const designs = await designRepo.find({
+        where: { tenantId },
+        order: { isDefault: 'DESC', createdAt: 'DESC' },
+      });
+
+      const counts = await materialRequestRepo
+        .createQueryBuilder('mr')
+        .select('mr.designTemplateId', 'designTemplateId')
+        .addSelect('COUNT(DISTINCT mr.cycleId)', 'count')
+        .where('mr.tenantId = :tenantId', { tenantId })
+        .andWhere('mr.designTemplateId IS NOT NULL')
+        .groupBy('mr.designTemplateId')
+        .getRawMany();
+
+      const countMap = new Map<string, number>();
+      for (const c of counts) {
+        countMap.set(c.designTemplateId, parseInt(c.count, 10));
+      }
+
+      return designs.map((design) => ({
+        ...design,
+        cycleCount: countMap.get(design.id) ?? 0,
+      }));
     });
-
-    const counts = await this.materialRequestRepo
-      .createQueryBuilder('mr')
-      .select('mr.designTemplateId', 'designTemplateId')
-      .addSelect('COUNT(DISTINCT mr.cycleId)', 'count')
-      .where('mr.tenantId = :tenantId', { tenantId })
-      .andWhere('mr.designTemplateId IS NOT NULL')
-      .groupBy('mr.designTemplateId')
-      .getRawMany();
-
-    const countMap = new Map<string, number>();
-    for (const c of counts) {
-      countMap.set(c.designTemplateId, parseInt(c.count, 10));
-    }
-
-    return designs.map((design) => ({
-      ...design,
-      cycleCount: countMap.get(design.id) ?? 0,
-    }));
   }
 
   async findById(id: string, tenantId: string): Promise<PdfDesignTemplate> {
-    const design = await this.designRepo.findOne({ where: { id, tenantId } });
-    if (!design) throw new NotFoundException('Design template not found');
-    return design;
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const design = await designRepo.findOne({ where: { id, tenantId } });
+      if (!design) throw new NotFoundException('Design template not found');
+      return design;
+    });
   }
 
   async create(
     tenantId: string,
     dto: CreatePdfDesignDto,
   ): Promise<PdfDesignTemplate> {
-    const existingCount = await this.designRepo.count({ where: { tenantId } });
-    const shouldBeDefault = dto.isDefault ?? existingCount === 0;
-    if (shouldBeDefault) {
-      await this.unsetCurrentDefault(tenantId);
-    }
-    const design = this.designRepo.create({
-      ...dto,
-      tenantId,
-      isDefault: shouldBeDefault,
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const existingCount = await designRepo.count({ where: { tenantId } });
+      const shouldBeDefault = dto.isDefault ?? existingCount === 0;
+      if (shouldBeDefault) {
+        await this.unsetCurrentDefault(tenantId);
+      }
+      const design = designRepo.create({
+        ...dto,
+        tenantId,
+        isDefault: shouldBeDefault,
+      });
+      return designRepo.save(design);
     });
-    return this.designRepo.save(design);
   }
 
   async update(
@@ -80,49 +89,57 @@ export class PdfDesignService {
     tenantId: string,
     dto: Partial<CreatePdfDesignDto>,
   ): Promise<PdfDesignTemplate> {
-    const design = await this.findById(id, tenantId);
-    if (dto.isDefault && !design.isDefault) {
-      await this.unsetCurrentDefault(tenantId);
-    }
-    if (dto.isDefault === false && design.isDefault) {
-      const defaultCount = await this.designRepo.count({
-        where: { tenantId, isDefault: true },
-      });
-      if (defaultCount <= 1) {
-        throw new ConflictException(
-          'Cannot unset the only default design template. Set another as default first.',
-        );
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const design = await this.findById(id, tenantId);
+      if (dto.isDefault && !design.isDefault) {
+        await this.unsetCurrentDefault(tenantId);
       }
-    }
-    Object.assign(design, dto);
-    return this.designRepo.save(design);
+      if (dto.isDefault === false && design.isDefault) {
+        const defaultCount = await designRepo.count({
+          where: { tenantId, isDefault: true },
+        });
+        if (defaultCount <= 1) {
+          throw new ConflictException(
+            'Cannot unset the only default design template. Set another as default first.',
+          );
+        }
+      }
+      Object.assign(design, dto);
+      return designRepo.save(design);
+    });
   }
 
   async delete(id: string, tenantId: string): Promise<void> {
-    const design = await this.findById(id, tenantId);
-    const materialCount = await this.materialRequestRepo.count({
-      where: { designTemplateId: id },
-    });
-    if (materialCount > 0) {
-      throw new ConflictException(
-        `Cannot delete design template "${design.name}" because it is used by ${materialCount} material request(s).`,
-      );
-    }
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const materialRequestRepo = manager.getRepository(MaterialRequest);
 
-    // Clean up S3 assets if present
-    const assets: ('banner' | 'watermark' | 'cover')[] = ['banner', 'watermark', 'cover'];
-    for (const type of assets) {
-      for (const ext of ['png', 'jpg']) {
-        try {
-          const key = `designs/${tenantId}/${id}-${type}.${ext}`;
-          await this.s3Service.deleteObject(key);
-        } catch (error) {
-          // S3 object might not exist, ignore and proceed
+      const design = await this.findById(id, tenantId);
+      const materialCount = await materialRequestRepo.count({
+        where: { designTemplateId: id },
+      });
+      if (materialCount > 0) {
+        throw new ConflictException(
+          `Cannot delete design template "${design.name}" because it is used by ${materialCount} material request(s).`,
+        );
+      }
+
+      // Clean up S3 assets if present
+      const assets: ('banner' | 'watermark' | 'cover')[] = ['banner', 'watermark', 'cover'];
+      for (const type of assets) {
+        for (const ext of ['png', 'jpg']) {
+          try {
+            const key = `designs/${tenantId}/${id}-${type}.${ext}`;
+            await this.s3Service.deleteObject(key);
+          } catch (error) {
+            // S3 object might not exist, ignore and proceed
+          }
         }
       }
-    }
 
-    await this.designRepo.remove(design);
+      await designRepo.remove(design);
+    });
   }
 
   async uploadAsset(
@@ -131,71 +148,74 @@ export class PdfDesignService {
     file: Express.Multer.File,
     type: 'banner' | 'watermark' | 'grid_image' | 'cover',
   ): Promise<string> {
-    const design = await this.findById(designId, tenantId);
-    let bufferToUpload = file.buffer;
-    let mimeType = file.mimetype;
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const design = await this.findById(designId, tenantId);
+      let bufferToUpload = file.buffer;
+      let mimeType = file.mimetype;
 
-    if (type === 'grid_image') {
-      bufferToUpload = await sharp(file.buffer)
-        .resize({ width: 200, withoutEnlargement: true })
-        .png({ quality: 80, compressionLevel: 9, palette: true })
-        .toBuffer();
-      mimeType = 'image/png';
-    } else if (type === 'watermark') {
-      bufferToUpload = await sharp(file.buffer)
-        .resize({ width: 1000, withoutEnlargement: true })
-        .png({ quality: 75, compressionLevel: 9, palette: true })
-        .toBuffer();
-      mimeType = 'image/png';
-    } else if (type === 'banner') {
-      if (file.mimetype.includes('png')) {
+      if (type === 'grid_image') {
         bufferToUpload = await sharp(file.buffer)
-          .resize({ width: 1600, withoutEnlargement: true })
+          .resize({ width: 200, withoutEnlargement: true })
           .png({ quality: 80, compressionLevel: 9, palette: true })
           .toBuffer();
-      } else {
+        mimeType = 'image/png';
+      } else if (type === 'watermark') {
         bufferToUpload = await sharp(file.buffer)
-          .resize({ width: 1600, withoutEnlargement: true })
-          .jpeg({ quality: 80, mozjpeg: true })
+          .resize({ width: 1000, withoutEnlargement: true })
+          .png({ quality: 75, compressionLevel: 9, palette: true })
           .toBuffer();
-        mimeType = 'image/jpeg';
+        mimeType = 'image/png';
+      } else if (type === 'banner') {
+        if (file.mimetype.includes('png')) {
+          bufferToUpload = await sharp(file.buffer)
+            .resize({ width: 1600, withoutEnlargement: true })
+            .png({ quality: 80, compressionLevel: 9, palette: true })
+            .toBuffer();
+        } else {
+          bufferToUpload = await sharp(file.buffer)
+            .resize({ width: 1600, withoutEnlargement: true })
+            .jpeg({ quality: 80, mozjpeg: true })
+            .toBuffer();
+          mimeType = 'image/jpeg';
+        }
+      } else if (type === 'cover') {
+        if (file.mimetype.includes('png')) {
+          bufferToUpload = await sharp(file.buffer)
+            .resize({ width: 1600, withoutEnlargement: true })
+            .png({ quality: 80, compressionLevel: 9, palette: true })
+            .toBuffer();
+        } else {
+          bufferToUpload = await sharp(file.buffer)
+            .resize({ width: 1600, withoutEnlargement: true })
+            .jpeg({ quality: 80, mozjpeg: true })
+            .toBuffer();
+          mimeType = 'image/jpeg';
+        }
       }
-    } else if (type === 'cover') {
-      if (file.mimetype.includes('png')) {
-        bufferToUpload = await sharp(file.buffer)
-          .resize({ width: 1600, withoutEnlargement: true })
-          .png({ quality: 80, compressionLevel: 9, palette: true })
-          .toBuffer();
-      } else {
-        bufferToUpload = await sharp(file.buffer)
-          .resize({ width: 1600, withoutEnlargement: true })
-          .jpeg({ quality: 80, mozjpeg: true })
-          .toBuffer();
-        mimeType = 'image/jpeg';
+
+      const keySuffix = type === 'grid_image' ? `grid-${Date.now()}` : type;
+      const extension = mimeType === 'image/png' ? 'png' : 'jpg';
+      const key = `designs/${tenantId}/${designId}-${keySuffix}.${extension}`;
+      const url = await this.s3Service.uploadBuffer(
+        key,
+        bufferToUpload,
+        mimeType,
+      );
+
+      if (type === 'banner') {
+        design.bannerImageUrl = url;
+      } else if (type === 'watermark') {
+        design.watermarkImageUrl = url;
+      } else if (type === 'cover') {
+        design.coverImageUrl = url;
       }
-    }
 
-    const keySuffix = type === 'grid_image' ? `grid-${Date.now()}` : type;
-    const extension = mimeType === 'image/png' ? 'png' : 'jpg';
-    const key = `designs/${tenantId}/${designId}-${keySuffix}.${extension}`;
-    const url = await this.s3Service.uploadBuffer(
-      key,
-      bufferToUpload,
-      mimeType,
-    );
-
-    if (type === 'banner') {
-      design.bannerImageUrl = url;
-    } else if (type === 'watermark') {
-      design.watermarkImageUrl = url;
-    } else if (type === 'cover') {
-      design.coverImageUrl = url;
-    }
-
-    if (type !== 'grid_image') {
-      await this.designRepo.save(design);
-    }
-    return url;
+      if (type !== 'grid_image') {
+        await designRepo.save(design);
+      }
+      return url;
+    });
   }
 
   async deleteAsset(
@@ -203,25 +223,28 @@ export class PdfDesignService {
     tenantId: string,
     type: 'banner' | 'watermark' | 'cover',
   ): Promise<void> {
-    const design = await this.findById(designId, tenantId);
-    if (type === 'banner') {
-      design.bannerImageUrl = null;
-    } else if (type === 'watermark') {
-      design.watermarkImageUrl = null;
-    } else if (type === 'cover') {
-      design.coverImageUrl = null;
-    }
-
-    for (const ext of ['png', 'jpg']) {
-      try {
-        const key = `designs/${tenantId}/${designId}-${type}.${ext}`;
-        await this.s3Service.deleteObject(key);
-      } catch (error) {
-        // S3 object might not exist, ignore
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      const design = await this.findById(designId, tenantId);
+      if (type === 'banner') {
+        design.bannerImageUrl = null;
+      } else if (type === 'watermark') {
+        design.watermarkImageUrl = null;
+      } else if (type === 'cover') {
+        design.coverImageUrl = null;
       }
-    }
 
-    await this.designRepo.save(design);
+      for (const ext of ['png', 'jpg']) {
+        try {
+          const key = `designs/${tenantId}/${designId}-${type}.${ext}`;
+          await this.s3Service.deleteObject(key);
+        } catch (error) {
+          // S3 object might not exist, ignore
+        }
+      }
+
+      await designRepo.save(design);
+    });
   }
 
   async generatePreview(
@@ -490,9 +513,12 @@ export class PdfDesignService {
   }
 
   private async unsetCurrentDefault(tenantId: string): Promise<void> {
-    await this.designRepo.update(
-      { tenantId, isDefault: true },
-      { isDefault: false },
-    );
+    return this.tenantService.runInTenant(async (manager) => {
+      const designRepo = manager.getRepository(PdfDesignTemplate);
+      await designRepo.update(
+        { tenantId, isDefault: true },
+        { isDefault: false },
+      );
+    });
   }
 }
