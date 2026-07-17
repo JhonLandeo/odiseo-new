@@ -1,12 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { HttpService } from '@nestjs/axios';
+import { of, throwError } from 'rxjs';
 import { CatalogCronService } from './catalog.cron';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
 
 describe('CatalogCronService', () => {
   let service: CatalogCronService;
   let repository: ICatalogRepository;
+  let httpService: HttpService;
 
   beforeEach(async () => {
     const mockRepository = {
@@ -19,6 +22,10 @@ describe('CatalogCronService', () => {
 
     const mockCacheManager = {
       set: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const mockHttpService = {
+      get: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -36,14 +43,16 @@ describe('CatalogCronService', () => {
           provide: CACHE_MANAGER,
           useValue: mockCacheManager,
         },
+        {
+          provide: HttpService,
+          useValue: mockHttpService,
+        }
       ],
     }).compile();
 
     service = module.get<CatalogCronService>(CatalogCronService);
     repository = module.get<ICatalogRepository>(ICatalogRepository);
-
-    // Mock global fetch
-    global.fetch = jest.fn();
+    httpService = module.get<HttpService>(HttpService);
   });
 
   afterEach(() => {
@@ -56,16 +65,15 @@ describe('CatalogCronService', () => {
 
   it('should fetch data from Core API and upsert via repository', async () => {
     const mockResponse = {
-      ok: true,
-      json: jest.fn().mockResolvedValue({
+      data: {
         courses: [{ id: '1', name: 'Course 1', topics: [] }],
-      }),
+      },
     };
-    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+    jest.spyOn(httpService, 'get').mockReturnValue(of(mockResponse as any));
 
     await service.syncCatalogs();
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(httpService.get).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
     );
@@ -73,11 +81,7 @@ describe('CatalogCronService', () => {
   });
 
   it('should log an error if Core API fails', async () => {
-    const mockResponse = {
-      ok: false,
-      statusText: 'Internal Server Error',
-    };
-    (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+    jest.spyOn(httpService, 'get').mockReturnValue(throwError(() => new Error('Internal Server Error')));
 
     const loggerSpy = jest.spyOn(service['logger'], 'error');
 
@@ -85,7 +89,7 @@ describe('CatalogCronService', () => {
 
     expect(repository.upsertCatalogs).not.toHaveBeenCalled();
     expect(loggerSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to fetch catalogs from Core API'),
+      expect.stringContaining('Error during catalog sync'),
       expect.any(String),
     );
   });

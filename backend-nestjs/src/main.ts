@@ -14,9 +14,33 @@ async function bootstrap() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // CORS — allow credentials (cookies) from frontend
+  // CORS — allow credentials (cookies) from frontend with strict origin validation
   app.enableCors({
-    origin: true,
+    origin: (
+      requestOrigin: string,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // In development or for non-browser requests (no origin), allow access
+      if (!requestOrigin || process.env.NODE_ENV !== 'production') {
+        return callback(null, true);
+      }
+      
+      const baseDomain = process.env.BASE_DOMAIN || 'odiseo.com';
+      const allowedOrigins = [
+        `https://${baseDomain}`, 
+        'http://localhost:5173'
+      ];
+      
+      // Allow exact matches or any subdomain of the base domain
+      if (
+        allowedOrigins.includes(requestOrigin) || 
+        requestOrigin.endsWith(`.${baseDomain}`)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 

@@ -114,23 +114,6 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     }
   }
 
-  const resetTenantAdmin = async (id: string, email: string, password?: string) => {
-    loading.value = true
-    error.value = null
-    try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${id}/reset-admin`, {
-        method: 'POST',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
-        body: { email, password }
-      })
-    } catch (e: any) {
-      error.value = e.message || 'Error reseteando accesos'
-      throw e
-    } finally {
-      loading.value = false
-    }
-  }
 
-  return { tenants, loading, error, fetchTenants, createTenant, updateTenant, updateTenantStatus, resetTenantAdmin }
+  return { tenants, loading, error, fetchTenants, createTenant, updateTenant, updateTenantStatus }
 })

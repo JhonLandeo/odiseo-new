@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SyllabusUseCase } from './syllabus.use-case';
 import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import { BadRequestException } from '@nestjs/common';
+import { TenantService } from '../database/tenant.service';
+import { AcademicTimeUseCase } from '../academic-time/academic-time.use-case';
 
 describe('SyllabusUseCase', () => {
   let useCase: SyllabusUseCase;
@@ -17,6 +19,14 @@ describe('SyllabusUseCase', () => {
     findGeneratedWeeks: jest.fn(),
     findTemplatesByCycle: jest.fn(),
     setTemplate: jest.fn(),
+    bulkCreateDistributions: jest.fn(),
+    bulkDeleteDistributionsBySyllabus: jest.fn(),
+  };
+
+  const mockAcademicTime = {
+    getCycles: jest.fn(),
+    getTemplates: jest.fn(),
+    getActiveWeekNumbers: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -24,6 +34,14 @@ describe('SyllabusUseCase', () => {
       providers: [
         SyllabusUseCase,
         { provide: I_SYLLABUS_REPOSITORY, useValue: mockRepo },
+        { 
+          provide: TenantService, 
+          useValue: { 
+            runInSchema: jest.fn((_, cb) => cb()), 
+            runInTenant: jest.fn((cb) => cb()) 
+          } 
+        },
+        { provide: AcademicTimeUseCase, useValue: mockAcademicTime }
       ],
     }).compile();
 
@@ -55,7 +73,7 @@ describe('SyllabusUseCase', () => {
   it('should clone syllabus and filter out inactive weeks', async () => {
     // Target active weeks: only weeks 1 and 2 are active (week 3 is inactive/missing)
     mockRepo.findById.mockResolvedValue({ id: 'target-syl', cycleId: 'cycle-target' });
-    mockRepo.findActiveWeeksByCycle.mockResolvedValue([1, 2]);
+    mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2]);
 
     // Source distributions: has questions in weeks 1, 2, and 3
     mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
@@ -75,10 +93,11 @@ describe('SyllabusUseCase', () => {
 
     // Should delete existing target distributions (if any)
     // Should copy only weeks 1 and 2
-    expect(mockRepo.createDistribution).toHaveBeenCalledTimes(2);
-    expect(mockRepo.createDistribution).toHaveBeenNthCalledWith(1, expect.objectContaining({ weekNumber: 1 }));
-    expect(mockRepo.createDistribution).toHaveBeenNthCalledWith(2, expect.objectContaining({ weekNumber: 2 }));
-    expect(mockRepo.createDistribution).not.toHaveBeenCalledWith(expect.objectContaining({ weekNumber: 3 }));
+    expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledTimes(1);
+    const bulkArgs = mockRepo.bulkCreateDistributions.mock.calls[0][0];
+    expect(bulkArgs).toHaveLength(2);
+    expect(bulkArgs[0]).toEqual(expect.objectContaining({ weekNumber: 1 }));
+    expect(bulkArgs[1]).toEqual(expect.objectContaining({ weekNumber: 2 }));
   });
 
   it('should clone syllabus and map templateId across cycles by template name match', async () => {
@@ -92,9 +111,9 @@ describe('SyllabusUseCase', () => {
       return Promise.resolve(null);
     });
 
-    mockRepo.findActiveWeeksByCycle.mockResolvedValue([1, 2, 3]);
+    mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2, 3]);
 
-    mockRepo.findTemplatesByCycle.mockImplementation((cycleId) => {
+    mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
         return Promise.resolve([
           { id: 'src-temp-id', name: 'Examen Parcial' }
@@ -123,11 +142,14 @@ describe('SyllabusUseCase', () => {
     await useCase.cloneSyllabus('target-syl', 'source-syl');
 
     // Should copy distribution with mapped templateId
-    expect(mockRepo.createDistribution).toHaveBeenCalledWith(
-      expect.objectContaining({
-        weekNumber: 1,
-        templateId: 'tgt-temp-id'
-      })
+    expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledTimes(1);
+    expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          weekNumber: 1,
+          templateId: 'tgt-temp-id'
+        })
+      ])
     );
 
     // Should also set syllabus-level templateId
@@ -145,9 +167,9 @@ describe('SyllabusUseCase', () => {
       return Promise.resolve(null);
     });
 
-    mockRepo.findActiveWeeksByCycle.mockResolvedValue([1, 2, 3]);
+    mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2, 3]);
 
-    mockRepo.findTemplatesByCycle.mockImplementation((cycleId) => {
+    mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
         return Promise.resolve([
           { id: 'src-temp-id', name: 'Examen Parcial' }
@@ -186,9 +208,9 @@ describe('SyllabusUseCase', () => {
       return Promise.resolve(null);
     });
 
-    mockRepo.findActiveWeeksByCycle.mockResolvedValue([1, 2, 3]);
+    mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2, 3]);
 
-    mockRepo.findTemplatesByCycle.mockImplementation((cycleId) => {
+    mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
         return Promise.resolve([
           { id: 'src-temp-id', name: 'Examen Parcial' }
@@ -212,13 +234,8 @@ describe('SyllabusUseCase', () => {
 
     await useCase.cloneSyllabus('target-syl', 'source-syl');
 
-    // Should copy distribution with templateId as null
-    expect(mockRepo.createDistribution).toHaveBeenCalledWith(
-      expect.objectContaining({
-        weekNumber: 1,
-        templateId: null
-      })
-    );
+    // Distributions requiring templates are skipped if target has no templates
+    expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledTimes(0);
 
     // Should not call setTemplate because targetSyllabusTemplateId is null
     expect(mockRepo.setTemplate).not.toHaveBeenCalledWith('target-syl', expect.any(String));

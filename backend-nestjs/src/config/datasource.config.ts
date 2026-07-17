@@ -10,7 +10,7 @@ export const dataSourceOptions: DataSourceOptions = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432', 10),
   username: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASS || '123456',
+  password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'odiseo',
   // Importante: Solo incluimos las entidades públicas del sistema (SaaS) y Catálogos para que no genere tablas tenant_ en public
   entities: [

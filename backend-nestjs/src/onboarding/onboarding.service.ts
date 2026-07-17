@@ -93,26 +93,29 @@ export class OnboardingService {
   }
 
   async dismissTour(): Promise<{ success: boolean }> {
-    await this.tenantService.runInTenant(async (manager) => {
-      const count = await manager.query(`SELECT COUNT(*) FROM onboarding_progress`);
-      if (parseInt(count[0].count) === 0) {
-        await manager.query(`INSERT INTO onboarding_progress (steps_completed, is_dismissed) VALUES ('[]'::jsonb, true)`);
-      } else {
-        await manager.query(`UPDATE onboarding_progress SET is_dismissed = true, updated_at = now()`);
-      }
-    });
+    await this.upsertTourDismissal(true);
     return { success: true };
   }
 
   async resetTour(): Promise<{ success: boolean }> {
+    await this.upsertTourDismissal(false);
+    return { success: true };
+  }
+
+  private async upsertTourDismissal(isDismissed: boolean): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
       const count = await manager.query(`SELECT COUNT(*) FROM onboarding_progress`);
       if (parseInt(count[0].count) === 0) {
-        await manager.query(`INSERT INTO onboarding_progress (steps_completed, is_dismissed) VALUES ('[]'::jsonb, false)`);
+        await manager.query(
+          `INSERT INTO onboarding_progress (steps_completed, is_dismissed) VALUES ('[]'::jsonb, $1)`,
+          [isDismissed]
+        );
       } else {
-        await manager.query(`UPDATE onboarding_progress SET is_dismissed = false, updated_at = now()`);
+        await manager.query(
+          `UPDATE onboarding_progress SET is_dismissed = $1, updated_at = now()`,
+          [isDismissed]
+        );
       }
     });
-    return { success: true };
   }
 }

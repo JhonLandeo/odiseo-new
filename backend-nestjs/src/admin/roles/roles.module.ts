@@ -8,11 +8,12 @@ import { RolesController } from './controllers/roles.controller';
 import { UserRolesController } from './controllers/user-roles.controller';
 import { PermissionsController } from './controllers/permissions.controller';
 import { UsersController } from './controllers/users.controller';
+import { UsersService } from './services/users.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Role, UserRole])],
   controllers: [RolesController, UserRolesController, PermissionsController, UsersController],
-  providers: [RolesService, RolesResolverService],
-  exports: [RolesService, RolesResolverService],
+  providers: [RolesService, RolesResolverService, UsersService],
+  exports: [RolesService, RolesResolverService, UsersService],
 })
 export class RolesModule {}

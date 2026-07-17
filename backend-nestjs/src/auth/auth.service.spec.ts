@@ -25,11 +25,11 @@ describe('AuthService', () => {
     isActive: true,
   };
 
-  const mockRoles = [{ name: 'admin' }];
-  const mockPermissions = [
-    { name: 'view_catalogs' },
-    { name: 'edit_catalogs' },
-    { name: 'generate_material' },
+  const mockRoles = [
+    { 
+      name: 'admin', 
+      permissions: ['view_catalogs', 'edit_catalogs', 'generate_material'] 
+    }
   ];
 
   beforeEach(async () => {
@@ -72,10 +72,7 @@ describe('AuthService', () => {
         async (_schema: string, operation: Function) => {
           const mockManager = {
             findOne: jest.fn().mockResolvedValue(mockUser),
-            query: jest
-              .fn()
-              .mockResolvedValueOnce(mockRoles)
-              .mockResolvedValueOnce(mockPermissions),
+            query: jest.fn().mockResolvedValue(mockRoles),
           };
           return operation(mockManager);
         },
@@ -262,6 +259,7 @@ describe('AuthService', () => {
         async (_schema: string, operation: Function) => {
           const mockManager = {
             findOne: jest.fn().mockResolvedValue(mockUser),
+            query: jest.fn().mockResolvedValue(mockRoles),
           };
           return operation(mockManager);
         },
@@ -286,6 +284,7 @@ describe('AuthService', () => {
         async (_schema: string, operation: Function) => {
           const mockManager = {
             findOne: jest.fn().mockResolvedValue(null),
+            query: jest.fn().mockResolvedValue([]),
           };
           return operation(mockManager);
         },

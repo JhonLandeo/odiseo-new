@@ -22,4 +22,33 @@ export class TenantsService {
     });
   }
 
+  /**
+   * Get branding information for a given subdomain.
+   * EC-001: Returns default branding if subdomain is not found or not provided.
+   */
+  async getBranding(subdomain: string) {
+    const defaultBranding = {
+      commercialName: 'Odiseo B2B Default',
+      logoUrl: null,
+      primaryColor: '#6366f1',
+    };
+
+    if (!subdomain) {
+      return defaultBranding;
+    }
+
+    const company = await this.companyRepository.findOne({
+      where: { subdomain },
+    });
+
+    if (!company) {
+      return defaultBranding;
+    }
+
+    return {
+      commercialName: company.commercialName,
+      logoUrl: company.logoUrl,
+      primaryColor: company.primaryColor,
+    };
+  }
 }

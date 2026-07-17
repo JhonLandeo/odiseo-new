@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SubscriptionPlan } from './entities/subscription-plan.entity';
+import { CreateSubscriptionPlanDto } from './dto/create-subscription-plan.dto';
 
 @Injectable()
 export class SubscriptionsService {
@@ -14,7 +15,7 @@ export class SubscriptionsService {
     return this.planRepository.find();
   }
 
-  async create(data: { name: string; price: number; max_users: number; max_pdf_pages_per_month: number; max_questions_per_month: number }): Promise<SubscriptionPlan> {
+  async create(data: CreateSubscriptionPlanDto): Promise<SubscriptionPlan> {
     const plan = this.planRepository.create({
       name: data.name,
       price: data.price,

@@ -51,4 +51,37 @@ describe('TenantsService', () => {
       expect(result).toBeNull();
     });
   });
+  describe('getBranding', () => {
+    const defaultBranding = {
+      commercialName: 'Odiseo B2B Default',
+      logoUrl: null,
+      primaryColor: '#6366f1',
+    };
+
+    it('should return default branding if subdomain is empty', async () => {
+      const result = await service.getBranding('');
+      expect(result).toEqual(defaultBranding);
+      expect(mockCompanyRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('should return default branding if company is not found', async () => {
+      mockCompanyRepo.findOne.mockResolvedValue(null);
+      const result = await service.getBranding('unknown');
+      expect(result).toEqual(defaultBranding);
+    });
+
+    it('should return company branding if found', async () => {
+      mockCompanyRepo.findOne.mockResolvedValue({
+        commercialName: 'Custom Company',
+        logoUrl: 'https://logo.com',
+        primaryColor: '#000000',
+      });
+      const result = await service.getBranding('custom');
+      expect(result).toEqual({
+        commercialName: 'Custom Company',
+        logoUrl: 'https://logo.com',
+        primaryColor: '#000000',
+      });
+    });
+  });
 });
