@@ -4,6 +4,9 @@ import { TenantsAdminService } from './tenants-admin.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { TenantProvisioningListener } from './listeners/tenant-provisioning.listener';
+import { TenantAdminsController } from './tenant-admins.controller';
+import { TenantAdminsService } from './tenant-admins.service';
+import { DatabaseModule } from '../../database/database.module';
 
 import { AuthModule } from '../../auth/auth.module';
 
@@ -11,8 +14,9 @@ import { AuthModule } from '../../auth/auth.module';
   imports: [
     TypeOrmModule.forFeature([Company]),
     forwardRef(() => AuthModule),
+    DatabaseModule,
   ],
-  controllers: [TenantsAdminController],
-  providers: [TenantsAdminService, TenantProvisioningListener],
+  controllers: [TenantsAdminController, TenantAdminsController],
+  providers: [TenantsAdminService, TenantAdminsService, TenantProvisioningListener],
 })
 export class TenantsAdminModule {}

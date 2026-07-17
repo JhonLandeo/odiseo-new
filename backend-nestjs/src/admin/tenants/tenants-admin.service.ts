@@ -19,26 +19,31 @@ export class TenantsAdminService {
       relations: ['subscriptionPlan'],
     });
 
-    const result = [];
-    for (const company of companies) {
-      let adminEmail = null;
-      try {
-        const schemaName = `tenant_${company.id}`;
-        const users = await this.companyRepository.manager.query(
-          `SELECT email FROM "${schemaName}".users LIMIT 1`
-        );
-        if (users && users.length > 0) {
-          adminEmail = users[0].email;
+    const result = await Promise.all(
+      companies.map(async (company) => {
+        let hasActiveSuperadmin = false;
+        try {
+          const schemaName = `tenant_${company.id}`;
+          const res = await this.companyRepository.manager.query(`
+            SELECT 1 
+            FROM "${schemaName}".users u
+            JOIN "${schemaName}".user_roles ur ON u.id = ur.user_id
+            JOIN "${schemaName}".roles r ON ur.role_id = r.id
+            WHERE r.name = 'Super Administrador' 
+              AND u.is_active = true 
+            LIMIT 1
+          `);
+          hasActiveSuperadmin = res.length > 0;
+        } catch (e) {
+          // Schema or table might not exist yet
         }
-      } catch (e) {
-        // Schema or table might not exist yet or is the public schema
-      }
 
-      result.push({
-        ...company,
-        adminEmail: adminEmail || company.contactEmail || 'No registrado',
-      });
-    }
+        return {
+          ...company,
+          hasActiveSuperadmin,
+        };
+      })
+    );
 
     return result;
   }
@@ -47,8 +52,6 @@ export class TenantsAdminService {
     name: string; 
     subdomain: string; 
     subscription_plan_id: string; 
-    adminEmail: string; 
-    adminPassword?: string;
     contactEmail?: string;
     phone?: string;
     address?: string;
@@ -60,10 +63,6 @@ export class TenantsAdminService {
       throw new ConflictException(`Tenant con subdominio ${data.subdomain} ya existe.`);
     }
 
-    // Hash admin password (or use a secure default for testing)
-    const password = data.adminPassword || 'Temporal123!';
-    const passwordHash = await bcrypt.hash(password, 10);
-
     // Create the company entity first (so we have its ID for the tenant schema tables)
     const company = this.companyRepository.create({
       commercialName: data.name,
@@ -71,7 +70,7 @@ export class TenantsAdminService {
       subscriptionPlanId: data.subscription_plan_id,
       status: 'ACTIVE',
       isActive: true,
-      contactEmail: data.contactEmail || data.adminEmail,
+      contactEmail: data.contactEmail,
       phone: data.phone,
       address: data.address,
       taxId: data.taxId,
@@ -83,7 +82,7 @@ export class TenantsAdminService {
     const schemaName = `tenant_${savedCompany.id}`;
     this.eventEmitter.emit(
       'tenant.provisioning.started',
-      new TenantProvisioningEvent(schemaName, savedCompany.id, data.adminEmail, passwordHash),
+      new TenantProvisioningEvent(schemaName, savedCompany.id),
     );
 
     return savedCompany;

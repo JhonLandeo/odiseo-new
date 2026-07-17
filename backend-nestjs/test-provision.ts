@@ -10,7 +10,7 @@ async function bootstrap() {
     const id = uuidv4();
     const schema = `tenant_${id}`;
     await schemaService.createTenantSchema(schema);
-    await schemaService.seedTenantSchema(schema, id, 'admin@' + id + '.com', 'pass123');
+    await schemaService.seedTenantSchema(schema, id);
     console.log('Success provisioning');
   } catch(e) {
     console.error('PROVISION ERROR: ', e.message);

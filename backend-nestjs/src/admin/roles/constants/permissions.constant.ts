@@ -4,6 +4,13 @@ export const PERMISSIONS = {
   MANAGE_USERS: 'MANAGE_USERS',
   MANAGE_TENANTS: 'MANAGE_TENANTS',
   
+  // Module: Tenant Admin Management (US-007, FR-11 — 5 granular permissions)
+  LIST_TENANT_ADMINS: 'LIST_TENANT_ADMINS',
+  CREATE_TENANT_ADMINS: 'CREATE_TENANT_ADMINS',
+  EDIT_TENANT_ADMINS: 'EDIT_TENANT_ADMINS',
+  CHANGE_PASSWORD_TENANT_ADMINS: 'CHANGE_PASSWORD_TENANT_ADMINS',
+  DELETE_TENANT_ADMINS: 'DELETE_TENANT_ADMINS',
+  
   // Module: Syllabus
   VIEW_SYLLABUS: 'VIEW_SYLLABUS',
   EDIT_SYLLABUS: 'EDIT_SYLLABUS',
@@ -22,6 +29,16 @@ export const PERMISSIONS_METADATA = [
       { code: PERMISSIONS.MANAGE_ROLES, description: 'Crear y editar roles' },
       { code: PERMISSIONS.MANAGE_USERS, description: 'Gestionar usuarios y accesos' },
       { code: PERMISSIONS.MANAGE_TENANTS, description: 'Gestionar inquilinos/empresas' },
+    ],
+  },
+  {
+    module: 'Tenant Admin Management',
+    permissions: [
+      { code: PERMISSIONS.LIST_TENANT_ADMINS, description: 'Listar administradores de empresa' },
+      { code: PERMISSIONS.CREATE_TENANT_ADMINS, description: 'Crear administradores de empresa' },
+      { code: PERMISSIONS.EDIT_TENANT_ADMINS, description: 'Editar administradores de empresa' },
+      { code: PERMISSIONS.CHANGE_PASSWORD_TENANT_ADMINS, description: 'Cambiar contraseña de administradores' },
+      { code: PERMISSIONS.DELETE_TENANT_ADMINS, description: 'Eliminar administradores de empresa' },
     ],
   },
   {

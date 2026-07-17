@@ -7,12 +7,15 @@ import {
   Param,
   Get,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
 import { UpdateDistributionDto } from './dto/update-distribution.dto';
 import { SyllabusUseCase } from './syllabus.use-case';
+import { JwtAuthGuard } from '../auth/auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('v1/syllabus')
 export class SyllabusController {
   constructor(private readonly useCase: SyllabusUseCase) {}

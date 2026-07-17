@@ -35,8 +35,6 @@ export class SchemaService {
   async seedTenantSchema(
     schemaName: string,
     companyId: string,
-    adminEmail: string,
-    adminPasswordHash: string,
   ): Promise<void> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -271,19 +269,11 @@ export class SchemaService {
       ]);
       const sysRoleRes = await queryRunner.query(`
         INSERT INTO "${schemaName}".roles (name, description, is_system_default, permissions) 
-        VALUES ('Director', 'Administrador Principal de la Institución', true, $1::jsonb) RETURNING id;
+        VALUES ('Super Administrador', 'Administrador Principal de la Institución', true, $1::jsonb) RETURNING id;
       `, [superAdminPermsJSON]);
       const sysRoleId = sysRoleRes[0].id;
 
-      // 3. Insert user
-      const sysUserInsert = await queryRunner.query(
-        `INSERT INTO "${schemaName}".users (email, password_hash, name, company_id, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
-        [adminEmail, adminPasswordHash, 'Director General', companyId]
-      );
-      const sysUserId = sysUserInsert[0].id;
-
-      // 4. Assign role
-      await queryRunner.query(`INSERT INTO "${schemaName}".user_roles (user_id, role_id) VALUES ($1, $2)`, [sysUserId, sysRoleId]);
+      // No user seeding here as per FR-08 (Decoupled Admin creation)
 
       this.logger.log(`Tenant "${schemaName}" seeded successfully`);
     } catch (error) {

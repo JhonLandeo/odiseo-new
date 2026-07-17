@@ -27,8 +27,6 @@ export class TenantProvisioningListener {
       await this.schemaService.seedTenantSchema(
         event.schemaName,
         event.companyId,
-        event.adminEmail,
-        event.adminPasswordHash,
       );
 
       this.logger.log(`Tenant ${event.schemaName} successfully provisioned.`);

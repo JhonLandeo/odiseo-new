@@ -9,13 +9,16 @@ import {
   Query,
   Put,
   HttpCode,
+  UseGuards,
 } from '@nestjs/common';
 import { AcademicTimeUseCase } from './academic-time.use-case';
 import { CreateCycleMaterialTemplateDto } from './dtos/create-material-template.dto';
 import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
 import { CreateCycleDto } from './dtos/create-cycle.dto';
 import { UpdateCycleDto } from './dtos/update-cycle.dto';
+import { JwtAuthGuard } from '../auth/auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('v1/academic-time')
 export class AcademicTimeController {
   constructor(private readonly academicTimeUseCase: AcademicTimeUseCase) {}

@@ -13,13 +13,7 @@ export class CreateTenantDto {
   @IsNotEmpty()
   subscription_plan_id: string;
 
-  @IsEmail()
-  @IsNotEmpty()
-  adminEmail: string;
 
-  @IsString()
-  @IsOptional()
-  adminPassword?: string;
 
   @IsString()
   @IsOptional()

@@ -7,9 +7,11 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Req,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ClsService } from 'nestjs-cls';
@@ -51,12 +53,12 @@ export class MaterialsController {
     description: 'La solicitud ha sido encolada exitosamente.',
   })
   @ApiResponse({ status: 400, description: 'Error de validación de negocio.' })
-  async generateMaterial(@Body() request: GenerateMaterialDto) {
+  async generateMaterial(@Body() request: GenerateMaterialDto, @Req() req: Request) {
     const tenantId = this.cls.get('companyId');
     if (!tenantId) {
       throw new UnauthorizedException('Tenant not identified');
     }
-    const userId = tenantId;
+    const userId = (req as any).user?.sub || tenantId;
     return await this.generateMaterialUseCase.execute(
       tenantId,
       userId,
@@ -103,8 +105,9 @@ export class MaterialsController {
   async saveDraftCuration(
     @Param('id') id: string,
     @Body() request: ApproveReviewDto,
+    @Req() req: Request,
   ) {
-    const userId = this.cls.get('companyId');
+    const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
     return await this.approveMaterialReviewUseCase.saveDraft(id, request, userId);
   }
@@ -122,10 +125,12 @@ export class MaterialsController {
   async approveCuration(
     @Param('id') id: string,
     @Body() request: ApproveReviewDto,
+    @Req() req: Request,
   ) {
-    const userId = this.cls.get('companyId');
+    const tenantId = this.cls.get('companyId');
+    const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.approveMaterialReviewUseCase.execute(id, request, userId, userId);
+    return await this.approveMaterialReviewUseCase.execute(id, request, userId, tenantId);
   }
 
   @Get(':id/courses/:courseId/download')
