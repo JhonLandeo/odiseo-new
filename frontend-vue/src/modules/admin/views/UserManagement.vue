@@ -81,6 +81,9 @@ import { ref, onMounted, computed } from 'vue';
 import { useRolesStore } from '../store/roles.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { storeToRefs } from 'pinia';
+import { useToast } from '#imports';
+
+const toast = useToast();
 
 const search = ref('')
 const users = ref<any[]>([])
@@ -147,8 +150,15 @@ const saveRoles = async () => {
       localUser.roles = rolesStore.roles.filter(r => selectedRoles.value.includes(r.id))
     }
     closeModal();
-  } catch (err) {
-    alert('Error al asignar roles');
+    toast.add({ title: 'Roles actualizados', description: 'Los roles del usuario fueron guardados.', color: 'green' });
+  } catch (err: any) {
+    // El backend puede rechazar con un motivo concreto (por ejemplo un 403 por
+    // permisos insuficientes). Ese mensaje es lo útil; el genérico es el respaldo.
+    toast.add({
+      title: 'Error al asignar roles',
+      description: rolesStore.error || err?.data?.message || err?.message || 'Ocurrió un error',
+      color: 'red'
+    });
   }
 };
 </script>

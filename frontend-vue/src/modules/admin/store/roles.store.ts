@@ -27,17 +27,103 @@ export const useRolesStore = defineStore('roles', () => {
     }
   }
 
+  // Las mutaciones usan `$fetch` y no `fetch` nativo a propósito: `fetch` resuelve
+  // normalmente ante un 4xx, así que un 403 de `assertCanGrant` ("no puedes otorgar
+  // permisos que no tienes") se perdería sin llegar nunca al catch. `$fetch` rechaza
+  // y expone el cuerpo del error en `e.data`, que es de donde sale el mensaje real.
+  // El error se guarda en el store Y se relanza, igual que en `stores/admin/tenants.ts`,
+  // para que la vista pueda mostrarlo al usuario.
+
   async function createRole(payload: CreateRoleDto) {
-    // ... API call implementation
+    loading.value = true;
+    error.value = null;
+    try {
+      const authStore = useAuthStore();
+      const role = await $fetch<Role>('/api/v1/admin/roles', {
+        method: 'POST',
+        headers: { 'x-subdomain': authStore.getSubdomain() },
+        body: payload
+      });
+      await fetchRoles();
+      return role;
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error creando el rol';
+      throw e;
+    } finally {
+      loading.value = false;
+    }
   }
 
   async function updateRole(id: string, payload: UpdateRoleDto) {
-    // ... API call implementation
+    loading.value = true;
+    error.value = null;
+    try {
+      const authStore = useAuthStore();
+      const role = await $fetch<Role>(`/api/v1/admin/roles/${id}`, {
+        method: 'PATCH',
+        headers: { 'x-subdomain': authStore.getSubdomain() },
+        body: payload
+      });
+      await fetchRoles();
+      return role;
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error actualizando el rol';
+      throw e;
+    } finally {
+      loading.value = false;
+    }
   }
 
   async function deleteRole(id: string) {
-    // ... API call implementation
+    loading.value = true;
+    error.value = null;
+    try {
+      const authStore = useAuthStore();
+      await $fetch(`/api/v1/admin/roles/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-subdomain': authStore.getSubdomain() }
+      });
+      await fetchRoles();
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error eliminando el rol';
+      throw e;
+    } finally {
+      loading.value = false;
+    }
   }
 
-  return { roles, loading, error, fetchRoles, createRole, updateRole, deleteRole };
+  /**
+   * Reemplaza por completo el conjunto de roles del usuario (PUT, no PATCH):
+   * el backend borra los actuales y guarda los recibidos dentro de una
+   * transacción. Una lista vacía deja al usuario sin roles, y eso es válido.
+   * El campo del body es `role_ids` (snake_case), tal como lo declara AssignRolesDto.
+   */
+  async function assignRolesToUser(userId: string, roleIds: string[]) {
+    loading.value = true;
+    error.value = null;
+    try {
+      const authStore = useAuthStore();
+      await $fetch(`/api/v1/admin/users/${userId}/roles`, {
+        method: 'PUT',
+        headers: { 'x-subdomain': authStore.getSubdomain() },
+        body: { role_ids: roleIds }
+      });
+    } catch (e: any) {
+      error.value = e.data?.message || e.message || 'Error asignando los roles';
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  return {
+    roles,
+    loading,
+    error,
+    fetchRoles,
+    createRole,
+    updateRole,
+    deleteRole,
+    assignRolesToUser
+  };
 });

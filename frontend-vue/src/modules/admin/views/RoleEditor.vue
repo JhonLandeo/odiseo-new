@@ -83,6 +83,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRolesStore } from '../store/roles.store';
 import type { Role } from '../types/roles.types';
+import { useToast } from '#imports';
+
+const toast = useToast();
 
 const props = defineProps<{
   initialRole?: Role | null
@@ -131,8 +134,15 @@ const saveRole = async () => {
       await rolesStore.createRole(formData.value);
     }
     emit('saved');
-  } catch (err) {
-    alert('Error al guardar el rol');
+    toast.add({ title: 'Rol guardado', color: 'green' });
+  } catch (err: any) {
+    // `assertCanGrant` responde 403 con el detalle de los permisos que el actor
+    // no posee: ese texto tiene que llegar al usuario, no un genérico.
+    toast.add({
+      title: 'Error al guardar el rol',
+      description: rolesStore.error || err?.data?.message || err?.message || 'Ocurrió un error',
+      color: 'red'
+    });
   }
 };
 </script>
