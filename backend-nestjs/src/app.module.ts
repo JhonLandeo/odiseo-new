@@ -29,6 +29,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { PasswordResetGuard } from './common/guards/password-reset.guard';
+import { QueueDashboardAuthMiddleware } from './common/middleware/queue-dashboard-auth.middleware';
 
 @Module({
   imports: [
@@ -39,9 +40,14 @@ import { PasswordResetGuard } from './common/guards/password-reset.guard';
       validationSchema: envValidationSchema,
       validationOptions: envValidationOptions,
     }),
+    // The `middleware` option is applied by BullBoardRootModule immediately
+    // BEFORE the dashboard router (see its configure()), which is the only hook
+    // that can protect it: the router is raw Express middleware, so the global
+    // APP_GUARD chain never sees /queues.
     BullBoardModule.forRoot({
       route: '/queues',
       adapter: ExpressAdapter,
+      middleware: QueueDashboardAuthMiddleware,
     }),
     BullModule.forRoot({
       connection: {
