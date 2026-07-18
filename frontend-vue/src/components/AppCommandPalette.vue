@@ -51,7 +51,7 @@
               @click="navigate('/catalogs')"
             >
               <span class="w-2 h-2 rounded-full shrink-0" :class="topic.isActive ? 'bg-emerald-400' : 'bg-gray-300'" />
-              <span class="flex-1 truncate text-gray-900">{{ topic.localAlias || topic.coreName }}</span>
+              <span class="flex-1 truncate text-gray-900">{{ topic.name }}</span>
               <span class="text-xs text-gray-400">{{ topic.courseName }}</span>
             </button>
           </div>
@@ -94,7 +94,7 @@ const filteredTopics = computed(() => {
   if (!query.value) return []
   const q = query.value.toLowerCase()
   return store.allTopics.filter(t =>
-    (t.localAlias || t.coreName).toLowerCase().includes(q) ||
+    t.name.toLowerCase().includes(q) ||
     t.courseName.toLowerCase().includes(q)
   )
 })

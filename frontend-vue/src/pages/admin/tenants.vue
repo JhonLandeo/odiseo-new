@@ -102,13 +102,13 @@
                 <span
                   class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
                   :class="{
-                    'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20': tenant.status === 'ACTIVE' || tenant.status === 'active',
-                    'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20': tenant.status === 'SUSPENDED' || tenant.status === 'suspended',
-                    'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20': tenant.status === 'GRACE_PERIOD' || tenant.status === 'grace_period'
+                    'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20': tenant.status === 'ACTIVE',
+                    'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20': tenant.status === 'SUSPENDED',
+                    'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20': tenant.status === 'GRACE_PERIOD'
                   }"
                 >
                   <span class="w-1.5 h-1.5 rounded-full" 
-                        :class="tenant.status === 'ACTIVE' || tenant.status === 'active' ? 'bg-emerald-500' : (tenant.status === 'SUSPENDED' || tenant.status === 'suspended' ? 'bg-rose-500' : 'bg-amber-500')">
+                        :class="tenant.status === 'ACTIVE' ? 'bg-emerald-500' : (tenant.status === 'SUSPENDED' ? 'bg-rose-500' : 'bg-amber-500')">
                   </span>
                   {{ tenant.status?.toUpperCase() || 'ACTIVE' }}
                 </span>
@@ -123,7 +123,7 @@
                 <button @click="openEditModal(tenant)" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-300 p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" title="Editar Empresa">
                   <UIcon name="i-heroicons-pencil-square" class="w-5 h-5" />
                 </button>
-                <button v-if="tenant.status === 'ACTIVE' || tenant.status === 'active'" @click="confirmSuspend(tenant.id)" class="text-rose-600 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors" title="Suspender / Dar de baja">
+                <button v-if="tenant.status === 'ACTIVE'" @click="confirmSuspend(tenant.id)" class="text-rose-600 dark:text-rose-400 hover:text-rose-900 dark:hover:text-rose-300 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors" title="Suspender / Dar de baja">
                   <UIcon name="i-heroicons-no-symbol" class="w-5 h-5" />
                 </button>
                 <button v-else @click="handleActivate(tenant.id)" class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors" title="Reactivar">

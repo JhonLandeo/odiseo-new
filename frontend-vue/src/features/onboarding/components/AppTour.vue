@@ -179,7 +179,7 @@ function evaluateTourState() {
       onDestroyStarted: () => {
         driverObj.destroy()
       },
-      onPopoverRendered: (popover) => {
+      onPopoverRender: (popover) => {
         const footer = popover.wrapper.querySelector('.driver-popover-footer');
         if (footer) {
           let skipBtn = document.createElement('button');
