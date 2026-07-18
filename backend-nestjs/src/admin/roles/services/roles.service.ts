@@ -6,11 +6,13 @@ import {
 } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
 import { Role } from '../entities/role.entity';
+import { UserRole } from '../entities/user-role.entity';
 import { CreateRoleDto } from '../dto/create-role.dto';
 import { UpdateRoleDto } from '../dto/update-role.dto';
 import { ClsService } from 'nestjs-cls';
 import { TenantService } from '../../../database/tenant.service';
 import { AuthService } from '../../../auth/auth.service';
+import { RolesResolverService } from './roles-resolver.service';
 import { findDependentRoleHolderIds } from '../permissions/flattened-permissions.query';
 
 @Injectable()
@@ -23,6 +25,7 @@ export class RolesService {
     private readonly tenantService: TenantService,
     private readonly authService: AuthService,
     private readonly cls: ClsService,
+    private readonly rolesResolver: RolesResolverService,
   ) {}
 
   /**
@@ -104,6 +107,72 @@ export class RolesService {
     }
   }
 
+  /**
+   * The full set of permissions a grant would confer: the direct permissions
+   * payload UNION every permission the inherited roles carry (transitively).
+   * Feeding this single set to assertCanGrant closes the inheritance-escalation
+   * path — an actor cannot smuggle in permissions through a parent role they do
+   * not themselves hold.
+   */
+  private async grantedPermissions(
+    directPermissions: string[] | undefined,
+    inheritedRoleIds: string[] | undefined,
+  ): Promise<string[]> {
+    const inherited =
+      await this.rolesResolver.getEffectivePermissionsForRoleIds(
+        inheritedRoleIds ?? [],
+      );
+    return Array.from(new Set([...(directPermissions ?? []), ...inherited]));
+  }
+
+  /**
+   * Replaces a user's role assignments, bounded by the actor's own authority.
+   *
+   * Assigning a role hands the target every permission that role effectively
+   * confers — including everything it inherits — so MANAGE_USERS alone must not
+   * be able to assign, say, the Super Admin role (to anyone, including the
+   * actor themselves). The same rule assertCanGrant enforces for role authoring
+   * therefore has to gate assignment too; without it, MANAGE_USERS is a blank
+   * cheque for vertical privilege escalation.
+   *
+   * Lives here rather than in the controller because the grant-boundary check
+   * (assertCanGrant) and the effective-permission resolution already live on
+   * this service; duplicating them into the controller would fork the security
+   * rule across two places.
+   */
+  async assignRolesToUser(
+    actorUserId: string,
+    targetUserId: string,
+    roleIds: string[],
+  ): Promise<void> {
+    // Bound the assignment by what the actor may grant. Empty roleIds (clearing
+    // all roles) confers nothing, so assertCanGrant is a no-op there — removing
+    // authority is never an escalation.
+    await this.assertCanGrant(
+      actorUserId,
+      await this.rolesResolver.getEffectivePermissionsForRoleIds(roleIds),
+    );
+
+    // Tenant-scoped and atomic: runInTenant wraps the replace in one
+    // transaction, so a failed insert can no longer leave the user role-less.
+    await this.tenantService.runInTenant(async (manager) => {
+      const repo = manager.getRepository(UserRole);
+      await repo.delete({ userId: targetUserId });
+
+      if (roleIds.length > 0) {
+        const newUserRoles = roleIds.map((roleId) =>
+          repo.create({ userId: targetUserId, roleId }),
+        );
+        await repo.save(newUserRoles);
+      }
+    });
+
+    // The user's effective permissions just changed; drop the cached set after
+    // the transaction commits so the very next request re-reads them instead of
+    // running on the previous role set for up to 60s.
+    await this.invalidateUsers([targetUserId]);
+  }
+
   async findAll(): Promise<Role[]> {
     return this.tenantService.runInTenant((manager) =>
       manager.getRepository(Role).find({ relations: ['inheritedRoles'] }),
@@ -130,7 +199,16 @@ export class RolesService {
     createRoleDto: CreateRoleDto,
     actorUserId: string,
   ): Promise<Role> {
-    await this.assertCanGrant(actorUserId, createRoleDto.permissions);
+    // A role grants its direct permissions AND everything its inherited roles
+    // confer. Check both together so an actor cannot mint a role that inherits,
+    // say, Super Admin and thereby carries permissions they lack.
+    await this.assertCanGrant(
+      actorUserId,
+      await this.grantedPermissions(
+        createRoleDto.permissions,
+        createRoleDto.inheritedRoleIds,
+      ),
+    );
 
     return this.tenantService.runInTenant(async (manager) => {
       const repo = manager.getRepository(Role);
@@ -153,8 +231,16 @@ export class RolesService {
   ): Promise<Role> {
     // Checked against the full submitted set, not just the delta: the payload
     // replaces the role's permissions wholesale, so anything left in it is a
-    // grant the actor is making right now.
-    await this.assertCanGrant(actorUserId, updateRoleDto.permissions);
+    // grant the actor is making right now. Inherited roles count too — changing
+    // inheritance to a higher-privileged parent is just as much a grant as
+    // adding the permission directly.
+    await this.assertCanGrant(
+      actorUserId,
+      await this.grantedPermissions(
+        updateRoleDto.permissions,
+        updateRoleDto.inheritedRoleIds,
+      ),
+    );
 
     const { role, holderIds } = await this.tenantService.runInTenant(
       async (manager) => {

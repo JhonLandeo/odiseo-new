@@ -12,6 +12,9 @@ const ACTOR_ID = 'actor-1';
 function createService(
   actorPermissions: string[],
   companyId: any = COMPANY_ID,
+  // Permissions the inherited/assigned roleIds would confer, as resolved by the
+  // role-set effective-permissions query. Defaults to none.
+  inheritedPermissions: string[] = [],
 ) {
   const savedRole = { id: 'role-1', name: 'Coordinator' };
   const repo = {
@@ -33,13 +36,27 @@ function createService(
     invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
   };
   const cls = { get: jest.fn().mockReturnValue(companyId) };
+  const rolesResolver = {
+    getEffectivePermissionsForRoleIds: jest
+      .fn()
+      .mockResolvedValue(inheritedPermissions),
+  };
 
   const service = new RolesService(
     tenantService as any,
     authService as any,
     cls as any,
+    rolesResolver as any,
   );
-  return { service, repo, manager, tenantService, authService, cls };
+  return {
+    service,
+    repo,
+    manager,
+    tenantService,
+    authService,
+    cls,
+    rolesResolver,
+  };
 }
 
 // ─────────────────────────────── A3: DTO vocabulary ───────────────
@@ -186,6 +203,212 @@ describe('RolesService privilege escalation guard (A4)', () => {
       ACTOR_ID,
       COMPANY_ID,
     );
+  });
+});
+
+// ─────────── A5: inheritance-based escalation guard (create/update) ─
+describe('RolesService inheritance escalation guard (A5)', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('blocks create that inherits a role conferring a permission the actor lacks', async () => {
+    // Actor holds MANAGE_ROLES only; the inherited role carries MANAGE_TENANTS.
+    const { service, repo, rolesResolver } = createService(
+      [PERMISSIONS.MANAGE_ROLES],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await expect(
+      service.create(
+        {
+          name: 'Inherits Super Admin',
+          inheritedRoleIds: ['super-admin-role'],
+        } as CreateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
+      ['super-admin-role'],
+    );
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('allows create that inherits a role whose permissions the actor holds', async () => {
+    const { service, repo } = createService(
+      [PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_SYLLABUS],
+      COMPANY_ID,
+      [PERMISSIONS.VIEW_SYLLABUS],
+    );
+
+    await service.create(
+      {
+        name: 'Inherits Reader',
+        inheritedRoleIds: ['reader-role'],
+      } as CreateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('blocks update that switches inheritance to a higher-privileged parent', async () => {
+    const { service, repo } = createService(
+      [PERMISSIONS.MANAGE_ROLES],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await expect(
+      service.update(
+        'role-1',
+        { inheritedRoleIds: ['super-admin-role'] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('checks direct AND inherited permissions together', async () => {
+    // Direct payload is fine, but the inherited role smuggles in MANAGE_TENANTS.
+    const { service, repo, authService } = createService(
+      [PERMISSIONS.MANAGE_ROLES, PERMISSIONS.VIEW_SYLLABUS],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await expect(
+      service.create(
+        {
+          name: 'Sneaky',
+          permissions: [PERMISSIONS.VIEW_SYLLABUS],
+          inheritedRoleIds: ['super-admin-role'],
+        } as CreateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(/MANAGE_TENANTS/);
+
+    expect(authService.getUserPermissions).toHaveBeenCalledWith(
+      ACTOR_ID,
+      COMPANY_ID,
+    );
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('lets a full super admin inherit anything', async () => {
+    const { service, repo } = createService(
+      [
+        PERMISSIONS.MANAGE_ROLES,
+        PERMISSIONS.MANAGE_USERS,
+        PERMISSIONS.MANAGE_TENANTS,
+        PERMISSIONS.VIEW_SYLLABUS,
+      ],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await service.create(
+      {
+        name: 'Inherits Super Admin',
+        inheritedRoleIds: ['super-admin-role'],
+      } as CreateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(repo.save).toHaveBeenCalled();
+  });
+});
+
+// ─────────────── A6: assignment escalation guard (assignRoles) ─────
+describe('RolesService.assignRolesToUser escalation guard (A6)', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('blocks assigning a role that confers a permission the actor lacks', async () => {
+    // MANAGE_USERS alone must not be able to hand out Super Admin.
+    const { service, repo, rolesResolver } = createService(
+      [PERMISSIONS.MANAGE_USERS],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await expect(
+      service.assignRolesToUser(ACTOR_ID, 'target-user', ['super-admin-role']),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
+      ['super-admin-role'],
+    );
+    // Nothing was written: the guard runs before the transaction.
+    expect(repo.delete).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('allows assigning roles fully within the actor permissions', async () => {
+    const { service, repo, authService } = createService(
+      [PERMISSIONS.MANAGE_USERS, PERMISSIONS.VIEW_SYLLABUS],
+      COMPANY_ID,
+      [PERMISSIONS.VIEW_SYLLABUS],
+    );
+
+    await service.assignRolesToUser(ACTOR_ID, 'target-user', ['reader-role']);
+
+    expect(repo.delete).toHaveBeenCalledWith({ userId: 'target-user' });
+    expect(repo.save).toHaveBeenCalled();
+    // The target's cached permissions are dropped after the write.
+    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'target-user',
+    );
+  });
+
+  it('lets a full super admin assign any role', async () => {
+    const { service, repo } = createService(
+      [
+        PERMISSIONS.MANAGE_USERS,
+        PERMISSIONS.MANAGE_ROLES,
+        PERMISSIONS.MANAGE_TENANTS,
+      ],
+      COMPANY_ID,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await service.assignRolesToUser(ACTOR_ID, 'target-user', [
+      'super-admin-role',
+    ]);
+
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('allows clearing all roles (empty set confers nothing)', async () => {
+    const { service, repo, rolesResolver } = createService(
+      [PERMISSIONS.MANAGE_USERS],
+      COMPANY_ID,
+      [],
+    );
+
+    await service.assignRolesToUser(ACTOR_ID, 'target-user', []);
+
+    // No role rows to write; the delete still runs to clear existing ones.
+    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
+      [],
+    );
+    expect(repo.delete).toHaveBeenCalledWith({ userId: 'target-user' });
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the tenant context is missing', async () => {
+    const { service, repo } = createService(
+      [PERMISSIONS.MANAGE_USERS, PERMISSIONS.MANAGE_TENANTS],
+      null,
+      [PERMISSIONS.MANAGE_TENANTS],
+    );
+
+    await expect(
+      service.assignRolesToUser(ACTOR_ID, 'target-user', ['super-admin-role']),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(repo.save).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { TenantService } from '../../../database/tenant.service';
-import { findEffectivePermissions } from '../permissions/flattened-permissions.query';
+import {
+  findEffectivePermissions,
+  findEffectivePermissionsForRoleIds,
+} from '../permissions/flattened-permissions.query';
 
 @Injectable()
 export class RolesResolverService {
@@ -20,6 +23,25 @@ export class RolesResolverService {
   async getFlattenedPermissionsForUser(userId: string): Promise<string[]> {
     return this.tenantService.runInTenant((manager) =>
       findEffectivePermissions(manager, userId),
+    );
+  }
+
+  /**
+   * Effective permissions a SET OF ROLES would confer if attached — the roles'
+   * own permissions plus everything they inherit, transitively. Resolves
+   * against the ambient tenant (CLS).
+   *
+   * The grant-boundary check reads this to answer "would attaching these roles
+   * (as inheritance on a role, or as an assignment on a user) hand out any
+   * permission the actor does not already hold?". Same cycle-safe traversal as
+   * the user-seeded resolver — see flattened-permissions.query.ts.
+   */
+  async getEffectivePermissionsForRoleIds(
+    roleIds: string[],
+  ): Promise<string[]> {
+    if (roleIds.length === 0) return [];
+    return this.tenantService.runInTenant((manager) =>
+      findEffectivePermissionsForRoleIds(manager, roleIds),
     );
   }
 }

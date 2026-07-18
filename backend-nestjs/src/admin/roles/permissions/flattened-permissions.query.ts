@@ -54,6 +54,32 @@ const EFFECTIVE_PERMISSIONS_SQL = `
 `;
 
 /**
+ * Every permission a GIVEN SET OF ROLES effectively confers: the permissions of
+ * the roles themselves, plus those of every ancestor reachable through
+ * `role_inheritance` (child -> parent).
+ *
+ * Same upward traversal as EFFECTIVE_PERMISSIONS_SQL, but seeded from an
+ * explicit array of role ids (`unnest($1::uuid[])`) instead of from a user's
+ * `user_roles`. This is what the grant-boundary check needs: "if I attach these
+ * roles (as inheritance, or as a user assignment), which permissions would that
+ * confer?" — so the actor can be stopped from handing out anything they do not
+ * themselves hold. `UNION` (not `UNION ALL`) makes it cycle-safe for the same
+ * reason the other CTEs are.
+ */
+const ROLE_SET_EFFECTIVE_PERMISSIONS_SQL = `
+  WITH RECURSIVE effective_roles AS (
+    SELECT unnest($1::uuid[]) AS role_id
+    UNION
+    SELECT ri.parent_role_id AS role_id
+    FROM role_inheritance ri
+    INNER JOIN effective_roles er ON ri.child_role_id = er.role_id
+  )
+  SELECT r.id, r.name, r.permissions
+  FROM roles r
+  INNER JOIN effective_roles er ON er.role_id = r.id
+`;
+
+/**
  * Every role whose effective permissions depend on the given role: the role
  * itself, plus every descendant that inherits from it (parent -> child).
  *
@@ -106,6 +132,26 @@ export async function findEffectivePermissions(
   userId: string,
 ): Promise<string[]> {
   return flattenPermissions(await findEffectiveRoles(manager, userId));
+}
+
+/**
+ * Effective permissions conferred by a set of role ids: the roles' own
+ * permissions plus everything they inherit, transitively, de-duplicated.
+ *
+ * Used to bound privilege grants — an actor must not be able to attach (via
+ * inheritance or user assignment) a role that carries a permission they lack.
+ * Returns an empty list for an empty input without touching the database.
+ */
+export async function findEffectivePermissionsForRoleIds(
+  manager: EntityManager,
+  roleIds: string[],
+): Promise<string[]> {
+  if (roleIds.length === 0) return [];
+  const rows: EffectiveRoleRow[] = await manager.query(
+    ROLE_SET_EFFECTIVE_PERMISSIONS_SQL,
+    [roleIds],
+  );
+  return flattenPermissions(rows);
 }
 
 /**

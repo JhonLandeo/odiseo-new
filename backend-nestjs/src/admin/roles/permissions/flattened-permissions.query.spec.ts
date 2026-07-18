@@ -1,6 +1,7 @@
 import {
   findEffectiveRoles,
   findEffectivePermissions,
+  findEffectivePermissionsForRoleIds,
   flattenPermissions,
   findDependentRoleHolderIds,
 } from './flattened-permissions.query';
@@ -44,6 +45,20 @@ function makeManager(graph: {
 
   return {
     query: jest.fn(async (sql: string, params: any[]) => {
+      // Role-set seed: the recursive term is identical (child -> parent), but
+      // the anchor is an explicit array of role ids (unnest), not user_roles.
+      if (sql.includes('effective_roles') && sql.includes('unnest(')) {
+        const seed: string[] = params[0] ?? [];
+        const reachable = expand(
+          seed,
+          (id) => edges.filter((e) => e.child === id).map((e) => e.parent),
+          { max: 1000 },
+        );
+        return [...reachable]
+          .filter((id) => roles[id])
+          .map((id) => ({ id, ...roles[id] }));
+      }
+
       if (sql.includes('effective_roles')) {
         const seed = userRoles[params[0]] ?? [];
         const reachable = expand(
@@ -199,6 +214,91 @@ describe('role hierarchy SQL', () => {
       });
 
       expect(await findEffectivePermissions(manager, 'u1')).toEqual(['PA']);
+    });
+  });
+
+  describe('findEffectivePermissionsForRoleIds', () => {
+    it('returns [] for an empty role set without touching the database', async () => {
+      const manager = makeManager({});
+      expect(await findEffectivePermissionsForRoleIds(manager, [])).toEqual([]);
+      expect(manager.query).not.toHaveBeenCalled();
+    });
+
+    it('seeds from the role ids via unnest, not from user_roles', async () => {
+      const manager = makeManager({
+        // A user holds "admin", but we ask about "editor" directly: the result
+        // must reflect the ROLES passed in, never who happens to hold them.
+        userRoles: { someone: ['admin'] },
+        roles: { editor: { name: 'Editor', permissions: ['EDIT_SYLLABUS'] } },
+      });
+
+      const permissions = await findEffectivePermissionsForRoleIds(manager, [
+        'editor',
+      ]);
+
+      expect(permissions).toEqual(['EDIT_SYLLABUS']);
+      const [sql, params] = manager.query.mock.calls.at(-1)!;
+      expect(sql).toContain('unnest($1::uuid[])');
+      expect(params).toEqual([['editor']]);
+    });
+
+    it('includes permissions inherited transitively from parents', async () => {
+      const manager = makeManager({
+        inheritance: [
+          { parent: 'b', child: 'c' },
+          { parent: 'a', child: 'b' },
+        ],
+        roles: {
+          a: { name: 'A', permissions: ['PA'] },
+          b: { name: 'B', permissions: ['PB'] },
+          c: { name: 'C', permissions: ['PC'] },
+        },
+      });
+
+      // Seeding from the leaf "c" must surface everything up the chain: this is
+      // what stops an actor inheriting a higher-privileged parent they lack.
+      expect(
+        (await findEffectivePermissionsForRoleIds(manager, ['c'])).sort(),
+      ).toEqual(['PA', 'PB', 'PC']);
+    });
+
+    it('de-duplicates across the seeded roles and their ancestors', async () => {
+      const manager = makeManager({
+        inheritance: [{ parent: 'a', child: 'b' }],
+        roles: {
+          a: { name: 'A', permissions: ['PA', 'SHARED'] },
+          b: { name: 'B', permissions: ['PB', 'SHARED'] },
+        },
+      });
+
+      const permissions = await findEffectivePermissionsForRoleIds(manager, [
+        'a',
+        'b',
+      ]);
+
+      expect(permissions.sort()).toEqual(['PA', 'PB', 'SHARED']);
+      expect(permissions.filter((p) => p === 'SHARED')).toHaveLength(1);
+    });
+
+    it('does NOT hang or duplicate on a cyclic hierarchy', async () => {
+      const manager = makeManager({
+        // a -> b -> a: would loop forever without UNION set semantics.
+        inheritance: [
+          { parent: 'b', child: 'a' },
+          { parent: 'a', child: 'b' },
+        ],
+        roles: {
+          a: { name: 'A', permissions: ['PA', 'SHARED'] },
+          b: { name: 'B', permissions: ['PB', 'SHARED'] },
+        },
+      });
+
+      const permissions = await findEffectivePermissionsForRoleIds(manager, [
+        'a',
+      ]);
+
+      expect(permissions.sort()).toEqual(['PA', 'PB', 'SHARED']);
+      expect(permissions.filter((p) => p === 'SHARED')).toHaveLength(1);
     });
   });
 
