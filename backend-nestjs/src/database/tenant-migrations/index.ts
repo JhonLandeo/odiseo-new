@@ -404,4 +404,38 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT false;
     `,
   },
+  {
+    // Turns two more application-only invariants into database constraints. No
+    // production data exists yet, so adding them as plain unique indexes over
+    // the current rows is safe. Both statements are idempotent.
+    //
+    //  - materials (tenant_id, profile_id, week_number) is UNIQUE. A Material is
+    //    the single parent row for a given profile and week. GenerateMaterialUseCase
+    //    does a read-then-insert find-or-create on exactly this triple, with no
+    //    constraint behind it — so two concurrent generations for the same
+    //    profile/week (two POST /generate, or the daily cron racing a manual
+    //    generate) could both read "no material" and both INSERT, leaving two
+    //    parent rows each pointing at its own latest_request_id. The unique
+    //    index makes the duplicate impossible and gives the use-case's
+    //    INSERT ... ON CONFLICT DO NOTHING a conflict target. tenant_id is
+    //    constant within a schema, but the index mirrors the exact columns the
+    //    code queries by (findOne where { tenantId, profileId, weekNumber }) so
+    //    the constraint and the query agree.
+    //
+    //  - pdf_design_templates (tenant_id) WHERE is_default = true is PARTIAL
+    //    UNIQUE: at most one default design per tenant. This was declared only
+    //    on the entity (@Index('idx_tenant_default', …)) and never reached
+    //    provisioned tenant schemas, so a concurrent "set default" could create
+    //    two. The index name matches the entity's exactly so the two never
+    //    collide into duplicate definitions.
+    id: '0006_material_and_default_design_uniqueness',
+    up: (schema: string) => `
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_materials_tenant_profile_week"
+        ON "${schema}".materials (tenant_id, profile_id, week_number);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "idx_tenant_default"
+        ON "${schema}".pdf_design_templates (tenant_id)
+        WHERE is_default = true;
+    `,
+  },
 ];

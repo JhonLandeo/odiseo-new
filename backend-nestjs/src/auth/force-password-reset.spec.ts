@@ -27,10 +27,59 @@ describe('AC-016 force password reset — wiring', () => {
       expect(migration!.up('tenant_x')).toMatch(/DEFAULT\s+false/i);
     });
 
-    it('keeps the list append-only: 0005 is last', () => {
-      expect(TENANT_MIGRATIONS[TENANT_MIGRATIONS.length - 1].id).toBe(
-        '0005_users_force_password_reset',
+    it('keeps the list append-only: 0005 stays at its shipped position', () => {
+      // 0005 was the 5th migration when it shipped; later work must append
+      // after it, never reorder it.
+      expect(TENANT_MIGRATIONS[4].id).toBe('0005_users_force_password_reset');
+    });
+  });
+
+  // Bug 1 / Bug 2: two application-only invariants become DB constraints.
+  describe('tenant migration 0006 — materials & default-design uniqueness', () => {
+    it('appends 0006 as the last migration without reordering 0005', () => {
+      const ids = TENANT_MIGRATIONS.map((m) => m.id);
+      const last = ids[ids.length - 1];
+      expect(last).toBe('0006_material_and_default_design_uniqueness');
+      // Strictly after 0005 — append-only, no reordering.
+      expect(ids.indexOf('0006_material_and_default_design_uniqueness')).toBe(
+        ids.indexOf('0005_users_force_password_reset') + 1,
       );
+    });
+
+    it('adds the materials natural-key unique index', () => {
+      const migration = TENANT_MIGRATIONS.find(
+        (m) => m.id === '0006_material_and_default_design_uniqueness',
+      );
+      const sql = migration!.up('tenant_x');
+      expect(sql).toMatch(
+        /CREATE UNIQUE INDEX IF NOT EXISTS "uq_materials_tenant_profile_week"/i,
+      );
+      expect(sql).toMatch(
+        /ON "tenant_x"\.materials \(tenant_id, profile_id, week_number\)/i,
+      );
+    });
+
+    it('adds the partial one-default-per-tenant index mirroring the entity', () => {
+      const migration = TENANT_MIGRATIONS.find(
+        (m) => m.id === '0006_material_and_default_design_uniqueness',
+      );
+      const sql = migration!.up('tenant_x');
+      // Same index name the entity declares, so the two never collide.
+      expect(sql).toMatch(
+        /CREATE UNIQUE INDEX IF NOT EXISTS "idx_tenant_default"/i,
+      );
+      expect(sql).toMatch(/WHERE is_default = true/i);
+    });
+
+    it('is idempotent and re-runnable (IF NOT EXISTS on every index)', () => {
+      const migration = TENANT_MIGRATIONS.find(
+        (m) => m.id === '0006_material_and_default_design_uniqueness',
+      );
+      const sql = migration!.up('tenant_x');
+      const creates = sql.match(/CREATE UNIQUE INDEX/gi) || [];
+      const guarded = sql.match(/CREATE UNIQUE INDEX IF NOT EXISTS/gi) || [];
+      expect(creates.length).toBe(2);
+      expect(guarded.length).toBe(creates.length);
     });
   });
 

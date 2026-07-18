@@ -192,41 +192,74 @@ export class GenerateMaterialUseCase {
         }
       }
 
-      // 5. Buscar o crear la entidad principal Material
-      let material = await manager.findOne(Material, {
-        where: {
-          tenantId,
-          profileId: dto.profile_id,
-          weekNumber: dto.week_number,
-        },
-      });
+      // 5. Buscar o crear la entidad principal Material.
+      //
+      // (tenant_id, profile_id, week_number) is a Material's natural identity,
+      // now backed by the unique index uq_materials_tenant_profile_week (tenant
+      // migration 0006). This is a read-then-insert find-or-create, so two
+      // concurrent generations for the same profile/week — two POST /generate,
+      // or the daily cron racing a manual generate — can both pass this findOne.
+      // The create path must therefore be race-safe against that index instead
+      // of assuming this read still holds by the time it inserts.
+      const materialWhere = {
+        tenantId,
+        profileId: dto.profile_id,
+        weekNumber: dto.week_number,
+      };
+      let material = await manager.findOne(Material, { where: materialWhere });
 
       if (!material) {
-        material = manager.create(Material, {
-          id: uuidv4(),
-          tenantId,
-          profileId: dto.profile_id,
-          cycleId,
-          weekNumber: dto.week_number,
-          status: initialStatus,
-          latestRequestId: null,
-        });
-        await manager.save(Material, material);
-      } else {
-        // Clear previous usages of this material to free up questions when regenerating
-        const prevRequests = await manager.find(MaterialRequest, {
-          where: { materialId: material.id },
-        });
-        const prevRequestIds = prevRequests.map((r) => r.id);
-        if (prevRequestIds.length > 0) {
-          await manager.delete(MaterialQuestionUsage, {
-            materialRequestId: In(prevRequestIds),
-          });
-        }
+        // ON CONFLICT DO NOTHING: if a concurrent request already inserted this
+        // (tenant_id, profile_id, week_number), the loser's insert is a silent
+        // no-op — not a duplicate row, and not a 23505 that would poison the
+        // surrounding transaction. Everything here runs inside a single
+        // runInTenant transaction, so a raised unique violation could not be
+        // recovered without a savepoint; DO NOTHING never raises.
+        await manager
+          .createQueryBuilder()
+          .insert()
+          .into(Material)
+          .values({
+            id: uuidv4(),
+            tenantId,
+            profileId: dto.profile_id,
+            cycleId,
+            weekNumber: dto.week_number,
+            status: initialStatus,
+            latestRequestId: null,
+          })
+          .orIgnore()
+          .execute();
 
-        material.status = initialStatus;
-        await manager.save(Material, material);
+        // Re-select the row that actually exists now: our own if we won the
+        // race, or the one the concurrent request inserted first if we lost.
+        material = await manager.findOne(Material, { where: materialWhere });
       }
+
+      if (!material) {
+        // The row must exist after insert-or-select; never proceed with null.
+        throw new BadRequestException('No se pudo crear el material solicitado');
+      }
+
+      // Reconcile the material identically whether it already existed, we just
+      // created it, or a concurrent request created it while we raced: free the
+      // questions any prior requests reserved, then realign the status. On a
+      // brand-new row there are no prior requests, so this reduces to the old
+      // create path; on a lost race it runs the same cleanup the "material
+      // already exists" branch always did. Either way the end state matches the
+      // sequential case: exactly one material row, usages cleaned up.
+      const prevRequests = await manager.find(MaterialRequest, {
+        where: { materialId: material.id },
+      });
+      const prevRequestIds = prevRequests.map((r) => r.id);
+      if (prevRequestIds.length > 0) {
+        await manager.delete(MaterialQuestionUsage, {
+          materialRequestId: In(prevRequestIds),
+        });
+      }
+
+      material.status = initialStatus;
+      await manager.save(Material, material);
 
       // Crear el registro de intento (materialRequest) en base de datos
       const materialRequest = manager.create(MaterialRequest, {
