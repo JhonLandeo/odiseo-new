@@ -12,12 +12,44 @@ import { Company } from '../tenants/entities/tenant.entity';
 
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  // Public paths that don't require tenant resolution
+  /**
+   * Paths that must NOT resolve a tenant.
+   *
+   * This list is deliberately SPECIFIC, one entry per platform-level route,
+   * instead of the blanket '/api/v1/admin' prefix it used to carry. That
+   * blanket entry exempted every controller under /api/v1/admin, including the
+   * genuinely tenant-scoped ones (roles, users, user-roles): they never got a
+   * tenantSchema or companyId in CLS, so they were broken at runtime AND
+   * invisible to the cross-tenant check in JwtAuthGuard, which reads "no
+   * companyId in CLS" as "platform route, allow".
+   *
+   * Matching is `requestPath.startsWith(p)`, so every entry here also exempts
+   * everything nested beneath it — keep entries as narrow as the route allows.
+   *
+   * A new admin controller that touches a tenant schema (or reads
+   * cls.get('companyId')) MUST NOT be added here. Being absent from this list
+   * is the safe default: the request resolves its tenant and the guard can see
+   * it. Only add a path that takes an explicit tenant id in its payload/URL, or
+   * touches no tenant schema at all.
+   */
   private readonly publicPaths = [
+    // Public branding lookup, used before any tenant session exists.
     '/api/v1/tenants/branding',
     '/v1/tenants/branding',
-    '/api/v1/admin',
-    '/v1/admin',
+    // Platform tenant administration; the tenant is an explicit :tenantId
+    // parameter. Also covers /v1/admin/tenants/:tenantId/admins.
+    '/api/v1/admin/tenants',
+    '/v1/admin/tenants',
+    // Platform subscription administration; operates on public-schema data.
+    '/api/v1/admin/subscriptions',
+    '/v1/admin/subscriptions',
+    // Platform dashboard; takes the tenant as an explicit tenant_id query param.
+    '/api/v1/admin/dashboard',
+    '/v1/admin/dashboard',
+    // Returns a static permission catalog constant; no database access at all.
+    '/api/v1/admin/permissions',
+    '/v1/admin/permissions',
+    // Bull board UI, outside the versioned API entirely.
     '/queues',
   ];
 

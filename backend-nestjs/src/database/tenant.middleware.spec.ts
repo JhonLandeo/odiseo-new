@@ -105,18 +105,74 @@ describe('TenantMiddleware', () => {
       expect(mockNext).toHaveBeenCalled();
     });
 
-    it('should skip tenant resolution for admin companies endpoint', async () => {
+    // Platform-level routes: they take an explicit tenant id or touch no
+    // tenant schema, so they must stay exempt from tenant resolution.
+    it.each([
+      '/api/v1/admin/tenants',
+      '/api/v1/admin/tenants/tenant-1/admins',
+      '/api/v1/admin/dashboard/metrics',
+      '/api/v1/admin/subscriptions',
+      '/api/v1/admin/permissions',
+      '/api/v1/tenants/branding',
+      '/queues',
+    ])('should skip tenant resolution for the platform path %s', async (path) => {
       await middleware.use(
-        createMockReq({
-          headers: { host: 'localhost:3000' },
-          path: '/api/v1/admin/companies',
-        }),
+        createMockReq({ headers: { host: 'localhost:3000' }, path }),
         mockRes,
         mockNext,
       );
 
       expect(mockCompanyRepo.findOne).not.toHaveBeenCalled();
+      expect(mockCls.set).not.toHaveBeenCalledWith(
+        'companyId',
+        expect.anything(),
+      );
+      expect(mockCls.set).not.toHaveBeenCalledWith(
+        'tenantSchema',
+        expect.anything(),
+      );
       expect(mockNext).toHaveBeenCalled();
+    });
+
+    // Regression guard for the blanket '/api/v1/admin' exemption: these admin
+    // controllers read and write the per-tenant schema, so they MUST resolve
+    // the tenant like any other tenant-scoped route.
+    it.each([
+      '/api/v1/admin/roles',
+      '/api/v1/admin/roles/role-1',
+      '/api/v1/admin/users',
+      '/api/v1/admin/users/abc/roles',
+    ])('should resolve the tenant for the tenant-scoped path %s', async (path) => {
+      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+
+      await middleware.use(
+        createMockReq({ headers: { host: 'colegio.odiseo.com' }, path }),
+        mockRes,
+        mockNext,
+      );
+
+      expect(mockCompanyRepo.findOne).toHaveBeenCalled();
+      expect(mockCls.set).toHaveBeenCalledWith('companyId', 'uuid-company-A');
+      expect(mockCls.set).toHaveBeenCalledWith(
+        'tenantSchema',
+        'tenant_uuid-company-A',
+      );
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    it('should reject a tenant-scoped admin path when no subdomain is present', async () => {
+      await expect(
+        middleware.use(
+          createMockReq({
+            headers: { host: 'localhost:3000' },
+            path: '/api/v1/admin/roles',
+          }),
+          mockRes,
+          mockNext,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockNext).not.toHaveBeenCalled();
     });
   });
 

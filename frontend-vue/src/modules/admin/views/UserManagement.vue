@@ -79,6 +79,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRolesStore } from '../store/roles.store';
+import { useAuthStore } from '../../../stores/auth.store';
 import { storeToRefs } from 'pinia';
 
 const search = ref('')
@@ -108,7 +109,12 @@ onMounted(async () => {
 const fetchUsers = async () => {
   loading.value = true
   try {
-    const res = await $fetch<any[]>('/api/v1/admin/users')
+    // Tenant-scoped endpoint: the backend needs the subdomain, which the
+    // browser host does not carry on localhost.
+    const authStore = useAuthStore()
+    const res = await $fetch<any[]>('/api/v1/admin/users', {
+      headers: { 'x-subdomain': authStore.getSubdomain() }
+    })
     users.value = res
   } catch (e) {
     console.error('Error fetching users', e)

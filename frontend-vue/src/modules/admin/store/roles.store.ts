@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { useAuthStore } from '../../../stores/auth.store';
 import type { Role, CreateRoleDto, UpdateRoleDto } from '../types/roles.types';
 
 export const useRolesStore = defineStore('roles', () => {
@@ -10,9 +11,12 @@ export const useRolesStore = defineStore('roles', () => {
   async function fetchRoles() {
     loading.value = true;
     try {
-      // Mocked fetch, assuming a generic $api client exists in the app
+      // Roles are tenant-scoped: the backend resolves the tenant from the
+      // subdomain, which the browser host does not carry on localhost.
+      // Authentication itself travels in an httpOnly cookie, not a header.
+      const authStore = useAuthStore();
       const response = await fetch('/api/v1/admin/roles', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: { 'x-subdomain': authStore.getSubdomain() }
       });
       const result = await response.json();
       roles.value = result.data;
