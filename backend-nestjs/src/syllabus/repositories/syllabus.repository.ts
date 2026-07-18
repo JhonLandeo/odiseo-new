@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { IsNull } from 'typeorm';
 import {
   ISyllabusRepository,
   SyllabusWithProgress,
@@ -127,7 +128,32 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
   ): Promise<SyllabusDistribution> {
     return this.tenantService.runInTenant(async (manager) => {
       const newDist = manager.create(SyllabusDistribution, distribution);
-      return await manager.save(newDist);
+      try {
+        return await manager.save(newDist);
+      } catch (error) {
+        // The matrix is saved one cell per request, so two coordinators
+        // toggling the same previously-empty cell both insert and the loser
+        // violates UQ_syllabus_template_week_topic_subtopic. EC-004 mandates
+        // Last-Write-Wins here, not a 500 and not a 409 (which would make the
+        // first writer win): converge on the existing row and overwrite its
+        // value so the last save wins.
+        if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          const existing = await manager.findOne(SyllabusDistribution, {
+            where: {
+              syllabusId: newDist.syllabusId,
+              templateId: newDist.templateId ?? IsNull(),
+              weekNumber: newDist.weekNumber,
+              topicId: newDist.topicId,
+              subtopicId: newDist.subtopicId,
+            },
+          });
+          if (existing) {
+            existing.questionCount = newDist.questionCount;
+            return await manager.save(existing);
+          }
+        }
+        throw error;
+      }
     });
   }
 

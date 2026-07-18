@@ -15,17 +15,26 @@ import { TenantService } from '../../database/tenant.service';
 describe('SyllabusRepositoryImpl (unique violation handling)', () => {
   const UNIQUE_VIOLATION = '23505';
 
-  const buildRepo = (managerError?: unknown) => {
+  const buildRepo = (
+    managerError?: unknown,
+    options: { findOneResult?: unknown } = {},
+  ) => {
+    // `save` fails once with `managerError` (the racing insert), then succeeds
+    // so the Last-Write-Wins upsert can persist the existing row on the retry.
+    let saveCalls = 0;
     const manager = {
       create: jest.fn((_entity, data) => data),
-      save: jest.fn(() => {
-        if (managerError) throw managerError;
-        return Promise.resolve({ id: 's-1' });
+      save: jest.fn((...args: unknown[]) => {
+        saveCalls += 1;
+        if (managerError && saveCalls === 1) throw managerError;
+        const entity = args[args.length - 1] as { id?: string };
+        return Promise.resolve(entity?.id ? entity : { id: 's-1' });
       }),
       update: jest.fn(() => {
         if (managerError) throw managerError;
         return Promise.resolve({ affected: 1 });
       }),
+      findOne: jest.fn(() => Promise.resolve(options.findOneResult ?? null)),
     };
     const tenantService = {
       runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
@@ -83,6 +92,60 @@ describe('SyllabusRepositoryImpl (unique violation handling)', () => {
       const { repo, manager } = buildRepo();
       await expect(repo.updateVisibility('s-1', false)).resolves.toBeUndefined();
       expect(manager.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('createDistribution', () => {
+    const cell = {
+      syllabusId: 'sy-1',
+      templateId: 't-1',
+      weekNumber: 3,
+      topicId: '10',
+      subtopicId: '20',
+      questionCount: 5,
+    };
+
+    it('returns the saved distribution when there is no conflict', async () => {
+      const { repo, manager } = buildRepo();
+      await expect(repo.createDistribution(cell)).resolves.toEqual({
+        id: 's-1',
+      });
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it('applies Last-Write-Wins by overwriting the existing cell on a unique violation', async () => {
+      // EC-004: two coordinators toggle the same previously-empty cell; the
+      // loser hits UQ_syllabus_template_week_topic_subtopic. The existing row
+      // must be updated with the incoming value and returned, so the last save
+      // wins instead of raising a 500 or a 409.
+      const existing = {
+        id: 'dist-existing',
+        ...cell,
+        questionCount: 1,
+      };
+      const { repo, manager } = buildRepo(uniqueViolation, {
+        findOneResult: existing,
+      });
+
+      const result = await repo.createDistribution(cell);
+
+      expect(result).toEqual({ id: 'dist-existing', ...cell });
+      expect((result as { questionCount: number }).questionCount).toBe(5);
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets unrelated database errors propagate untouched', async () => {
+      const other = Object.assign(new Error('connection lost'), {
+        code: '08006',
+      });
+      const { repo, manager } = buildRepo(other);
+      await expect(repo.createDistribution(cell)).rejects.toBe(other);
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it('rethrows the violation when the racing cell can no longer be found', async () => {
+      const { repo } = buildRepo(uniqueViolation, { findOneResult: null });
+      await expect(repo.createDistribution(cell)).rejects.toBe(uniqueViolation);
     });
   });
 });
