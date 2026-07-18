@@ -85,6 +85,10 @@ export class AcademicTimeController {
   }
 
   @Delete('weeks/:id')
+  // Informational 405 stub, but still a route: gate it like the other
+  // week/cycle mutations so unauthorized users get a plain 403 instead of
+  // learning about the management API surface.
+  @RequirePermissions(PERMISSIONS.MANAGE_ACADEMIC_TIME)
   @HttpCode(405)
   async deleteWeekNotAllowed() {
     return {

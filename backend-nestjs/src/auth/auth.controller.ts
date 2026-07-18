@@ -17,6 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './auth.guard';
 import { Public } from '../common/decorators/public.decorator';
+import { AuthenticatedOnly } from '../common/decorators/authenticated-only.decorator';
 import { AllowDuringPasswordReset } from '../common/decorators/allow-password-reset.decorator';
 
 @Controller('v1/auth')
@@ -81,6 +82,9 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  // Reads only the caller's own account; any authenticated user may ask who
+  // they are, so no specific permission applies.
+  @AuthenticatedOnly()
   // A blocked client must still be able to read its own state to know it is
   // blocked and why, without having to provoke a 403 somewhere else first.
   @AllowDuringPasswordReset()
@@ -91,6 +95,10 @@ export class AuthController {
   }
 
   @Post('change-password')
+  // Changes only the caller's own password (and requires knowing the current
+  // one); any authenticated user may do this, so no specific permission
+  // applies.
+  @AuthenticatedOnly()
   // The endpoint that lifts the hold cannot itself be held; blocking it would
   // leave the account with no way out.
   @AllowDuringPasswordReset()
