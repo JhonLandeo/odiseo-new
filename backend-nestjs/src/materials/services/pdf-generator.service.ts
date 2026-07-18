@@ -3,6 +3,62 @@ import { chromium, Browser } from 'playwright';
 import { PDFDocument } from 'pdf-lib';
 import { ExtractedQuestion } from './core-api.service';
 
+/** Marker printed in the answer key when the correct alternative is not uniquely resolvable. */
+export const NO_ANSWER_KEY_MARK = '-';
+
+/** Minimal shape needed to resolve an answer-key letter — only the correctness flag matters. */
+export interface AnswerKeyOption {
+  label: string;
+  isCorrect?: boolean;
+}
+
+/** Minimal logger surface so this pure helper stays trivial to unit-test. */
+type WarnLogger = { warn(message: string): void };
+
+/**
+ * Resolve the single correct alternative letter for a question's answer key.
+ *
+ * Correctness is taken from the `isCorrect` flag the caller lifted from
+ * `odiseo.flat_questions` (the view's `is_correct`). We deliberately do NOT
+ * cross-check it against the question's `answer_id`: on the PDF path only the
+ * flat view row is loaded, so re-deriving from `answer_id` would cost an extra
+ * query per material. The parallel `answer_id`-based derivations live in
+ * `flat-questions.repository.ts` (normalized fallback) and `question.entity.ts`
+ * (`Question.options`); those two sources can in principle diverge from the
+ * view. Rather than silently trusting a possibly-divergent or malformed view,
+ * we detect the two failure shapes loudly and refuse to print a
+ * confidently-wrong key — mirroring spec-007's "omit rather than fake" stance
+ * for empty solutions.
+ *
+ * @returns the correct option label, or {@link NO_ANSWER_KEY_MARK} when the
+ *   correct alternative is missing (zero flagged) or ambiguous (more than one).
+ */
+export function resolveAnswerKeyLetter(
+  options: AnswerKeyOption[] | null | undefined,
+  questionRef: string,
+  logger: WarnLogger,
+): string {
+  const correct = (options || []).filter((opt) => opt.isCorrect);
+
+  if (correct.length === 1) {
+    return correct[0].label;
+  }
+
+  if (correct.length === 0) {
+    logger.warn(
+      `Answer key: question ${questionRef} has no correct alternative resolvable ` +
+        `(answer_id null / no match / zero is_correct); printing "${NO_ANSWER_KEY_MARK}" instead of a wrong key`,
+    );
+  } else {
+    logger.warn(
+      `Answer key: question ${questionRef} has ${correct.length} alternatives flagged correct; ` +
+        `the key is ambiguous, printing "${NO_ANSWER_KEY_MARK}" instead of a confidently-wrong key`,
+    );
+  }
+
+  return NO_ANSWER_KEY_MARK;
+}
+
 export interface DesignTemplateConfig {
   bannerImageUrl?: string | null;
   watermarkImageUrl?: string | null;
@@ -841,10 +897,14 @@ export class PdfGeneratorService implements OnModuleDestroy {
           if (withKeysTable) {
             const keysGridHtml = questions
               .map((q, idx) => {
-                const correctOpt = (q.options || []).find(
-                  (opt) => opt.isCorrect,
+                // Single point where the printed answer key is resolved. This
+                // detects and loudly logs the "no unique correct alternative"
+                // failure shapes instead of silently emitting a blank/wrong key.
+                const correctLetter = resolveAnswerKeyLetter(
+                  q.options,
+                  q.code || q.id || `#${idx + 1}`,
+                  this.logger,
                 );
-                const correctLetter = correctOpt ? correctOpt.label : '-';
                 return `
                   <div class="keys-table__cell">
                     <span class="keys-table__num">${idx + 1}</span>

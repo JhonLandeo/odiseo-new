@@ -30,6 +30,17 @@ export class Question {
   @OneToMany(() => Alternative, (alternative) => alternative.question)
   alternatives: Alternative[];
 
+  /**
+   * Correctness derivation source #2 (the normalized-entity path). Correctness
+   * is single-sourced here from `answer_id === alternative.id`; there is no
+   * view `is_correct` to reconcile against on this path, so no cross-check is
+   * needed or possible without extra data. Note the failure modes this getter
+   * produces for downstream consumers: a null `answer_id`, or an `answer_id`
+   * matching no alternative, both yield ZERO options flagged `is_correct`.
+   * Uniqueness/absence of the correct alternative is detected centrally at the
+   * answer-key assembly point (`resolveAnswerKeyLetter` in
+   * `pdf-generator.service.ts`), not here, to keep this getter pure.
+   */
   get options(): QuestionOption[] {
     if (!this.alternatives) return [];
 
