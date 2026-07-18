@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth.store'
+import { handlePasswordChangeRequired } from '@/core/auth/password-change-required'
 import type { CatalogCourse, CatalogTopic, CatalogSubtopic } from '../types'
 
 export type { CatalogCourse, CatalogTopic, CatalogSubtopic }
@@ -46,6 +47,9 @@ export const useCatalogsStore = defineStore('catalogs', () => {
         lastSyncedAt.value = data.lastSyncedAt;
       }
     } catch (e: any) {
+      // A stale password hold surfaces here as 403 PASSWORD_CHANGE_REQUIRED.
+      // Recover instead of showing a raw error. Opt-in, see the helper's docs.
+      if (handlePasswordChangeRequired(e)) return;
       error.value = e.message || 'Error fetching catalogs'
     } finally {
       isLoading.value = false;
