@@ -214,10 +214,11 @@ import SyllabusDistributionMatrix from '@/features/syllabus/components/SyllabusD
 import SyllabusSlideOver from '@/features/syllabus/components/SyllabusSlideOver.vue'
 import SyllabusCloneModal from '@/features/syllabus/components/SyllabusCloneModal.vue'
 import CycleCloneModal from '@/features/syllabus/components/CycleCloneModal.vue'
+import { PERMISSIONS } from '@/core/auth/permissions'
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['view_catalogs'],
+  permissions: [PERMISSIONS.VIEW_ACADEMIC_TIME],
 })
 
 const route = useRoute()

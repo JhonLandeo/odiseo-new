@@ -1,5 +1,6 @@
 import { setActivePinia, createPinia } from 'pinia';
 import { useAuthStore } from '../../src/stores/auth.store';
+import { PERMISSIONS } from '../../src/core/auth/permissions';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 describe('Auth Store (Spatie RBAC Hydration)', () => {
@@ -21,7 +22,7 @@ describe('Auth Store (Spatie RBAC Hydration)', () => {
       email: 'admin@colegio.com',
       companyId: 'uuid-company-A',
       roles: ['super-admin', 'teacher'],
-      permissions: ['view_materials']
+      permissions: [PERMISSIONS.VIEW_MATERIALS]
     };
     authStore.isAuthenticated = true;
 
@@ -38,13 +39,13 @@ describe('Auth Store (Spatie RBAC Hydration)', () => {
       email: 'admin@colegio.com',
       companyId: 'uuid-company-A',
       roles: ['super-admin'],
-      permissions: ['view_materials', 'curate_materials']
+      permissions: [PERMISSIONS.VIEW_MATERIALS, PERMISSIONS.EDIT_MATERIALS]
     };
     authStore.isAuthenticated = true;
 
-    expect(authStore.hasPermission('view_materials')).toBe(true);
-    expect(authStore.hasPermission('curate_materials')).toBe(true);
-    expect(authStore.hasPermission('delete_materials')).toBe(false);
+    expect(authStore.hasPermission(PERMISSIONS.VIEW_MATERIALS)).toBe(true);
+    expect(authStore.hasPermission(PERMISSIONS.EDIT_MATERIALS)).toBe(true);
+    expect(authStore.hasPermission(PERMISSIONS.VIEW_CATALOGS)).toBe(false);
   });
 
   it('logout debería limpiar el estado', () => {

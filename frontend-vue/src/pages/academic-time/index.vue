@@ -101,10 +101,11 @@ import WeeksMatrix from '../../features/academic-time/components/WeeksMatrix.vue
 import CycleSlideOver from '../../features/academic-time/components/CycleSlideOver.vue'
 import { useToast } from '#imports'
 import { watchDebounced } from '@vueuse/core'
+import { PERMISSIONS } from '@/core/auth/permissions'
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['view_catalogs'],
+  permissions: [PERMISSIONS.VIEW_ACADEMIC_TIME],
 })
 
 const store = useAcademicTimeStore()

@@ -3,6 +3,9 @@ dist/
 build/
 *.log
 .env*
+# Templates carry no secrets and MUST be tracked: the app now hard-fails at boot
+# without JWT_SECRET, so a clone with no documented env contract is unbootable.
+!.env.example
 __pycache__/
 *.pyc
 .venv/

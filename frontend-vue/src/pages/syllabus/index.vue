@@ -9,10 +9,11 @@ import SyllabusCloneModal from '../../features/syllabus/components/SyllabusClone
 import CycleCloneModal from '../../features/syllabus/components/CycleCloneModal.vue';
 import { useToast } from '#imports';
 import type { Syllabus, SyllabusWithProgress } from '../../features/syllabus/types';
+import { PERMISSIONS } from '@/core/auth/permissions';
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['view_syllabus'],
+  permissions: [PERMISSIONS.VIEW_SYLLABUS],
 });
 
 const store = useSyllabusStore();

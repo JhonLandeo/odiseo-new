@@ -2,7 +2,7 @@
   T021 [US2] — MaterialWarning.vue
   Componente de estado vacío / error que se renderiza cuando el Core API
   no tiene suficientes reactivos para los filtros seleccionados.
-  Se activa por el evento WebSocket `material.generation.failed`.
+  Componente presentacional puro: se controla por props y eventos del padre.
 -->
 <template>
   <div

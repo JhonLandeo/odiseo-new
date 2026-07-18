@@ -89,10 +89,11 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useCatalogsStore } from '../../features/catalogs/store'
 import CatalogTable from '../../features/catalogs/components/CatalogTable.vue'
+import { PERMISSIONS } from '@/core/auth/permissions'
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['view_catalogs'],
+  permissions: [PERMISSIONS.VIEW_CATALOGS],
 })
 
 const store = useCatalogsStore()

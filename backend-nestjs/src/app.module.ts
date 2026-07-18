@@ -8,6 +8,10 @@ import { TenantsModule } from './tenants/tenants.module';
 import { DatabaseModule } from './database/database.module';
 import { ClsModule } from 'nestjs-cls';
 import { ConfigModule } from '@nestjs/config';
+import {
+  envValidationSchema,
+  envValidationOptions,
+} from './config/env.validation';
 import { BullModule } from '@nestjs/bullmq';
 import { TenantMiddleware } from './database/tenant.middleware';
 import { CatalogsModule } from './catalogs/catalogs.module';
@@ -28,7 +32,11 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
   imports: [
     AdminModule,
     GcsModule,
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+      validationOptions: envValidationOptions,
+    }),
     BullBoardModule.forRoot({
       route: '/queues',
       adapter: ExpressAdapter,

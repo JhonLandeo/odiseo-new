@@ -1,6 +1,6 @@
 /**
  * Tipos compartidos para el módulo de Generación de Balotario PDF.
- * Basados en los contratos de `data-model.md` y `ws-notification.md`.
+ * Basados en el contrato de `data-model.md`.
  */
 
 // --- Enums de Estado ---
@@ -78,30 +78,6 @@ export interface MaterialReviewQuestion {
   topicName?: string;
   subtopicName?: string;
 }
-
-// --- WebSocket Event Payloads ---
-
-export interface WsCompletedPayload {
-  event: 'material.generation.completed';
-  data: {
-    job_id: string;
-    material_type: 'EXAMEN' | 'BALOTARIO';
-    status: 'success';
-    download_url: string;
-    expires_in: number;
-  };
-}
-
-export interface WsFailedPayload {
-  event: 'material.generation.failed';
-  data: {
-    job_id: string;
-    status: 'error';
-    error_message: string;
-  };
-}
-
-export type WsNotificationPayload = WsCompletedPayload | WsFailedPayload;
 
 // --- API Request/Response DTOs ---
 

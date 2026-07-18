@@ -4,8 +4,9 @@ import { useOnboardingStore } from '@/features/onboarding/store/onboarding'
 import PdfDesignList from '@/features/materials/components/PdfDesignList.vue'
 import PdfDesignForm from '@/features/materials/components/PdfDesignForm.vue'
 import { useToast } from '#imports'
+import { PERMISSIONS } from '@/core/auth/permissions'
 
-definePageMeta({ layout: 'b2b', permissions: ['generate_material'] })
+definePageMeta({ layout: 'b2b', permissions: [PERMISSIONS.EDIT_MATERIALS] })
 
 type View = 'list' | 'editor'
 const currentView = ref<View>('list')

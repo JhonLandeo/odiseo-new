@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import * as express from 'express';
 import cookieParser from 'cookie-parser';
+import { createCorsOriginValidator } from './common/cors/cors-origin.util';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,30 +15,13 @@ async function bootstrap() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // CORS — allow credentials (cookies) from frontend with strict origin validation
+  // CORS — allow credentials (cookies) from frontend with strict origin
+  // validation. The gate is fail-closed: see `createCorsOriginValidator`.
   app.enableCors({
-    origin: (
-      requestOrigin: string,
-      callback: (err: Error | null, allow?: boolean) => void,
-    ) => {
-      // In development or for non-browser requests (no origin), allow access
-      if (!requestOrigin || process.env.NODE_ENV !== 'production') {
-        return callback(null, true);
-      }
-
-      const baseDomain = process.env.BASE_DOMAIN || 'odiseo.com';
-      const allowedOrigins = [`https://${baseDomain}`, 'http://localhost:5173'];
-
-      // Allow exact matches or any subdomain of the base domain
-      if (
-        allowedOrigins.includes(requestOrigin) ||
-        requestOrigin.endsWith(`.${baseDomain}`)
-      ) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: createCorsOriginValidator({
+      nodeEnv: process.env.NODE_ENV,
+      baseDomain: process.env.BASE_DOMAIN || 'odiseo.com',
+    }),
     credentials: true,
   });
 
@@ -54,6 +38,12 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
+  // Without this, SIGTERM kills the API process immediately: in-flight requests
+  // are dropped and the Postgres pool / Redis connections are never closed, so
+  // every rolling deploy costs a burst of user-visible errors and leaks server
+  // side connections until they time out. Mirrors `worker.main.ts`.
+  app.enableShutdownHooks();
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

@@ -287,10 +287,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAcademicTimeStore } from '@/features/academic-time/store'
 import { useCatalogsStore } from '@/features/catalogs/store'
 import { useToast } from '#imports'
+import { PERMISSIONS } from '@/core/auth/permissions'
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['view_catalogs'],
+  permissions: [PERMISSIONS.VIEW_ACADEMIC_TIME],
 })
 
 const route = useRoute()

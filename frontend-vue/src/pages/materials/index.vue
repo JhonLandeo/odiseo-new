@@ -310,14 +310,19 @@ import { useMaterialsStore } from '@/features/materials/store/materials';
 import { useCatalogsStore } from '@/features/catalogs/store';
 import MaterialBoardColumn from '@/features/materials/components/MaterialBoardColumn.vue';
 import MaterialMatrixGenerator from '@/features/materials/components/MaterialMatrixGenerator.vue';
-import { useMaterialWebSocket } from '@/features/materials/composables/useMaterialWebSocket';
+import { PERMISSIONS } from '@/core/auth/permissions';
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['generate_material']
+  // Read-mostly monitor: viewers may open it, editors additionally generate
+  // material from here, so either permission grants access.
+  permissions: [PERMISSIONS.VIEW_MATERIALS, PERMISSIONS.EDIT_MATERIALS]
 });
 
-useMaterialWebSocket().connect();
+// TODO(materials-live-progress): the dead WebSocket client that pushed
+// `material.generation.*` toasts was removed (the backend never exposed a
+// gateway). Status changes are only reflected after a manual refresh; wire
+// polling here — or reconnect a real gateway — when live progress is needed.
 
 const materials = ref<any[]>([]);
 const isInitialLoading = ref(true);

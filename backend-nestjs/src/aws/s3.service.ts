@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
   GetObjectCommand,
@@ -13,13 +14,27 @@ export class S3Service {
   private readonly bucketName: string;
   private readonly logger = new Logger(S3Service.name);
 
-  constructor() {
+  /**
+   * The dev defaults below (LocalStack endpoint, dev bucket) are a convenience
+   * for a fresh clone ONLY. In production they were actively dangerous: a
+   * missing `AWS_S3_ENDPOINT` silently pointed the live API at
+   * `http://localhost:4566`, so uploads appeared to succeed and went nowhere.
+   * The Joi schema in AppModule now makes these keys required when
+   * `NODE_ENV=production`, so the fallbacks can never be reached there.
+   */
+  constructor(private readonly config: ConfigService) {
     this.s3Client = new S3Client({
-      region: process.env.AWS_REGION || 'us-east-1',
-      endpoint: process.env.AWS_S3_ENDPOINT || 'http://localhost:4566',
+      region: this.config.get<string>('AWS_REGION', 'us-east-1'),
+      endpoint: this.config.get<string>(
+        'AWS_S3_ENDPOINT',
+        'http://localhost:4566',
+      ),
       forcePathStyle: true,
     });
-    this.bucketName = process.env.AWS_S3_BUCKET || 'odiseo-materials';
+    this.bucketName = this.config.get<string>(
+      'AWS_S3_BUCKET',
+      'odiseo-materials',
+    );
   }
 
   async getPresignedDownloadUrl(

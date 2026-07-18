@@ -43,10 +43,11 @@ import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useMaterialsStore } from '@/features/materials/store/materials';
 import MaterialReviewList from '@/features/materials/components/MaterialReviewList.vue';
+import { PERMISSIONS } from '@/core/auth/permissions';
 
 definePageMeta({
   layout: 'b2b',
-  permissions: ['generate_material']
+  permissions: [PERMISSIONS.EDIT_MATERIALS]
 });
 
 const route = useRoute();
