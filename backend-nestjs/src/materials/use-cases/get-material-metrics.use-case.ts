@@ -6,9 +6,7 @@ import { Material } from '../entities/material.entity';
 export class GetMaterialMetricsUseCase {
   private readonly logger = new Logger(GetMaterialMetricsUseCase.name);
 
-  constructor(
-    private readonly tenantService: TenantService,
-  ) {}
+  constructor(private readonly tenantService: TenantService) {}
 
   async getTenantDashboardMetrics(): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {

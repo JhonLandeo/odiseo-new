@@ -128,7 +128,11 @@ export class PdfDesignService {
       }
 
       // Clean up S3 assets if present
-      const assets: ('banner' | 'watermark' | 'cover')[] = ['banner', 'watermark', 'cover'];
+      const assets: ('banner' | 'watermark' | 'cover')[] = [
+        'banner',
+        'watermark',
+        'cover',
+      ];
       for (const type of assets) {
         for (const ext of ['png', 'jpg']) {
           try {

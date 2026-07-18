@@ -100,14 +100,23 @@ describe('AcademicTimeUseCase', () => {
 
   describe('createTemplate (difficulty validation)', () => {
     it('rejects a course whose easy+medium+hard does not equal the total quantity', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({ id: 'c1', hasSyllabus: false });
+      mockRepo.getCycleWithSyllabus.mockResolvedValue({
+        id: 'c1',
+        hasSyllabus: false,
+      });
 
       await expect(
         useCase.createTemplate('c1', {
           name: 'Balotario',
           scope: 'CURRENT_WEEK',
           courses: [
-            { courseId: '1', questionsQuantity: 10, easyCount: 3, mediumCount: 3, hardCount: 3 },
+            {
+              courseId: '1',
+              questionsQuantity: 10,
+              easyCount: 3,
+              mediumCount: 3,
+              hardCount: 3,
+            },
           ],
         } as any),
       ).rejects.toThrow(BadRequestException);
@@ -115,13 +124,22 @@ describe('AcademicTimeUseCase', () => {
     });
 
     it('accepts a course whose difficulty counts sum to the total', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({ id: 'c1', hasSyllabus: false });
+      mockRepo.getCycleWithSyllabus.mockResolvedValue({
+        id: 'c1',
+        hasSyllabus: false,
+      });
 
       const res = await useCase.createTemplate('c1', {
         name: 'Balotario',
         scope: 'CURRENT_WEEK',
         courses: [
-          { courseId: '1', questionsQuantity: 10, easyCount: 4, mediumCount: 4, hardCount: 2 },
+          {
+            courseId: '1',
+            questionsQuantity: 10,
+            easyCount: 4,
+            mediumCount: 4,
+            hardCount: 2,
+          },
         ],
       } as any);
 
@@ -132,14 +150,22 @@ describe('AcademicTimeUseCase', () => {
 
   describe('deleteCycle', () => {
     it('blocks deletion when the cycle has active syllabus relations', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({ id: 'c1', hasSyllabus: true });
+      mockRepo.getCycleWithSyllabus.mockResolvedValue({
+        id: 'c1',
+        hasSyllabus: true,
+      });
 
-      await expect(useCase.deleteCycle('c1')).rejects.toThrow(ConflictException);
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow(
+        ConflictException,
+      );
       expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
     });
 
     it('soft-deletes a cycle with no syllabus relations', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({ id: 'c1', hasSyllabus: false });
+      mockRepo.getCycleWithSyllabus.mockResolvedValue({
+        id: 'c1',
+        hasSyllabus: false,
+      });
 
       await useCase.deleteCycle('c1');
       expect(mockRepo.softDeleteCycle).toHaveBeenCalledWith('c1');

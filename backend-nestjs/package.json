@@ -16,6 +16,7 @@
     "start:worker:dev": "PROCESS_ROLE=worker nest start --watch --entryFile worker.main",
     "start:worker:prod": "PROCESS_ROLE=worker node dist/worker.main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint:ci": "eslint --max-warnings=0",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

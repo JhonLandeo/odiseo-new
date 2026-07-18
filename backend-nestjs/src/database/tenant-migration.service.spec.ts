@@ -75,7 +75,9 @@ describe('TenantMigrationService', () => {
       return Promise.resolve(undefined);
     });
 
-    await expect(service.runMigrations('tenant_broken')).rejects.toThrow('boom');
+    await expect(service.runMigrations('tenant_broken')).rejects.toThrow(
+      'boom',
+    );
     expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
     expect(mockQueryRunner.release).toHaveBeenCalled();
   });

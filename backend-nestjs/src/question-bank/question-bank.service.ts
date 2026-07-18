@@ -4,8 +4,10 @@ import { Repository, In } from 'typeorm';
 import { Question } from './entities/question.entity';
 import { MaterialReviewQuestion } from '../materials/entities/material-review-question.entity';
 import { getLevelIdsForDifficulty } from './constants/question-levels.constant';
-import { QuestionSelectionStrategy, SelectionRequest } from './strategies/question-selection.strategy';
-
+import {
+  QuestionSelectionStrategy,
+  SelectionRequest,
+} from './strategies/question-selection.strategy';
 
 @Injectable()
 export class QuestionBankService {
@@ -47,17 +49,21 @@ export class QuestionBankService {
       .andWhere('q.id IN (SELECT question_id FROM odiseo.flat_questions)')
       .getMany();
 
-    const requests: SelectionRequest[] = Array(limit).fill({ expectedLevel: difficulty });
-    
+    const requests: SelectionRequest[] = Array(limit).fill({
+      expectedLevel: difficulty,
+    });
+
     // Call the centralized strategy. QuestionBankService allows recycling (Fallback 2)
     const selectedQ = QuestionSelectionStrategy.selectBestQuestions(
       pool,
       usedIdsList,
       requests,
-      true // allowRecycling
+      true, // allowRecycling
     );
 
-    const selectedIds = selectedQ.filter(q => q !== null).map(q => String(q!.id));
+    const selectedIds = selectedQ
+      .filter((q) => q !== null)
+      .map((q) => String(q.id));
 
     if (selectedIds.length === 0) {
       return [];
@@ -72,7 +78,7 @@ export class QuestionBankService {
 
   async getSubtopicQuestionMappings(subtopicIds: number[]): Promise<any[]> {
     if (subtopicIds.length === 0) return [];
-    
+
     return this.questionRepository.manager
       .createQueryBuilder()
       .select('question_id', 'questionId')

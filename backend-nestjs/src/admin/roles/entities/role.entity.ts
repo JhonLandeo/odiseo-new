@@ -1,4 +1,12 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToMany, JoinTable } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
+} from 'typeorm';
 
 @Entity('roles')
 export class Role {
@@ -27,7 +35,7 @@ export class Role {
   @JoinTable({
     name: 'role_inheritance',
     joinColumn: { name: 'child_role_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'parent_role_id', referencedColumnName: 'id' }
+    inverseJoinColumn: { name: 'parent_role_id', referencedColumnName: 'id' },
   })
   inheritedRoles: Role[];
 }

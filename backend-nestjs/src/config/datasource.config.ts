@@ -15,7 +15,10 @@ export const dataSourceOptions: DataSourceOptions = {
   // Importante: Solo incluimos las entidades públicas del sistema (SaaS) y Catálogos para que no genere tablas tenant_ en public
   entities: [
     join(__dirname, '../tenants/entities/tenant.entity{.ts,.js}'),
-    join(__dirname, '../admin/subscriptions/entities/subscription-plan.entity{.ts,.js}'),
+    join(
+      __dirname,
+      '../admin/subscriptions/entities/subscription-plan.entity{.ts,.js}',
+    ),
     join(__dirname, '../catalogs/entities/course.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/topic.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/subtopic.entity{.ts,.js}'),

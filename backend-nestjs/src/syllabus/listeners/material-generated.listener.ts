@@ -26,7 +26,11 @@ export class MaterialGeneratedListener {
     // would otherwise silently leave the week marked as not-generated. Retry a
     // few times with backoff before giving up.
     // NOTE: a durable dead-letter queue is the production-grade version of this.
-    for (let attempt = 1; attempt <= MaterialGeneratedListener.MAX_ATTEMPTS; attempt++) {
+    for (
+      let attempt = 1;
+      attempt <= MaterialGeneratedListener.MAX_ATTEMPTS;
+      attempt++
+    ) {
       try {
         await this.markWeekGenerated(event);
         this.logger.log(

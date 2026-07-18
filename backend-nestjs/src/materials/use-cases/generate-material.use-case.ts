@@ -24,7 +24,10 @@ import {
 import { QuestionBankService } from '../../question-bank/question-bank.service';
 import { Question } from '../../question-bank/entities/question.entity';
 import { getLevelIdsForDifficulty } from '../../question-bank/constants/question-levels.constant';
-import { QuestionSelectionStrategy, SelectionRequest } from '../../question-bank/strategies/question-selection.strategy';
+import {
+  QuestionSelectionStrategy,
+  SelectionRequest,
+} from '../../question-bank/strategies/question-selection.strategy';
 
 import { Material } from '../entities/material.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
@@ -97,24 +100,28 @@ export class GenerateMaterialUseCase {
         }
 
         const templateCourse = template?.courses?.find(
-          (tc) => tc.courseId === courseId || (tc as any).course_id === courseId,
+          (tc) =>
+            tc.courseId === courseId || (tc as any).course_id === courseId,
         );
         const targetQuantity = templateCourse?.questionsQuantity || 35;
 
-        const easyCount = templateCourse?.easyCount || Math.floor(targetQuantity * 0.4);
-        const mediumCount = templateCourse?.mediumCount || Math.floor(targetQuantity * 0.4);
-        let hardCount = templateCourse?.hardCount || Math.floor(targetQuantity * 0.2);
-        
+        const easyCount =
+          templateCourse?.easyCount || Math.floor(targetQuantity * 0.4);
+        const mediumCount =
+          templateCourse?.mediumCount || Math.floor(targetQuantity * 0.4);
+        let hardCount =
+          templateCourse?.hardCount || Math.floor(targetQuantity * 0.2);
+
         // Ensure the sum matches targetQuantity
         const currentSum = easyCount + mediumCount + hardCount;
         if (currentSum !== targetQuantity) {
-          hardCount += (targetQuantity - currentSum);
+          hardCount += targetQuantity - currentSum;
         }
 
         const levelsPool: string[] = [
           ...Array(easyCount).fill('EASY'),
           ...Array(mediumCount).fill('MEDIUM'),
-          ...Array(hardCount).fill('HARD')
+          ...Array(hardCount).fill('HARD'),
         ];
         // Shuffle the levels pool (unbiased Fisher-Yates) to distribute
         // difficulties randomly across subtopics. `sort(() => 0.5 - random)` is
@@ -124,20 +131,22 @@ export class GenerateMaterialUseCase {
           [levelsPool[i], levelsPool[j]] = [levelsPool[j], levelsPool[i]];
         }
 
-        const topics = distributions.map((dist, idx) => {
-          const baseQty = Math.floor(targetQuantity / distributions.length);
-          const remainder = targetQuantity % distributions.length;
-          const quantity = idx < remainder ? baseQty + 1 : baseQty;
+        const topics = distributions
+          .map((dist, idx) => {
+            const baseQty = Math.floor(targetQuantity / distributions.length);
+            const remainder = targetQuantity % distributions.length;
+            const quantity = idx < remainder ? baseQty + 1 : baseQty;
 
-          const expectedLevels = levelsPool.splice(0, quantity);
+            const expectedLevels = levelsPool.splice(0, quantity);
 
-          return {
-            topic_id: dist.topicId,
-            subtopic_id: dist.subtopicId,
-            quantity,
-            expected_levels: expectedLevels,
-          };
-        }).filter((t) => t.quantity > 0);
+            return {
+              topic_id: dist.topicId,
+              subtopic_id: dist.subtopicId,
+              quantity,
+              expected_levels: expectedLevels,
+            };
+          })
+          .filter((t) => t.quantity > 0);
 
         const exclude_question_ids =
           await this.materialsRepo.getUsedQuestionsInCycle(cycleId, courseId);
@@ -253,95 +262,101 @@ export class GenerateMaterialUseCase {
 
       // Always generate question slots to allow auditing and review (T023)
       let position = 1;
-        const reviewQuestionsToSave: MaterialReviewQuestion[] = [];
+      const reviewQuestionsToSave: MaterialReviewQuestion[] = [];
 
-        // 1. Gather all subtopic UUIDs and convert them to numeric IDs
-        const allSubtopicIds = realDistributions.flatMap((dist) =>
-          dist.topics.map((t: any) => t.subtopic_id),
-        );
-        const uniqueSubtopicIds = Array.from(new Set(allSubtopicIds));
-        const numericSubtopicIds = uniqueSubtopicIds.map(Number);
+      // 1. Gather all subtopic UUIDs and convert them to numeric IDs
+      const allSubtopicIds = realDistributions.flatMap((dist) =>
+        dist.topics.map((t: any) => t.subtopic_id),
+      );
+      const uniqueSubtopicIds = Array.from(new Set(allSubtopicIds));
+      const numericSubtopicIds = uniqueSubtopicIds.map(Number);
 
-        if (numericSubtopicIds.length > 0) {
-          // 2. Fetch the question mapping using QuestionBankService
-          const mappings = await this.questionBankService.getSubtopicQuestionMappings(numericSubtopicIds);
+      if (numericSubtopicIds.length > 0) {
+        // 2. Fetch the question mapping using QuestionBankService
+        const mappings =
+          await this.questionBankService.getSubtopicQuestionMappings(
+            numericSubtopicIds,
+          );
 
-          // Group question IDs by numeric subtopic ID
-          const questionsByNumericSubtopic = new Map<number, string[]>();
-          const allQuestionIds = new Set<string>();
-          for (const m of mappings) {
-            const subId = Number(m.subtopicId);
-            const qId = String(m.questionId);
-            if (!questionsByNumericSubtopic.has(subId)) {
-              questionsByNumericSubtopic.set(subId, []);
+        // Group question IDs by numeric subtopic ID
+        const questionsByNumericSubtopic = new Map<number, string[]>();
+        const allQuestionIds = new Set<string>();
+        for (const m of mappings) {
+          const subId = Number(m.subtopicId);
+          const qId = String(m.questionId);
+          if (!questionsByNumericSubtopic.has(subId)) {
+            questionsByNumericSubtopic.set(subId, []);
+          }
+          questionsByNumericSubtopic.get(subId)!.push(qId);
+          allQuestionIds.add(qId);
+        }
+
+        // 3. Load all questions and their alternatives in a single query
+        let questionMap = new Map<string, Question>();
+        if (allQuestionIds.size > 0) {
+          const dbQuestions = await this.questionBankService.getQuestionsByIds(
+            Array.from(allQuestionIds),
+          );
+          questionMap = new Map(dbQuestions.map((q) => [q.id, q]));
+        }
+
+        // 4. Construct review questions for all courses/topics
+        for (const dist of realDistributions) {
+          for (const t of dist.topics) {
+            const numericSubtopicId = Number(t.subtopic_id);
+            const subtopicQuestionIds =
+              questionsByNumericSubtopic.get(numericSubtopicId) || [];
+
+            const subtopicQuestions = subtopicQuestionIds
+              .map((id) => questionMap.get(id))
+              .filter(
+                (q): q is Question =>
+                  !!q && !dist.exclude_question_ids.includes(q.id),
+              );
+
+            const availablePool = subtopicQuestions;
+
+            const requests: SelectionRequest[] = [];
+            for (let i = 0; i < t.quantity; i++) {
+              requests.push({ expectedLevel: t.expected_levels[i] });
             }
-            questionsByNumericSubtopic.get(subId)!.push(qId);
-            allQuestionIds.add(qId);
-          }
 
-          // 3. Load all questions and their alternatives in a single query
-          let questionMap = new Map<string, Question>();
-          if (allQuestionIds.size > 0) {
-            const dbQuestions = await this.questionBankService.getQuestionsByIds(Array.from(allQuestionIds));
-            questionMap = new Map(dbQuestions.map((q) => [q.id, q]));
-          }
-
-          // 4. Construct review questions for all courses/topics
-          for (const dist of realDistributions) {
-            for (const t of dist.topics) {
-              const numericSubtopicId = Number(t.subtopic_id);
-              const subtopicQuestionIds =
-                questionsByNumericSubtopic.get(numericSubtopicId) || [];
-
-              const subtopicQuestions = subtopicQuestionIds
-                .map((id) => questionMap.get(id))
-                .filter(
-                  (q): q is Question =>
-                    !!q && !dist.exclude_question_ids.includes(q.id),
-                );
-
-              const availablePool = subtopicQuestions;
-              
-              const requests: SelectionRequest[] = [];
-              for (let i = 0; i < t.quantity; i++) {
-                requests.push({ expectedLevel: t.expected_levels[i] });
-              }
-
-              // Use strategy. GenerateMaterialUseCase does NOT recycle used questions (allowRecycling: false)
-              const selectedQuestions = QuestionSelectionStrategy.selectBestQuestions(
+            // Use strategy. GenerateMaterialUseCase does NOT recycle used questions (allowRecycling: false)
+            const selectedQuestions =
+              QuestionSelectionStrategy.selectBestQuestions(
                 availablePool,
                 [], // exclude_question_ids were already filtered out of subtopicQuestions earlier
                 requests,
-                false
+                false,
               );
 
-              for (let i = 0; i < t.quantity; i++) {
-                const expectedLevelStr = t.expected_levels[i];
-                const dbQ = selectedQuestions[i];
+            for (let i = 0; i < t.quantity; i++) {
+              const expectedLevelStr = t.expected_levels[i];
+              const dbQ = selectedQuestions[i];
 
-                const isVacant = !dbQ;
-                const reviewQ = manager.create(MaterialReviewQuestion, {
-                  id: uuidv4(),
-                  materialRequestId: materialRequest.id,
-                  questionId: isVacant ? undefined : dbQ!.id,
-                  topicId: t.topic_id,
-                  subtopicId: t.subtopic_id,
-                  expectedLevel: expectedLevelStr,
-                  position: position++,
-                  status: isVacant
-                    ? ReviewQuestionStatus.EMPTY
-                    : ReviewQuestionStatus.FOUND,
-                } as any);
-                reviewQuestionsToSave.push(reviewQ);
-              }
+              const isVacant = !dbQ;
+              const reviewQ = manager.create(MaterialReviewQuestion, {
+                id: uuidv4(),
+                materialRequestId: materialRequest.id,
+                questionId: isVacant ? undefined : dbQ.id,
+                topicId: t.topic_id,
+                subtopicId: t.subtopic_id,
+                expectedLevel: expectedLevelStr,
+                position: position++,
+                status: isVacant
+                  ? ReviewQuestionStatus.EMPTY
+                  : ReviewQuestionStatus.FOUND,
+              } as any);
+              reviewQuestionsToSave.push(reviewQ);
             }
           }
         }
+      }
 
-        // 5. Bulk save all review questions in a single query
-        if (reviewQuestionsToSave.length > 0) {
-          await manager.save(MaterialReviewQuestion, reviewQuestionsToSave);
-        }
+      // 5. Bulk save all review questions in a single query
+      if (reviewQuestionsToSave.length > 0) {
+        await manager.save(MaterialReviewQuestion, reviewQuestionsToSave);
+      }
 
       // 5. Encolar el trabajo en BullMQ si no requiere revisión
       const jobPayload = {
@@ -367,9 +382,13 @@ export class GenerateMaterialUseCase {
       if (!dto.requires_review) {
         // Update courses to PROCESSING
         if (createdCourses.length > 0) {
-          await manager.update(MaterialRequestCourse, { id: In(createdCourses.map(c => c.id)) }, {
-            status: CourseMaterialStatus.PROCESSING,
-          });
+          await manager.update(
+            MaterialRequestCourse,
+            { id: In(createdCourses.map((c) => c.id)) },
+            {
+              status: CourseMaterialStatus.PROCESSING,
+            },
+          );
         }
         await this.materialsQueue.add('generate-pdf', jobPayload);
       }

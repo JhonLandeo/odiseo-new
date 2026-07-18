@@ -26,7 +26,9 @@ export class CatalogUseCase {
     if (cached) return cached;
 
     const courses = await this.catalogRepository.getCourses(search);
-    const lastSyncedAt = await this.cacheManager.get<string>('catalogs:last-synced-at');
+    const lastSyncedAt = await this.cacheManager.get<string>(
+      'catalogs:last-synced-at',
+    );
     const result = {
       courses: courses.map((course: any) => ({
         id: course.id,
@@ -68,14 +70,11 @@ export class CatalogUseCase {
 
     // Invalidar caché específica del tenant y curso
     const tenantId = this.cls.get('tenantSchema') || 'public';
-    const courseId = await this.catalogRepository.findCourseIdByTopicId(topicId);
-    const cacheKeysToDelete = [
-      `catalogs:courses:${tenantId}:all`,
-    ];
+    const courseId =
+      await this.catalogRepository.findCourseIdByTopicId(topicId);
+    const cacheKeysToDelete = [`catalogs:courses:${tenantId}:all`];
     if (courseId) {
-      cacheKeysToDelete.push(
-        `catalogs:topics:${tenantId}:${courseId}:all`,
-      );
+      cacheKeysToDelete.push(`catalogs:topics:${tenantId}:${courseId}:all`);
     }
 
     await Promise.all(

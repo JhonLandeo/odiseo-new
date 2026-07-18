@@ -1,8 +1,20 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
 import { RolesService } from '../services/roles.service';
 import { CreateRoleDto } from '../dto/create-role.dto';
 import { UpdateRoleDto } from '../dto/update-role.dto';
-import { PermissionsGuard, RequirePermissions } from '../../../common/guards/permissions.guard';
+import {
+  PermissionsGuard,
+  RequirePermissions,
+} from '../../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../constants/permissions.constant';
 import { JwtAuthGuard } from '../../../auth/auth.guard';
 

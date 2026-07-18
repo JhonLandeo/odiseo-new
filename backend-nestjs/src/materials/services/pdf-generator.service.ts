@@ -341,7 +341,8 @@ export class PdfGeneratorService implements OnModuleDestroy {
         // 2. Render alternatives
         const alternativesHtml = (q.options || [])
           .map((opt) => {
-            const isCorrectClass = withSolution && opt.isCorrect ? 'alternative__bg--correct' : '';
+            const isCorrectClass =
+              withSolution && opt.isCorrect ? 'alternative__bg--correct' : '';
             return `
               <div class="alternative__item">
                   <div class="alternative__letter">${opt.label})</div>
@@ -355,7 +356,10 @@ export class PdfGeneratorService implements OnModuleDestroy {
 
         // 3. Render attached images
         const imagesHtml = (q.images || [])
-          .map((img) => `<img src="${img.url}" class="question__image-attached" />`)
+          .map(
+            (img) =>
+              `<img src="${img.url}" class="question__image-attached" />`,
+          )
           .join('');
 
         // 4. Render university origin if present
@@ -837,7 +841,9 @@ export class PdfGeneratorService implements OnModuleDestroy {
           if (withKeysTable) {
             const keysGridHtml = questions
               .map((q, idx) => {
-                const correctOpt = (q.options || []).find((opt) => opt.isCorrect);
+                const correctOpt = (q.options || []).find(
+                  (opt) => opt.isCorrect,
+                );
                 const correctLetter = correctOpt ? correctOpt.label : '-';
                 return `
                   <div class="keys-table__cell">

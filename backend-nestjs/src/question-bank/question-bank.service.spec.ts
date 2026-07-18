@@ -2,7 +2,7 @@ import { QuestionBankService } from './question-bank.service';
 
 describe('QuestionBankService', () => {
   const makeService = (questionRepo: any = {}) =>
-    new QuestionBankService(questionRepo as any, {} as any);
+    new QuestionBankService(questionRepo, {} as any);
 
   describe('getQuestionsByIds', () => {
     it('short-circuits to [] for empty input without querying', async () => {
@@ -30,7 +30,9 @@ describe('QuestionBankService', () => {
   describe('getSubtopicQuestionMappings', () => {
     it('short-circuits to [] for empty input', async () => {
       const service = makeService({ manager: {} });
-      await expect(service.getSubtopicQuestionMappings([])).resolves.toEqual([]);
+      await expect(service.getSubtopicQuestionMappings([])).resolves.toEqual(
+        [],
+      );
     });
   });
 });

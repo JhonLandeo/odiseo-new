@@ -41,8 +41,8 @@ export class TenantService {
   ): Promise<T> {
     assertValidSchema(schema);
 
-    const existingManager = this.cls.get('tx_manager') as EntityManager;
-    const existingSchema = this.cls.get('tx_schema') as string;
+    const existingManager = this.cls.get('tx_manager');
+    const existingSchema = this.cls.get('tx_schema');
     if (existingManager && existingSchema === schema) {
       return operation(existingManager);
     }

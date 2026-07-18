@@ -12,9 +12,15 @@ import { TenantService } from '../../database/tenant.service';
 import { ApproveReviewDto } from '../dto/approve-review.dto';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestStatus } from '../entities/material-status.enum';
-import { MaterialReviewQuestion, ReviewQuestionStatus } from '../entities/material-review-question.entity';
+import {
+  MaterialReviewQuestion,
+  ReviewQuestionStatus,
+} from '../entities/material-review-question.entity';
 import { Material } from '../entities/material.entity';
-import { MaterialRequestCourse, CourseMaterialStatus } from '../entities/material-request-course.entity';
+import {
+  MaterialRequestCourse,
+  CourseMaterialStatus,
+} from '../entities/material-request-course.entity';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { Syllabus } from '../../syllabus/entities/syllabus.entity';
 import { SyllabusDistribution } from '../../syllabus/entities/syllabus-distribution.entity';
@@ -29,7 +35,11 @@ export class ApproveMaterialReviewUseCase {
     @InjectQueue('materials-queue') private readonly materialsQueue: Queue,
   ) {}
 
-  async saveDraft(id: string, dto: ApproveReviewDto, tenantId: string): Promise<any> {
+  async saveDraft(
+    id: string,
+    dto: ApproveReviewDto,
+    tenantId: string,
+  ): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const request = await manager.findOne(MaterialRequest, {
         where: { id },
@@ -74,13 +84,18 @@ export class ApproveMaterialReviewUseCase {
           },
         );
       }
-      
+
       return { status: 'OK', message: 'Borrador guardado exitosamente' };
     });
   }
 
-  async execute(id: string, dto: ApproveReviewDto, tenantId: string, userId: string): Promise<any> {
-    const jobsToDispatch: { name: string, data: any }[] = [];
+  async execute(
+    id: string,
+    dto: ApproveReviewDto,
+    tenantId: string,
+    userId: string,
+  ): Promise<any> {
+    const jobsToDispatch: { name: string; data: any }[] = [];
 
     const result = await this.tenantService.runInTenant(async (manager) => {
       const request = await manager.findOne(MaterialRequest, {
@@ -135,31 +150,51 @@ export class ApproveMaterialReviewUseCase {
           c.keyDownloadUrl != null &&
           c.solutionDownloadUrl != null,
       );
-      const noChanges = dto.replacements.length === 0 && dto.removals.length === 0;
+      const noChanges =
+        dto.replacements.length === 0 && dto.removals.length === 0;
 
       if (alreadyGenerated && noChanges) {
-        const finalStatus = hasEmpty ? MaterialRequestStatus.COMPLETED_WITH_WARNINGS : MaterialRequestStatus.COMPLETED;
+        const finalStatus = hasEmpty
+          ? MaterialRequestStatus.COMPLETED_WITH_WARNINGS
+          : MaterialRequestStatus.COMPLETED;
         request.status = finalStatus;
         await manager.save(request);
 
         if (request.materialId) {
-          await manager.update(Material, request.materialId, { status: finalStatus });
+          await manager.update(Material, request.materialId, {
+            status: finalStatus,
+          });
         }
-        
-        const coursesWithWarnings = request.courses.filter(c => c.warnings).map(c => c.id);
-        const coursesWithoutWarnings = request.courses.filter(c => !c.warnings).map(c => c.id);
+
+        const coursesWithWarnings = request.courses
+          .filter((c) => c.warnings)
+          .map((c) => c.id);
+        const coursesWithoutWarnings = request.courses
+          .filter((c) => !c.warnings)
+          .map((c) => c.id);
 
         if (coursesWithWarnings.length > 0) {
-          await manager.update(MaterialRequestCourse, { id: In(coursesWithWarnings) }, { status: CourseMaterialStatus.COMPLETED_WITH_WARNINGS });
+          await manager.update(
+            MaterialRequestCourse,
+            { id: In(coursesWithWarnings) },
+            { status: CourseMaterialStatus.COMPLETED_WITH_WARNINGS },
+          );
         }
         if (coursesWithoutWarnings.length > 0) {
-          await manager.update(MaterialRequestCourse, { id: In(coursesWithoutWarnings) }, { status: CourseMaterialStatus.COMPLETED });
+          await manager.update(
+            MaterialRequestCourse,
+            { id: In(coursesWithoutWarnings) },
+            { status: CourseMaterialStatus.COMPLETED },
+          );
         }
 
-        this.logger.log(`Curation approved for MaterialRequest ${id} without changes. Bypassing regeneration.`);
+        this.logger.log(
+          `Curation approved for MaterialRequest ${id} without changes. Bypassing regeneration.`,
+        );
         return {
           status: finalStatus,
-          message: 'Revisión aprobada sin cambios. El documento existente se mantiene.',
+          message:
+            'Revisión aprobada sin cambios. El documento existente se mantiene.',
         };
       }
 
@@ -172,16 +207,22 @@ export class ApproveMaterialReviewUseCase {
         });
       }
 
-      const company = await manager.findOne(Company, { where: { id: tenantId } });
+      const company = await manager.findOne(Company, {
+        where: { id: tenantId },
+      });
       const template = await manager.findOne(CycleMaterialTemplate, {
         where: { id: request.profileId },
       });
 
       const allCourseReqIds = request.courses.map((c) => c.id);
       if (allCourseReqIds.length > 0) {
-        await manager.update(MaterialRequestCourse, { id: In(allCourseReqIds) }, {
-          status: CourseMaterialStatus.PROCESSING,
-        });
+        await manager.update(
+          MaterialRequestCourse,
+          { id: In(allCourseReqIds) },
+          {
+            status: CourseMaterialStatus.PROCESSING,
+          },
+        );
       }
 
       for (const courseReq of request.courses) {
@@ -194,11 +235,14 @@ export class ApproveMaterialReviewUseCase {
         });
 
         let distributions: SyllabusDistribution[] = [];
-        
+
         if (template && syllabus) {
           if (template.scope === 'CURRENT_WEEK') {
             distributions = await manager.find(SyllabusDistribution, {
-              where: { syllabusId: syllabus.id, weekNumber: request.weekNumber },
+              where: {
+                syllabusId: syllabus.id,
+                weekNumber: request.weekNumber,
+              },
             });
           } else if (template.scope === 'ACCUMULATIVE') {
             const startWeek = template.accumulationWeeks
@@ -230,7 +274,9 @@ export class ApproveMaterialReviewUseCase {
           tenant: {
             tenant_id: tenantId,
             commercial_name: company?.commercialName || 'Colegio Odiseo Innova',
-            logo_url: company?.logoUrl || 'https://s3.aws.com/tenant-assets/odiseo-innova.png',
+            logo_url:
+              company?.logoUrl ||
+              'https://s3.aws.com/tenant-assets/odiseo-innova.png',
           },
           material_type: 'BALOTARIO',
           course_id: courseReq.courseId,
@@ -251,9 +297,11 @@ export class ApproveMaterialReviewUseCase {
     for (const job of jobsToDispatch) {
       await this.materialsQueue.add(job.name, job.data);
     }
-    
+
     if (jobsToDispatch.length > 0) {
-      this.logger.log(`Curation approved for MaterialRequest ${id}. Dispatched jobs to BullMQ.`);
+      this.logger.log(
+        `Curation approved for MaterialRequest ${id}. Dispatched jobs to BullMQ.`,
+      );
     }
 
     return result;

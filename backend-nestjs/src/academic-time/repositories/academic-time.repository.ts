@@ -75,12 +75,19 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
       // If weeks are provided, it means we are recalculating
       if (weeks && weeks.length > 0) {
         // Find existing weeks first to know which ones to delete if they exceed the new totalWeeks
-        const currentWeeks = await manager.find(CycleWeek, { where: { cycle: { id } } });
+        const currentWeeks = await manager.find(CycleWeek, {
+          where: { cycle: { id } },
+        });
         const newWeekIds = weeks.map((w: any) => w.id);
-        const weeksToDelete = currentWeeks.filter(w => !newWeekIds.includes(w.id));
+        const weeksToDelete = currentWeeks.filter(
+          (w) => !newWeekIds.includes(w.id),
+        );
 
         if (weeksToDelete.length > 0) {
-          await manager.softDelete(CycleWeek, weeksToDelete.map(w => w.id));
+          await manager.softDelete(
+            CycleWeek,
+            weeksToDelete.map((w) => w.id),
+          );
         }
 
         // Save new weeks (upsert)

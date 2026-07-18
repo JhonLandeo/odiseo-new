@@ -24,16 +24,13 @@ async function bootstrap() {
       if (!requestOrigin || process.env.NODE_ENV !== 'production') {
         return callback(null, true);
       }
-      
+
       const baseDomain = process.env.BASE_DOMAIN || 'odiseo.com';
-      const allowedOrigins = [
-        `https://${baseDomain}`, 
-        'http://localhost:5173'
-      ];
-      
+      const allowedOrigins = [`https://${baseDomain}`, 'http://localhost:5173'];
+
       // Allow exact matches or any subdomain of the base domain
       if (
-        allowedOrigins.includes(requestOrigin) || 
+        allowedOrigins.includes(requestOrigin) ||
         requestOrigin.endsWith(`.${baseDomain}`)
       ) {
         callback(null, true);
@@ -64,4 +61,3 @@ async function bootstrap() {
 }
 bootstrap();
 // Rebuild trigger
-

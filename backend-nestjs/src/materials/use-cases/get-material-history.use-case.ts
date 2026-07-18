@@ -9,9 +9,7 @@ import { Cycle } from '../../academic-time/entities/cycle.entity';
 export class GetMaterialHistoryUseCase {
   private readonly logger = new Logger(GetMaterialHistoryUseCase.name);
 
-  constructor(
-    private readonly tenantService: TenantService,
-  ) {}
+  constructor(private readonly tenantService: TenantService) {}
 
   async getHistory(
     cycleIds?: string[],

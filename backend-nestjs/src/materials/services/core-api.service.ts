@@ -27,9 +27,19 @@ export interface ExtractedQuestion {
   };
   images?: { id: string; url: string }[];
   mathFormulas?: { id: string; code: string; path: string; properties: any }[];
-  alternativeMaths?: { id: string; code: string; path: string; properties: any }[];
+  alternativeMaths?: {
+    id: string;
+    code: string;
+    path: string;
+    properties: any;
+  }[];
   solution?: {
-    diagrammed: { id: string; value: string; position: number; field_diagram: string }[];
+    diagrammed: {
+      id: string;
+      value: string;
+      position: number;
+      field_diagram: string;
+    }[];
     diagrammedImages: { id: string; url: string }[];
     didiMaths: { id: string; code: string; path: string; properties: any }[];
   };
@@ -76,7 +86,9 @@ export class CoreApiService {
     const flatQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
 
     const cycle = cycleId
-      ? await this.defaultEntityManager.findOne(Cycle, { where: { id: cycleId } })
+      ? await this.defaultEntityManager.findOne(Cycle, {
+          where: { id: cycleId },
+        })
       : null;
     const universityId = cycle?.universityId;
 

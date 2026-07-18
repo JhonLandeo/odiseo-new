@@ -69,8 +69,10 @@ export class SyllabusUseCase {
   }
 
   async getSummary(syllabusId: string, templateId?: string) {
-    const distributions =
-      await this.syllabusRepo.getSummaryBySyllabus(syllabusId, templateId);
+    const distributions = await this.syllabusRepo.getSummaryBySyllabus(
+      syllabusId,
+      templateId,
+    );
     const generatedWeeks =
       await this.syllabusRepo.findGeneratedWeeks(syllabusId);
 
@@ -100,19 +102,42 @@ export class SyllabusUseCase {
   ) {
     return this.tenantService.runInTenant(async () => {
       const targetSyllabus = await this.syllabusRepo.findById(syllabusId);
-      if (!targetSyllabus) throw new BadRequestException('Syllabus destino no encontrado.');
+      if (!targetSyllabus)
+        throw new BadRequestException('Syllabus destino no encontrado.');
 
       const sourceSyllabus = await this.syllabusRepo.findById(sourceSyllabusId);
-      if (!sourceSyllabus) throw new BadRequestException('Syllabus origen no encontrado.');
+      if (!sourceSyllabus)
+        throw new BadRequestException('Syllabus origen no encontrado.');
 
-      const activeWeeks = targetActiveWeeks || await this.academicTimeUseCase.getActiveWeekNumbers(targetSyllabus.cycleId);
-      const sourceDistributions = await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
+      const activeWeeks =
+        targetActiveWeeks ||
+        (await this.academicTimeUseCase.getActiveWeekNumbers(
+          targetSyllabus.cycleId,
+        ));
+      const sourceDistributions =
+        await this.syllabusRepo.getSummaryBySyllabus(sourceSyllabusId);
 
-      const templateMap = await this.buildTemplateMapping(sourceSyllabus, targetSyllabus, sourceDistributions);
+      const templateMap = await this.buildTemplateMapping(
+        sourceSyllabus,
+        targetSyllabus,
+        sourceDistributions,
+      );
 
       await this.clearExistingDistributions(syllabusId);
-      await this.copyDistributions(syllabusId, sourceDistributions, activeWeeks, sourceSyllabus, targetSyllabus, templateMap);
-      await this.setDefaultTemplate(syllabusId, sourceSyllabus, targetSyllabus, templateMap);
+      await this.copyDistributions(
+        syllabusId,
+        sourceDistributions,
+        activeWeeks,
+        sourceSyllabus,
+        targetSyllabus,
+        templateMap,
+      );
+      await this.setDefaultTemplate(
+        syllabusId,
+        sourceSyllabus,
+        targetSyllabus,
+        templateMap,
+      );
 
       return await this.getSummary(syllabusId);
     });
@@ -127,27 +152,36 @@ export class SyllabusUseCase {
     if (sourceSyllabus.cycleId === targetSyllabus.cycleId) return templateMap;
 
     const referencedTemplateIds = new Set<string>();
-    if (sourceSyllabus.templateId) referencedTemplateIds.add(sourceSyllabus.templateId);
-    sourceDistributions.forEach(dist => {
+    if (sourceSyllabus.templateId)
+      referencedTemplateIds.add(sourceSyllabus.templateId);
+    sourceDistributions.forEach((dist) => {
       if (dist.templateId) referencedTemplateIds.add(dist.templateId);
     });
 
     if (referencedTemplateIds.size === 0) return templateMap;
 
-    const sourceTemplates = await this.academicTimeUseCase.getTemplates(sourceSyllabus.cycleId);
-    const targetTemplates = await this.academicTimeUseCase.getTemplates(targetSyllabus.cycleId);
+    const sourceTemplates = await this.academicTimeUseCase.getTemplates(
+      sourceSyllabus.cycleId,
+    );
+    const targetTemplates = await this.academicTimeUseCase.getTemplates(
+      targetSyllabus.cycleId,
+    );
 
     if (targetTemplates.length === 0) {
-      referencedTemplateIds.forEach(id => (templateMap[id] = null));
+      referencedTemplateIds.forEach((id) => (templateMap[id] = null));
       return templateMap;
     }
 
     const missingTemplateNames: string[] = [];
-    referencedTemplateIds.forEach(srcTempId => {
+    referencedTemplateIds.forEach((srcTempId) => {
       const srcTemplate = sourceTemplates.find((t) => t.id === srcTempId);
       if (!srcTemplate) return;
 
-      const match = targetTemplates.find((tgtT) => tgtT.name.trim().toLowerCase() === srcTemplate.name.trim().toLowerCase());
+      const match = targetTemplates.find(
+        (tgtT) =>
+          tgtT.name.trim().toLowerCase() ===
+          srcTemplate.name.trim().toLowerCase(),
+      );
       if (match) {
         templateMap[srcTempId] = match.id;
       } else {
@@ -182,9 +216,12 @@ export class SyllabusUseCase {
 
       let newTemplateId = dist.templateId;
       if (dist.templateId) {
-        newTemplateId = templateMap[dist.templateId] !== undefined 
-          ? templateMap[dist.templateId] 
-          : (sourceSyllabus.cycleId === targetSyllabus.cycleId ? dist.templateId : null);
+        newTemplateId =
+          templateMap[dist.templateId] !== undefined
+            ? templateMap[dist.templateId]
+            : sourceSyllabus.cycleId === targetSyllabus.cycleId
+              ? dist.templateId
+              : null;
         if (newTemplateId === null && dist.templateId) continue;
       }
 
@@ -211,9 +248,10 @@ export class SyllabusUseCase {
   ) {
     if (!sourceSyllabus.templateId) return;
 
-    const targetSyllabusTemplateId = sourceSyllabus.cycleId === targetSyllabus.cycleId 
-      ? sourceSyllabus.templateId 
-      : (templateMap[sourceSyllabus.templateId] || null);
+    const targetSyllabusTemplateId =
+      sourceSyllabus.cycleId === targetSyllabus.cycleId
+        ? sourceSyllabus.templateId
+        : templateMap[sourceSyllabus.templateId] || null;
 
     if (targetSyllabusTemplateId) {
       await this.syllabusRepo.setTemplate(syllabusId, targetSyllabusTemplateId);
@@ -225,17 +263,23 @@ export class SyllabusUseCase {
     // mid-way failure rolls back every syllabus instead of leaving a partial
     // clone. Nested repo/use-case calls reuse this ambient transaction.
     return this.tenantService.runInTenant(async () => {
-      const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
+      const sourceSyllabuses =
+        await this.syllabusRepo.findByCycle(sourceCycleId);
 
       if (sourceSyllabuses.length === 0) {
-        throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
+        throw new BadRequestException(
+          'El ciclo origen no tiene sílabos para clonar.',
+        );
       }
 
       const targetActiveWeeks =
         await this.academicTimeUseCase.getActiveWeekNumbers(targetCycleId);
 
-      const existingTargets = await this.syllabusRepo.findByCycle(targetCycleId);
-      const existingTargetMap = new Map(existingTargets.map(s => [s.courseId, s]));
+      const existingTargets =
+        await this.syllabusRepo.findByCycle(targetCycleId);
+      const existingTargetMap = new Map(
+        existingTargets.map((s) => [s.courseId, s]),
+      );
 
       let clonedCount = 0;
       for (const sourceSyllabus of sourceSyllabuses) {

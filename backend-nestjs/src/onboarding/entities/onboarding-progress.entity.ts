@@ -1,4 +1,9 @@
-import { Entity, Column, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity({ name: 'onboarding_progress' })
 export class OnboardingProgress {

@@ -94,15 +94,8 @@ export class PdfDesignController {
 
   @Post(':id/preview')
   @ApiOperation({ summary: 'Generate HTML preview of design template' })
-  async preview(
-    @Param('id') id: string,
-    @Body() body?: Record<string, any>,
-  ) {
-    return this.pdfDesignService.generatePreview(
-      this.getTenantId(),
-      id,
-      body,
-    );
+  async preview(@Param('id') id: string, @Body() body?: Record<string, any>) {
+    return this.pdfDesignService.generatePreview(this.getTenantId(), id, body);
   }
 
   @Delete(':id/asset')
@@ -112,10 +105,6 @@ export class PdfDesignController {
     @Param('id') id: string,
     @Query('type') type: 'banner' | 'watermark' | 'cover',
   ) {
-    await this.pdfDesignService.deleteAsset(
-      id,
-      this.getTenantId(),
-      type,
-    );
+    await this.pdfDesignService.deleteAsset(id, this.getTenantId(), type);
   }
 }

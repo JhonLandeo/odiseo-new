@@ -19,7 +19,7 @@ export class QuestionSelectionStrategy {
     allowRecycling: boolean = false,
   ): (Question | null)[] {
     const usedSet = new Set(usedIdsList);
-    
+
     // Separate into unused and used pools
     const unusedPool = availablePool.filter((q) => !usedSet.has(q.id));
     const usedPool = availablePool.filter((q) => usedSet.has(q.id));

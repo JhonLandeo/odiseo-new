@@ -1,0 +1,160 @@
+# CI pipeline for the odiseo monorepo (backend-nestjs + frontend-vue).
+#
+# Lint strategy: "ratchet".
+# The backend currently carries a large amount of pre-existing ESLint debt
+# (~1959 problems). Gating the whole tree would make every build red and force a
+# giant unrelated cleanup, so the full tree is intentionally NOT linted in CI.
+# Instead, the `lint-changed` job lints only the .ts files a pull request
+# actually touches. New and modified code must be clean; historical debt is left
+# alone and gets paid down naturally as files are edited.
+#
+# `--fix` is never used in CI: CI reports, it does not silently rewrite code.
+# The local developer script `npm run lint` still applies `--fix`.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs so stale builds do not pile up on busy branches.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No .nvmrc, no `engines.node` and no `packageManager` field exist in this
+  # repo. The only in-repo version signal is backend-nestjs `@types/node@^24`,
+  # so CI targets the Node 24 LTS line.
+  NODE_VERSION: '24'
+
+jobs:
+  backend:
+    name: Backend (typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-nestjs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend-nestjs/package-lock.json
+
+      # backend-nestjs/package-lock.json is committed, so the install is
+      # reproducible.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Test
+        run: npm test -- --ci
+
+      - name: Build
+        run: npm run build
+
+  frontend:
+    name: Frontend (test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-vue
+    steps:
+      - uses: actions/checkout@v4
+
+      # frontend-vue has NO package-lock.json - its committed lock file is
+      # pnpm-lock.yaml, so pnpm is the authoritative package manager here.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend-vue/pnpm-lock.yaml
+
+      # `postinstall` runs `nuxt prepare` automatically - no extra step needed.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  lint-changed:
+    name: Lint changed backend files
+    # Pull requests only: on a push to main there is no meaningful diff base.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the merge base with the target branch is reachable.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend-nestjs/package-lock.json
+
+      - name: Collect changed backend TypeScript files
+        id: collect
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+          # Merge base, so commits landed on the target branch after this PR
+          # branched off are not mistaken for changes made by this PR.
+          base_sha="$(git merge-base "refs/remotes/origin/${BASE_REF}" HEAD)"
+          echo "Comparing against merge base ${base_sha}"
+
+          # --diff-filter=ACMR excludes deleted (D) files: ESLint fails hard when
+          # handed a path that no longer exists on disk.
+          : > changed-backend-files.txt
+          while IFS= read -r file; do
+            [ -n "${file}" ] || continue
+            # Paths are made relative to backend-nestjs, the ESLint working dir.
+            printf '%s\n' "${file#backend-nestjs/}" >> changed-backend-files.txt
+          done < <(
+            git diff --name-only --diff-filter=ACMR "${base_sha}" HEAD \
+              -- ':(glob)backend-nestjs/**/*.ts'
+          )
+
+          if [ -s changed-backend-files.txt ]; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+            echo "Files to lint:"
+            cat changed-backend-files.txt
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+            echo "No backend TypeScript files changed - nothing to lint."
+          fi
+
+      # Skipped entirely when the PR touches no backend .ts files, so the job
+      # still succeeds instead of invoking ESLint with an empty argument list.
+      - name: Install backend dependencies
+        if: steps.collect.outputs.has_files == 'true'
+        working-directory: backend-nestjs
+        run: npm ci
+
+      - name: Lint changed files
+        if: steps.collect.outputs.has_files == 'true'
+        working-directory: backend-nestjs
+        run: |
+          set -euo pipefail
+          xargs -r -a "${GITHUB_WORKSPACE}/changed-backend-files.txt" \
+            npm run lint:ci --

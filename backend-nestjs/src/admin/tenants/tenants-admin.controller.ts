@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsAdminService } from './tenants-admin.service';
 import { JwtAuthGuard } from '../../auth/auth.guard';
@@ -7,7 +15,12 @@ import {
   RequirePermissions,
 } from '../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../roles/constants/permissions.constant';
-import { CreateTenantDto, UpdateTenantDto, UpdateTenantStatusDto, ResetAdminDto } from './dto/tenant.dto';
+import {
+  CreateTenantDto,
+  UpdateTenantDto,
+  UpdateTenantStatusDto,
+  ResetAdminDto,
+} from './dto/tenant.dto';
 
 // Platform control plane: every endpoint manages tenants across the whole
 // platform, so all require the platform-level MANAGE_TENANTS permission (which
@@ -39,16 +52,19 @@ export class TenantsAdminController {
     @Param('id') id: string,
     @Body() updateData: UpdateTenantStatusDto,
   ) {
-    const gracePeriod = updateData.grace_period_until ? new Date(updateData.grace_period_until) : undefined;
-    return this.tenantsAdminService.updateStatus(id, updateData.status, gracePeriod);
+    const gracePeriod = updateData.grace_period_until
+      ? new Date(updateData.grace_period_until)
+      : undefined;
+    return this.tenantsAdminService.updateStatus(
+      id,
+      updateData.status,
+      gracePeriod,
+    );
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Editar datos básicos de la empresa' })
-  async update(
-    @Param('id') id: string,
-    @Body() updateData: UpdateTenantDto,
-  ) {
+  async update(@Param('id') id: string, @Body() updateData: UpdateTenantDto) {
     return this.tenantsAdminService.update(id, updateData);
   }
 
@@ -58,6 +74,10 @@ export class TenantsAdminController {
     @Param('id') id: string,
     @Body() resetData: ResetAdminDto,
   ) {
-    return this.tenantsAdminService.resetAdminCredentials(id, resetData.email, resetData.password);
+    return this.tenantsAdminService.resetAdminCredentials(
+      id,
+      resetData.email,
+      resetData.password,
+    );
   }
 }

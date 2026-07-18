@@ -17,6 +17,10 @@ import { AuthModule } from '../../auth/auth.module';
     DatabaseModule,
   ],
   controllers: [TenantsAdminController, TenantAdminsController],
-  providers: [TenantsAdminService, TenantAdminsService, TenantProvisioningListener],
+  providers: [
+    TenantsAdminService,
+    TenantAdminsService,
+    TenantProvisioningListener,
+  ],
 })
 export class TenantsAdminModule {}

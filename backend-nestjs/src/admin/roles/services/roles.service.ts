@@ -1,4 +1,8 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
 import { Role } from '../entities/role.entity';
 import { CreateRoleDto } from '../dto/create-role.dto';
@@ -20,7 +24,9 @@ export class RolesService {
   }
 
   async findOne(id: string): Promise<Role> {
-    return this.tenantService.runInTenant((manager) => this.findOneWith(manager, id));
+    return this.tenantService.runInTenant((manager) =>
+      this.findOneWith(manager, id),
+    );
   }
 
   private async findOneWith(manager: EntityManager, id: string): Promise<Role> {

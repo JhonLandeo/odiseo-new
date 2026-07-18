@@ -53,6 +53,11 @@ import { Alternative } from '../question-bank/entities/alternative.entity';
     TypeOrmModule.forFeature([Company]),
   ],
   providers: [TenantService, SchemaService, TenantMigrationService],
-  exports: [TenantService, SchemaService, TenantMigrationService, TypeOrmModule],
+  exports: [
+    TenantService,
+    SchemaService,
+    TenantMigrationService,
+    TypeOrmModule,
+  ],
 })
-export class DatabaseModule { }
+export class DatabaseModule {}

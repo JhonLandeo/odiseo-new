@@ -34,14 +34,14 @@ describe('SyllabusUseCase', () => {
       providers: [
         SyllabusUseCase,
         { provide: I_SYLLABUS_REPOSITORY, useValue: mockRepo },
-        { 
-          provide: TenantService, 
-          useValue: { 
-            runInSchema: jest.fn((_, cb) => cb()), 
-            runInTenant: jest.fn((cb) => cb()) 
-          } 
+        {
+          provide: TenantService,
+          useValue: {
+            runInSchema: jest.fn((_, cb) => cb()),
+            runInTenant: jest.fn((cb) => cb()),
+          },
         },
-        { provide: AcademicTimeUseCase, useValue: mockAcademicTime }
+        { provide: AcademicTimeUseCase, useValue: mockAcademicTime },
       ],
     }).compile();
 
@@ -72,16 +72,37 @@ describe('SyllabusUseCase', () => {
 
   it('should clone syllabus and filter out inactive weeks', async () => {
     // Target active weeks: only weeks 1 and 2 are active (week 3 is inactive/missing)
-    mockRepo.findById.mockResolvedValue({ id: 'target-syl', cycleId: 'cycle-target' });
+    mockRepo.findById.mockResolvedValue({
+      id: 'target-syl',
+      cycleId: 'cycle-target',
+    });
     mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2]);
 
     // Source distributions: has questions in weeks 1, 2, and 3
     mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
       if (id === 'source-syl') {
         return Promise.resolve([
-          { id: 'd-1', weekNumber: 1, topicId: 't1', subtopicId: 's1', questionCount: 2 },
-          { id: 'd-2', weekNumber: 2, topicId: 't2', subtopicId: 's2', questionCount: 3 },
-          { id: 'd-3', weekNumber: 3, topicId: 't3', subtopicId: 's3', questionCount: 4 },
+          {
+            id: 'd-1',
+            weekNumber: 1,
+            topicId: 't1',
+            subtopicId: 's1',
+            questionCount: 2,
+          },
+          {
+            id: 'd-2',
+            weekNumber: 2,
+            topicId: 't2',
+            subtopicId: 's2',
+            questionCount: 3,
+          },
+          {
+            id: 'd-3',
+            weekNumber: 3,
+            topicId: 't3',
+            subtopicId: 's3',
+            questionCount: 4,
+          },
         ]);
       }
       return Promise.resolve([]); // target syllabus starts empty
@@ -106,7 +127,11 @@ describe('SyllabusUseCase', () => {
         return Promise.resolve({ id: 'target-syl', cycleId: 'cycle-target' });
       }
       if (id === 'source-syl') {
-        return Promise.resolve({ id: 'source-syl', cycleId: 'cycle-source', templateId: 'src-temp-id' });
+        return Promise.resolve({
+          id: 'source-syl',
+          cycleId: 'cycle-source',
+          templateId: 'src-temp-id',
+        });
       }
       return Promise.resolve(null);
     });
@@ -115,13 +140,11 @@ describe('SyllabusUseCase', () => {
 
     mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
-        return Promise.resolve([
-          { id: 'src-temp-id', name: 'Examen Parcial' }
-        ]);
+        return Promise.resolve([{ id: 'src-temp-id', name: 'Examen Parcial' }]);
       }
       if (cycleId === 'cycle-target') {
         return Promise.resolve([
-          { id: 'tgt-temp-id', name: ' examen parcial ' } // name match (case and spaces check)
+          { id: 'tgt-temp-id', name: ' examen parcial ' }, // name match (case and spaces check)
         ]);
       }
       return Promise.resolve([]);
@@ -130,7 +153,14 @@ describe('SyllabusUseCase', () => {
     mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
       if (id === 'source-syl') {
         return Promise.resolve([
-          { id: 'd-1', weekNumber: 1, topicId: 't1', subtopicId: 's1', questionCount: 2, templateId: 'src-temp-id' },
+          {
+            id: 'd-1',
+            weekNumber: 1,
+            topicId: 't1',
+            subtopicId: 's1',
+            questionCount: 2,
+            templateId: 'src-temp-id',
+          },
         ]);
       }
       return Promise.resolve([]);
@@ -147,13 +177,16 @@ describe('SyllabusUseCase', () => {
       expect.arrayContaining([
         expect.objectContaining({
           weekNumber: 1,
-          templateId: 'tgt-temp-id'
-        })
-      ])
+          templateId: 'tgt-temp-id',
+        }),
+      ]),
     );
 
     // Should also set syllabus-level templateId
-    expect(mockRepo.setTemplate).toHaveBeenCalledWith('target-syl', 'tgt-temp-id');
+    expect(mockRepo.setTemplate).toHaveBeenCalledWith(
+      'target-syl',
+      'tgt-temp-id',
+    );
   });
 
   it('should throw BadRequestException if referenced template does not exist in target cycle', async () => {
@@ -162,7 +195,11 @@ describe('SyllabusUseCase', () => {
         return Promise.resolve({ id: 'target-syl', cycleId: 'cycle-target' });
       }
       if (id === 'source-syl') {
-        return Promise.resolve({ id: 'source-syl', cycleId: 'cycle-source', templateId: 'src-temp-id' });
+        return Promise.resolve({
+          id: 'source-syl',
+          cycleId: 'cycle-source',
+          templateId: 'src-temp-id',
+        });
       }
       return Promise.resolve(null);
     });
@@ -171,20 +208,23 @@ describe('SyllabusUseCase', () => {
 
     mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
-        return Promise.resolve([
-          { id: 'src-temp-id', name: 'Examen Parcial' }
-        ]);
+        return Promise.resolve([{ id: 'src-temp-id', name: 'Examen Parcial' }]);
       }
       // Target templates has templates, but doesn't contain 'Examen Parcial'
-      return Promise.resolve([
-        { id: 'tgt-temp-other', name: 'Examen Final' }
-      ]);
+      return Promise.resolve([{ id: 'tgt-temp-other', name: 'Examen Final' }]);
     });
 
     mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
       if (id === 'source-syl') {
         return Promise.resolve([
-          { id: 'd-1', weekNumber: 1, topicId: 't1', subtopicId: 's1', questionCount: 2, templateId: 'src-temp-id' },
+          {
+            id: 'd-1',
+            weekNumber: 1,
+            topicId: 't1',
+            subtopicId: 's1',
+            questionCount: 2,
+            templateId: 'src-temp-id',
+          },
         ]);
       }
       return Promise.resolve([]);
@@ -203,7 +243,11 @@ describe('SyllabusUseCase', () => {
         return Promise.resolve({ id: 'target-syl', cycleId: 'cycle-target' });
       }
       if (id === 'source-syl') {
-        return Promise.resolve({ id: 'source-syl', cycleId: 'cycle-source', templateId: 'src-temp-id' });
+        return Promise.resolve({
+          id: 'source-syl',
+          cycleId: 'cycle-source',
+          templateId: 'src-temp-id',
+        });
       }
       return Promise.resolve(null);
     });
@@ -212,9 +256,7 @@ describe('SyllabusUseCase', () => {
 
     mockAcademicTime.getTemplates.mockImplementation((cycleId) => {
       if (cycleId === 'cycle-source') {
-        return Promise.resolve([
-          { id: 'src-temp-id', name: 'Examen Parcial' }
-        ]);
+        return Promise.resolve([{ id: 'src-temp-id', name: 'Examen Parcial' }]);
       }
       // Target templates is empty list (no templates at all)
       return Promise.resolve([]);
@@ -223,7 +265,14 @@ describe('SyllabusUseCase', () => {
     mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
       if (id === 'source-syl') {
         return Promise.resolve([
-          { id: 'd-1', weekNumber: 1, topicId: 't1', subtopicId: 's1', questionCount: 2, templateId: 'src-temp-id' },
+          {
+            id: 'd-1',
+            weekNumber: 1,
+            topicId: 't1',
+            subtopicId: 's1',
+            questionCount: 2,
+            templateId: 'src-temp-id',
+          },
         ]);
       }
       return Promise.resolve([]);
@@ -238,6 +287,9 @@ describe('SyllabusUseCase', () => {
     expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledTimes(0);
 
     // Should not call setTemplate because targetSyllabusTemplateId is null
-    expect(mockRepo.setTemplate).not.toHaveBeenCalledWith('target-syl', expect.any(String));
+    expect(mockRepo.setTemplate).not.toHaveBeenCalledWith(
+      'target-syl',
+      expect.any(String),
+    );
   });
 });

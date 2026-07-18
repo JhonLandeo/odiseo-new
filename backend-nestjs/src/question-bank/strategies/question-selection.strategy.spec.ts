@@ -2,7 +2,8 @@ import { QuestionSelectionStrategy } from './question-selection.strategy';
 import { Question } from '../entities/question.entity';
 
 // Minimal Question-like factory — the strategy only reads id and levelId.
-const q = (id: string, levelId: number): Question => ({ id, levelId } as Question);
+const q = (id: string, levelId: number): Question =>
+  ({ id, levelId }) as Question;
 
 // From question-levels.constant: EASY=[43,44], MEDIUM=[45], HARD=[46..52].
 describe('QuestionSelectionStrategy.selectBestQuestions', () => {

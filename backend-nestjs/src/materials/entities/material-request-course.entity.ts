@@ -55,9 +55,13 @@ export class MaterialRequestCourse {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @ManyToOne(() => MaterialRequest, (request: MaterialRequest) => request.courses, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => MaterialRequest,
+    (request: MaterialRequest) => request.courses,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'material_request_id' })
   materialRequest: MaterialRequest;
 }

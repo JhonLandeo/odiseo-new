@@ -32,7 +32,9 @@ export class MaterialsCron {
     });
 
     if (companies.length === 0) {
-      this.logger.warn('No active company found. Skipping automatic material generation.');
+      this.logger.warn(
+        'No active company found. Skipping automatic material generation.',
+      );
       return;
     }
 
@@ -140,4 +142,3 @@ export class MaterialsCron {
     }
   }
 }
-

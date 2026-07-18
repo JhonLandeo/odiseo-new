@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
-import {
-  FlatQuestion,
-  FlatQuestionSearchFilters,
-} from './flat-question.model';
+import { FlatQuestion, FlatQuestionSearchFilters } from './flat-question.model';
 import { getLevelIdsForDifficulty } from './constants/question-levels.constant';
 
 /**
@@ -85,7 +82,9 @@ export class FlatQuestionsRepository {
   }
 
   /** Convenience single-id variant of the normalized fallback. */
-  async findByIdFromNormalized(id: string | number): Promise<FlatQuestion | null> {
+  async findByIdFromNormalized(
+    id: string | number,
+  ): Promise<FlatQuestion | null> {
     const rows = await this.findByIdsFromNormalized([id]);
     return rows[0] ?? null;
   }
@@ -94,7 +93,9 @@ export class FlatQuestionsRepository {
    * Search question ids by course/topic/subtopic and optional difficulty.
    * Returns only ids; selection/shuffle/limit stay in the caller (business logic).
    */
-  async searchQuestionIds(filters: FlatQuestionSearchFilters): Promise<string[]> {
+  async searchQuestionIds(
+    filters: FlatQuestionSearchFilters,
+  ): Promise<string[]> {
     const { courseId, topicId, subtopicId, level, excludeIds = [] } = filters;
 
     let sql = `
@@ -141,7 +142,9 @@ export class FlatQuestionsRepository {
     }
 
     if (excludeIds.length > 0) {
-      const numericExcludeIds = excludeIds.map(Number).filter((id) => !isNaN(id));
+      const numericExcludeIds = excludeIds
+        .map(Number)
+        .filter((id) => !isNaN(id));
       if (numericExcludeIds.length > 0) {
         sql += ` AND fq.question_id NOT IN (${numericExcludeIds.map((_, i) => `$${params.length + 1 + i}`).join(', ')})`;
         params.push(...numericExcludeIds);

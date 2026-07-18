@@ -1,6 +1,9 @@
 import { Controller, Put, Param, Body, UseGuards } from '@nestjs/common';
 import { UserRole } from '../entities/user-role.entity';
-import { PermissionsGuard, RequirePermissions } from '../../../common/guards/permissions.guard';
+import {
+  PermissionsGuard,
+  RequirePermissions,
+} from '../../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../constants/permissions.constant';
 import { JwtAuthGuard } from '../../../auth/auth.guard';
 import { TenantService } from '../../../database/tenant.service';

@@ -1,6 +1,14 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { TenantService } from '../../database/tenant.service';
-import { MaterialRequestCourse, CourseMaterialStatus } from '../entities/material-request-course.entity';
+import {
+  MaterialRequestCourse,
+  CourseMaterialStatus,
+} from '../entities/material-request-course.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { S3Service } from '../../aws/s3.service';
 
@@ -13,7 +21,9 @@ export class MaterialDownloadsUseCase {
     private readonly s3Service: S3Service,
   ) {}
 
-  private async getSignedUrlFromRaw(rawUrl: string): Promise<{ signedUrl: string; s3Key: string; filename: string }> {
+  private async getSignedUrlFromRaw(
+    rawUrl: string,
+  ): Promise<{ signedUrl: string; s3Key: string; filename: string }> {
     let s3Key = rawUrl;
     if (rawUrl.startsWith('http')) {
       const urlObj = new URL(rawUrl);
@@ -60,7 +70,8 @@ export class MaterialDownloadsUseCase {
         );
       }
 
-      const { signedUrl, s3Key, filename } = await this.getSignedUrlFromRaw(rawUrl);
+      const { signedUrl, s3Key, filename } =
+        await this.getSignedUrlFromRaw(rawUrl);
 
       return {
         materialId: id,
@@ -99,7 +110,8 @@ export class MaterialDownloadsUseCase {
         );
       }
 
-      const { signedUrl, s3Key, filename } = await this.getSignedUrlFromRaw(rawUrl);
+      const { signedUrl, s3Key, filename } =
+        await this.getSignedUrlFromRaw(rawUrl);
 
       return {
         materialId: id,

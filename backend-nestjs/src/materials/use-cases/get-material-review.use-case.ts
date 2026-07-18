@@ -36,7 +36,9 @@ export class GetMaterialReviewUseCase {
       if (request.status === MaterialRequestStatus.REVIEW_REQUIRED) {
         request.status = MaterialRequestStatus.IN_REVIEW;
         await manager.save(request);
-        this.logger.log(`MaterialRequest ${id} status auto-transitioned to IN_REVIEW`);
+        this.logger.log(
+          `MaterialRequest ${id} status auto-transitioned to IN_REVIEW`,
+        );
       }
 
       const questions = await manager.find(MaterialReviewQuestion, {
@@ -61,7 +63,9 @@ export class GetMaterialReviewUseCase {
         flatQuestions.map((q) => [String(q.question_id), q]),
       );
 
-      const missingIds = questionIds.filter(qid => !dbQuestionsMap.has(String(qid)));
+      const missingIds = questionIds.filter(
+        (qid) => !dbQuestionsMap.has(String(qid)),
+      );
       if (missingIds.length > 0) {
         const fallbackDbQuestions =
           await this.flatQuestionsRepo.findByIdsFromNormalized(missingIds);
@@ -113,11 +117,17 @@ export class GetMaterialReviewUseCase {
           let parsedSolution: any = {};
           if (flatQ.solution) {
             try {
-              parsedSolution = typeof flatQ.solution === 'string' ? JSON.parse(flatQ.solution) : flatQ.solution;
-              if (typeof parsedSolution !== 'object' || parsedSolution === null) {
+              parsedSolution =
+                typeof flatQ.solution === 'string'
+                  ? JSON.parse(flatQ.solution)
+                  : flatQ.solution;
+              if (
+                typeof parsedSolution !== 'object' ||
+                parsedSolution === null
+              ) {
                 parsedSolution = {};
               }
-            } catch(e) {
+            } catch (e) {
               parsedSolution = {};
             }
           }
@@ -131,7 +141,8 @@ export class GetMaterialReviewUseCase {
           );
 
           // Resolve university specific origin label
-          const textOrigin = universityId && flatQ.origins ? flatQ.origins[universityId] : null;
+          const textOrigin =
+            universityId && flatQ.origins ? flatQ.origins[universityId] : null;
 
           return {
             id: q.id,
@@ -174,7 +185,9 @@ export class GetMaterialReviewUseCase {
       });
 
       const allowedSyllabusUnits: any[] = [];
-      const courseIds = [...new Set(questionsResponse.map((q) => q.courseId).filter(Boolean))];
+      const courseIds = [
+        ...new Set(questionsResponse.map((q) => q.courseId).filter(Boolean)),
+      ];
       if (template) {
         for (const courseId of courseIds) {
           const syllabus = await manager.findOne(Syllabus, {
@@ -203,9 +216,18 @@ export class GetMaterialReviewUseCase {
       const difficultyLimits = courseIds.map((courseId) => {
         const tc = template?.courses?.find((c) => c.courseId === courseId);
         const targetQuantity = tc?.questionsQuantity || 35;
-        const easy = tc?.easyCount !== undefined && tc?.easyCount !== null ? tc.easyCount : Math.floor(targetQuantity * 0.4);
-        const medium = tc?.mediumCount !== undefined && tc?.mediumCount !== null ? tc.mediumCount : Math.floor(targetQuantity * 0.4);
-        const hard = tc?.hardCount !== undefined && tc?.hardCount !== null ? tc.hardCount : (targetQuantity - easy - medium);
+        const easy =
+          tc?.easyCount !== undefined && tc?.easyCount !== null
+            ? tc.easyCount
+            : Math.floor(targetQuantity * 0.4);
+        const medium =
+          tc?.mediumCount !== undefined && tc?.mediumCount !== null
+            ? tc.mediumCount
+            : Math.floor(targetQuantity * 0.4);
+        const hard =
+          tc?.hardCount !== undefined && tc?.hardCount !== null
+            ? tc.hardCount
+            : targetQuantity - easy - medium;
         return {
           courseId,
           easy,

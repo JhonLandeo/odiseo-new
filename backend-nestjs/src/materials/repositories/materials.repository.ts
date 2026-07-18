@@ -10,9 +10,7 @@ import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
 export class MaterialsRepository implements IMaterialsRepository {
-  constructor(
-    private readonly tenantService: TenantService,
-  ) {}
+  constructor(private readonly tenantService: TenantService) {}
 
   async createRequest(
     request: Partial<MaterialRequest>,

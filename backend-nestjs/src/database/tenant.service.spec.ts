@@ -61,10 +61,7 @@ describe('TenantService', () => {
       store.tx_manager = ambient;
       store.tx_schema = 'tenant_same';
 
-      const received = await service.runInSchema(
-        'tenant_same',
-        async (m) => m,
-      );
+      const received = await service.runInSchema('tenant_same', async (m) => m);
 
       expect(received).toBe(ambient);
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
@@ -75,10 +72,7 @@ describe('TenantService', () => {
       store.tx_manager = ambient;
       store.tx_schema = 'tenant_A';
 
-      const received = await service.runInSchema(
-        'tenant_B',
-        async (m) => m,
-      );
+      const received = await service.runInSchema('tenant_B', async (m) => m);
 
       // A brand-new transaction/manager must be opened for tenant_B,
       // never the ambient manager still bound to tenant_A.

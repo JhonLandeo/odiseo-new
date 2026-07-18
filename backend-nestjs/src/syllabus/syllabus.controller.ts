@@ -57,7 +57,11 @@ export class SyllabusController {
     @Param('distId') distId: string,
     @Body() dto: UpdateDistributionDto,
   ) {
-    await this.useCase.updateDistributionQuantity(distId, syllabusId, dto.questionCount);
+    await this.useCase.updateDistributionQuantity(
+      distId,
+      syllabusId,
+      dto.questionCount,
+    );
     return { status: 'updated' };
   }
 
@@ -97,7 +101,10 @@ export class SyllabusController {
     @Param('targetCycleId') targetCycleId: string,
     @Param('sourceCycleId') sourceCycleId: string,
   ) {
-    const result = await this.useCase.cloneCycleSyllabuses(targetCycleId, sourceCycleId);
+    const result = await this.useCase.cloneCycleSyllabuses(
+      targetCycleId,
+      sourceCycleId,
+    );
     return { status: 'cloned', ...result };
   }
 

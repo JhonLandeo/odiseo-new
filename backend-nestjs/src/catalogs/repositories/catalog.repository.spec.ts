@@ -23,14 +23,22 @@ describe('CatalogRepositoryImpl.upsertCatalogs', () => {
           id: '1',
           name: 'Course 1',
           topics: [
-            { id: '10', name: 'Topic 1', subtopics: [{ id: '100', name: 'Sub 1' }] },
+            {
+              id: '10',
+              name: 'Topic 1',
+              subtopics: [{ id: '100', name: 'Sub 1' }],
+            },
           ],
         },
       ],
     });
 
     expect(tenantService.runInTenant).not.toHaveBeenCalled();
-    expect(upsert).toHaveBeenCalledWith(Course, [{ id: '1', name: 'Course 1' }], ['id']);
+    expect(upsert).toHaveBeenCalledWith(
+      Course,
+      [{ id: '1', name: 'Course 1' }],
+      ['id'],
+    );
     expect(upsert).toHaveBeenCalledWith(
       Topic,
       [{ id: '10', courseId: '1', name: 'Topic 1' }],

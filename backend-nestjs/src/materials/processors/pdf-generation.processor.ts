@@ -172,10 +172,9 @@ export class PdfGenerationProcessor extends WorkerHost {
             reviewQuestions = await manager
               .createQueryBuilder(MaterialReviewQuestion, 'mrq')
               .innerJoin(Topic, 't', 't.id = mrq.topic_id')
-              .where(
-                'mrq.material_request_id = :materialRequestId',
-                { materialRequestId: material_request_id },
-              )
+              .where('mrq.material_request_id = :materialRequestId', {
+                materialRequestId: material_request_id,
+              })
               .andWhere('t.course_id = :courseId', { courseId })
               .orderBy('mrq.position', 'ASC')
               .getMany();
@@ -192,15 +191,23 @@ export class PdfGenerationProcessor extends WorkerHost {
 
             let questionMap = new Map<string, any>();
             if (questionIds.length > 0) {
-              const dbQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
-              questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
+              const dbQuestions =
+                await this.flatQuestionsRepo.findByIds(questionIds);
+              questionMap = new Map(
+                dbQuestions.map((q: any) => [String(q.question_id), q]),
+              );
             }
 
             let universityId: string | undefined | null;
-            await this.tenantService.runInSchema(schemaName, async (manager) => {
-              const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
-              universityId = cycle?.universityId;
-            });
+            await this.tenantService.runInSchema(
+              schemaName,
+              async (manager) => {
+                const cycle = await manager.findOne(Cycle, {
+                  where: { id: cycle_id },
+                });
+                universityId = cycle?.universityId;
+              },
+            );
 
             for (const mrq of reviewQuestions) {
               if (mrq.status === ReviewQuestionStatus.EMPTY) {
@@ -223,13 +230,18 @@ export class PdfGenerationProcessor extends WorkerHost {
                     );
 
                     const signedDiagImages = await Promise.all(
-                      (q.solution?.diagrammed_images || []).map(async (img: any) => ({
-                        id: img.id,
-                        url: await this.gcsService.getSignedUrl(img.gcs_key),
-                      })),
+                      (q.solution?.diagrammed_images || []).map(
+                        async (img: any) => ({
+                          id: img.id,
+                          url: await this.gcsService.getSignedUrl(img.gcs_key),
+                        }),
+                      ),
                     );
 
-                    const textOrigin = universityId && q.origins ? q.origins[universityId] : null;
+                    const textOrigin =
+                      universityId && q.origins
+                        ? q.origins[universityId]
+                        : null;
 
                     allQuestions.push({
                       id: String(q.question_id),
@@ -284,12 +296,15 @@ export class PdfGenerationProcessor extends WorkerHost {
           }
 
           if (allQuestions.length === 0) {
-            this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
+            this.logger.warn(
+              `No questions found for course ${courseId}. Skipping PDF generation.`,
+            );
             if (dist.course_request_id) {
               await this.handleMaterialWebhookUseCase.execute({
                 job_id: dist.course_request_id,
                 status: 'empty_bank',
-                error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
+                error_message:
+                  'Banco vacío. No se encontraron reactivos para este curso.',
               });
             }
             continue; // Skip to next course
@@ -381,25 +396,28 @@ export class PdfGenerationProcessor extends WorkerHost {
           // course, so clear prior usages for this request+course before
           // re-inserting to avoid duplicating the anti-repetition ledger).
           if (allQuestions.length > 0) {
-            await this.tenantService.runInSchema(schemaName, async (manager) => {
-              await manager.delete(MaterialQuestionUsage, {
-                materialRequestId: material_request_id,
-                courseId,
-              });
-              const usages = allQuestions.map((q, idx) => {
-                const u = new MaterialQuestionUsage();
-                u.materialRequestId = material_request_id;
-                u.cycleId = cycle_id;
-                u.questionId = q.id;
-                u.courseId = courseId;
-                u.topicId = q.topicId;
-                u.subtopicId = q.subtopicId;
-                u.positionInPdf = idx + 1;
-                u.wasReplacement = false;
-                return u;
-              });
-              await manager.save(MaterialQuestionUsage, usages);
-            });
+            await this.tenantService.runInSchema(
+              schemaName,
+              async (manager) => {
+                await manager.delete(MaterialQuestionUsage, {
+                  materialRequestId: material_request_id,
+                  courseId,
+                });
+                const usages = allQuestions.map((q, idx) => {
+                  const u = new MaterialQuestionUsage();
+                  u.materialRequestId = material_request_id;
+                  u.cycleId = cycle_id;
+                  u.questionId = q.id;
+                  u.courseId = courseId;
+                  u.topicId = q.topicId;
+                  u.subtopicId = q.subtopicId;
+                  u.positionInPdf = idx + 1;
+                  u.wasReplacement = false;
+                  return u;
+                });
+                await manager.save(MaterialQuestionUsage, usages);
+              },
+            );
           }
 
           results.push({
@@ -481,7 +499,9 @@ export class PdfGenerationProcessor extends WorkerHost {
             );
             pages.forEach((page) => mergedSolutionsPdf.addPage(page));
           }
-          const mergedSolutionsBuffer = Buffer.from(await mergedSolutionsPdf.save());
+          const mergedSolutionsBuffer = Buffer.from(
+            await mergedSolutionsPdf.save(),
+          );
           const mergedSolutionsKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
           const mergedSolutionsUrl = await this.s3Service.uploadBuffer(
             mergedSolutionsKey,
@@ -500,9 +520,7 @@ export class PdfGenerationProcessor extends WorkerHost {
             `Merged PDFs uploaded for request ${material_request_id}: ${mergedUrl}`,
           );
         } catch (error: any) {
-          this.logger.error(
-            `Failed to generate merged PDF: ${error.message}`,
-          );
+          this.logger.error(`Failed to generate merged PDF: ${error.message}`);
         }
       }
 
@@ -548,10 +566,9 @@ export class PdfGenerationProcessor extends WorkerHost {
           reviewQuestions = await manager
             .createQueryBuilder(MaterialReviewQuestion, 'mrq')
             .innerJoin(Topic, 't', 't.id = mrq.topic_id')
-            .where(
-              'mrq.material_request_id = :materialRequestId',
-              { materialRequestId: material_request_id },
-            )
+            .where('mrq.material_request_id = :materialRequestId', {
+              materialRequestId: material_request_id,
+            })
             .andWhere('t.course_id = :courseId', { courseId })
             .orderBy('mrq.position', 'ASC')
             .getMany();
@@ -568,13 +585,18 @@ export class PdfGenerationProcessor extends WorkerHost {
 
           let questionMap = new Map<string, any>();
           if (questionIds.length > 0) {
-            const dbQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
-            questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
+            const dbQuestions =
+              await this.flatQuestionsRepo.findByIds(questionIds);
+            questionMap = new Map(
+              dbQuestions.map((q: any) => [String(q.question_id), q]),
+            );
           }
 
           let universityId: string | undefined | null;
           await this.tenantService.runInSchema(schemaName, async (manager) => {
-            const cycle = await manager.findOne(Cycle, { where: { id: cycle_id } });
+            const cycle = await manager.findOne(Cycle, {
+              where: { id: cycle_id },
+            });
             universityId = cycle?.universityId;
           });
 
@@ -599,13 +621,16 @@ export class PdfGenerationProcessor extends WorkerHost {
                   );
 
                   const signedDiagImages = await Promise.all(
-                    (q.solution?.diagrammed_images || []).map(async (img: any) => ({
-                      id: img.id,
-                      url: await this.gcsService.getSignedUrl(img.gcs_key),
-                    })),
+                    (q.solution?.diagrammed_images || []).map(
+                      async (img: any) => ({
+                        id: img.id,
+                        url: await this.gcsService.getSignedUrl(img.gcs_key),
+                      }),
+                    ),
                   );
 
-                  const textOrigin = universityId && q.origins ? q.origins[universityId] : null;
+                  const textOrigin =
+                    universityId && q.origins ? q.origins[universityId] : null;
 
                   allQuestions.push({
                     id: String(q.question_id),
@@ -662,15 +687,21 @@ export class PdfGenerationProcessor extends WorkerHost {
         }
 
         if (allQuestions.length === 0) {
-          this.logger.warn(`No questions found for course ${courseId}. Skipping PDF generation.`);
+          this.logger.warn(
+            `No questions found for course ${courseId}. Skipping PDF generation.`,
+          );
           if (dist.course_request_id) {
             await this.handleMaterialWebhookUseCase.execute({
               job_id: dist.course_request_id,
               status: 'empty_bank',
-              error_message: 'Banco vacío. No se encontraron reactivos para este curso.',
+              error_message:
+                'Banco vacío. No se encontraron reactivos para este curso.',
             });
           }
-          return { course_id: courseId, status: CourseMaterialStatus.EMPTY_BANK };
+          return {
+            course_id: courseId,
+            status: CourseMaterialStatus.EMPTY_BANK,
+          };
         }
 
         const pdfBuffer = await this.pdfGeneratorService.generatePdf(
@@ -764,7 +795,9 @@ export class PdfGenerationProcessor extends WorkerHost {
       const courseRequests = await this.cls.runWith(
         { tenantSchema: schemaName } as any,
         async () => {
-          return this.materialDownloadsUseCase.getCoursesForMerge(material_request_id);
+          return this.materialDownloadsUseCase.getCoursesForMerge(
+            material_request_id,
+          );
         },
       );
 

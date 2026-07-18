@@ -90,7 +90,8 @@ export class AcademicTimeController {
     return {
       statusCode: 405,
       error: 'Method Not Allowed',
-      message: 'Las semanas no pueden eliminarse individualmente. Desactívelas desde PATCH /academic-time/weeks/:id/visibility.',
+      message:
+        'Las semanas no pueden eliminarse individualmente. Desactívelas desde PATCH /academic-time/weeks/:id/visibility.',
     };
   }
 

@@ -1,10 +1,27 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantAdminsService } from './tenant-admins.service';
 import { JwtAuthGuard } from '../../auth/auth.guard';
-import { PermissionsGuard, RequirePermissions } from '../../common/guards/permissions.guard';
+import {
+  PermissionsGuard,
+  RequirePermissions,
+} from '../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../roles/constants/permissions.constant';
-import { CreateTenantAdminDto, UpdateTenantAdminDto, UpdatePasswordDto } from './dto/tenant-admins.dto';
+import {
+  CreateTenantAdminDto,
+  UpdateTenantAdminDto,
+  UpdatePasswordDto,
+} from './dto/tenant-admins.dto';
 
 @ApiTags('Admin / Tenant Admins')
 @ApiBearerAuth()
@@ -21,7 +38,11 @@ export class TenantAdminsController {
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '50',
   ) {
-    return this.tenantAdminsService.findAll(tenantId, parseInt(page, 10), parseInt(limit, 10));
+    return this.tenantAdminsService.findAll(
+      tenantId,
+      parseInt(page, 10),
+      parseInt(limit, 10),
+    );
   }
 
   @Post()
@@ -53,7 +74,11 @@ export class TenantAdminsController {
     @Param('userId') userId: string,
     @Body() updatePasswordData: UpdatePasswordDto,
   ) {
-    return this.tenantAdminsService.updatePassword(tenantId, userId, updatePasswordData);
+    return this.tenantAdminsService.updatePassword(
+      tenantId,
+      userId,
+      updatePasswordData,
+    );
   }
 
   @Delete(':userId')

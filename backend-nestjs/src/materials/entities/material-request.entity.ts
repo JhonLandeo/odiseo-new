@@ -30,7 +30,10 @@ export class MaterialRequest {
   @Column({ name: 'cycle_id', type: 'uuid' })
   cycleId: string;
 
-  @ManyToOne(() => Cycle, { onDelete: 'CASCADE', createForeignKeyConstraints: false })
+  @ManyToOne(() => Cycle, {
+    onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
+  })
   @JoinColumn({ name: 'cycle_id' })
   cycle: Cycle;
 
@@ -47,13 +50,21 @@ export class MaterialRequest {
   @Column({ name: 'requires_review', default: false })
   requiresReview: boolean;
 
-  @Column({ name: 'material_type', type: 'varchar', nullable: true, length: 50 })
+  @Column({
+    name: 'material_type',
+    type: 'varchar',
+    nullable: true,
+    length: 50,
+  })
   materialType: string | null;
 
   @Column({ name: 'design_template_id', nullable: true, type: 'uuid' })
   designTemplateId: string | null;
 
-  @ManyToOne(() => PdfDesignTemplate, { onDelete: 'SET NULL', createForeignKeyConstraints: false })
+  @ManyToOne(() => PdfDesignTemplate, {
+    onDelete: 'SET NULL',
+    createForeignKeyConstraints: false,
+  })
   @JoinColumn({ name: 'design_template_id' })
   designTemplate: PdfDesignTemplate | null;
 
@@ -72,7 +83,11 @@ export class MaterialRequest {
   @Column({ name: 'merged_key_download_url', nullable: true, type: 'text' })
   mergedKeyDownloadUrl: string | null;
 
-  @Column({ name: 'merged_solution_download_url', nullable: true, type: 'text' })
+  @Column({
+    name: 'merged_solution_download_url',
+    nullable: true,
+    type: 'text',
+  })
   mergedSolutionDownloadUrl: string | null;
 
   @Column({ name: 'created_by' })
@@ -87,9 +102,13 @@ export class MaterialRequest {
   @VersionColumn()
   version: number;
 
-  @OneToMany(() => MaterialRequestCourse, (course: MaterialRequestCourse) => course.materialRequest, {
-    cascade: true,
-  })
+  @OneToMany(
+    () => MaterialRequestCourse,
+    (course: MaterialRequestCourse) => course.materialRequest,
+    {
+      cascade: true,
+    },
+  )
   courses: MaterialRequestCourse[];
 
   @OneToMany(

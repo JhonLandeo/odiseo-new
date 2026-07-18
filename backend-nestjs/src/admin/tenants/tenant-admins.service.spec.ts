@@ -28,15 +28,18 @@ function createMockCompanyRepo(company: any = mockCompany) {
 
 function createMockTenantService(mockManager: any) {
   return {
-    runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) => op(mockManager)),
+    runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+      op(mockManager),
+    ),
   };
 }
 
 function createService(companyRepoOverride?: any, tenantServiceOverride?: any) {
   const mockManager = createMockManager();
   const companyRepo = companyRepoOverride ?? createMockCompanyRepo();
-  const tenantService = tenantServiceOverride ?? createMockTenantService(mockManager);
-  const service = new TenantAdminsService(companyRepo as any, tenantService as any);
+  const tenantService =
+    tenantServiceOverride ?? createMockTenantService(mockManager);
+  const service = new TenantAdminsService(companyRepo, tenantService);
   return { service, mockManager, companyRepo, tenantService };
 }
 
@@ -45,14 +48,15 @@ function createService(companyRepoOverride?: any, tenantServiceOverride?: any) {
 // ════════════════════════════════════════════════════════════════════
 
 describe('TenantAdminsService', () => {
-
   afterEach(() => jest.clearAllMocks());
 
   // ─────────────────────────────── validateCompanyExists ──────────
   describe('Company Validation (cross-cutting)', () => {
     it('should throw NotFoundException when company does not exist', async () => {
       const { service } = createService(createMockCompanyRepo(null));
-      await expect(service.findAll('nonexistent-id')).rejects.toThrow(NotFoundException);
+      await expect(service.findAll('nonexistent-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -61,11 +65,16 @@ describe('TenantAdminsService', () => {
     it('AC-001: should return paginated active superadmins', async () => {
       const { service, mockManager } = createService();
       const adminRows = [
-        { id: USER_ID, email: 'admin1@test.com', name: 'Admin 1', is_active: true },
+        {
+          id: USER_ID,
+          email: 'admin1@test.com',
+          name: 'Admin 1',
+          is_active: true,
+        },
       ];
       mockManager.query
-        .mockResolvedValueOnce(adminRows)          // data query
-        .mockResolvedValueOnce([{ count: '1' }]);   // count query
+        .mockResolvedValueOnce(adminRows) // data query
+        .mockResolvedValueOnce([{ count: '1' }]); // count query
 
       const result = await service.findAll(TENANT_ID, 1, 50);
 
@@ -120,10 +129,12 @@ describe('TenantAdminsService', () => {
     it('AC-005: should create user and assign Super Administrador role', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([])                                   // email check — no duplicates
-        .mockResolvedValueOnce([{ id: ROLE_ID }])                   // role lookup
-        .mockResolvedValueOnce([{ id: USER_ID, email: 'a@b.com', name: 'Admin', is_active: true }]) // user insert
-        .mockResolvedValueOnce(undefined);                          // role assignment
+        .mockResolvedValueOnce([]) // email check — no duplicates
+        .mockResolvedValueOnce([{ id: ROLE_ID }]) // role lookup
+        .mockResolvedValueOnce([
+          { id: USER_ID, email: 'a@b.com', name: 'Admin', is_active: true },
+        ]) // user insert
+        .mockResolvedValueOnce(undefined); // role assignment
 
       const result = await service.create(TENANT_ID, {
         email: 'a@b.com',
@@ -145,21 +156,29 @@ describe('TenantAdminsService', () => {
       mockManager.query.mockResolvedValueOnce([{ id: 'existing-user' }]); // email exists
 
       await expect(
-        service.create(TENANT_ID, { email: 'dup@test.com', name: 'Dup', password: 'Pass123!' })
+        service.create(TENANT_ID, {
+          email: 'dup@test.com',
+          name: 'Dup',
+          password: 'Pass123!',
+        }),
       ).rejects.toThrow(ConflictException);
     });
 
     it('EC-011: should create role on-demand if not exists for company', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([])                   // email check
-        .mockResolvedValueOnce([])                   // role lookup — empty
+        .mockResolvedValueOnce([]) // email check
+        .mockResolvedValueOnce([]) // role lookup — empty
         .mockResolvedValueOnce([{ id: 'new-role' }]) // role INSERT returning id
-        .mockResolvedValueOnce([{ id: USER_ID, email: 'new@b.com', name: 'N', is_active: true }]) // user
-        .mockResolvedValueOnce(undefined);            // role assignment
+        .mockResolvedValueOnce([
+          { id: USER_ID, email: 'new@b.com', name: 'N', is_active: true },
+        ]) // user
+        .mockResolvedValueOnce(undefined); // role assignment
 
       const result = await service.create(TENANT_ID, {
-        email: 'new@b.com', name: 'N', password: 'Pass123!',
+        email: 'new@b.com',
+        name: 'N',
+        password: 'Pass123!',
       });
 
       expect(result.id).toBe(USER_ID);
@@ -174,10 +193,12 @@ describe('TenantAdminsService', () => {
     it('AC-010: should update allowed fields', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([{ id: USER_ID }])  // admin exists check
-        .mockResolvedValueOnce(undefined);          // update query
+        .mockResolvedValueOnce([{ id: USER_ID }]) // admin exists check
+        .mockResolvedValueOnce(undefined); // update query
 
-      const result = await service.update(TENANT_ID, USER_ID, { name: 'Nuevo Nombre' });
+      const result = await service.update(TENANT_ID, USER_ID, {
+        name: 'Nuevo Nombre',
+      });
 
       expect(result).toEqual({ success: true });
     });
@@ -185,11 +206,11 @@ describe('TenantAdminsService', () => {
     it('AC-011: should reject duplicate email on update', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([{ id: USER_ID }])      // admin exists
+        .mockResolvedValueOnce([{ id: USER_ID }]) // admin exists
         .mockResolvedValueOnce([{ id: 'other-user' }]); // email collision
 
       await expect(
-        service.update(TENANT_ID, USER_ID, { email: 'taken@test.com' })
+        service.update(TENANT_ID, USER_ID, { email: 'taken@test.com' }),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -198,7 +219,7 @@ describe('TenantAdminsService', () => {
       mockManager.query.mockResolvedValueOnce([]); // admin not found (inactive)
 
       await expect(
-        service.update(TENANT_ID, USER_ID, { name: 'X' })
+        service.update(TENANT_ID, USER_ID, { name: 'X' }),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -209,9 +230,11 @@ describe('TenantAdminsService', () => {
       const { service, mockManager } = createService();
       mockManager.query
         .mockResolvedValueOnce([{ id: USER_ID }]) // admin exists
-        .mockResolvedValueOnce(undefined);         // update
+        .mockResolvedValueOnce(undefined); // update
 
-      const result = await service.updatePassword(TENANT_ID, USER_ID, { password: 'NewPass123!' });
+      const result = await service.updatePassword(TENANT_ID, USER_ID, {
+        password: 'NewPass123!',
+      });
 
       expect(result).toEqual({ success: true });
       // Verify password_hash was updated
@@ -225,7 +248,7 @@ describe('TenantAdminsService', () => {
       mockManager.query.mockResolvedValueOnce([]); // not found
 
       await expect(
-        service.updatePassword(TENANT_ID, 'ghost-id', { password: 'Pass123!' })
+        service.updatePassword(TENANT_ID, 'ghost-id', { password: 'Pass123!' }),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -235,8 +258,8 @@ describe('TenantAdminsService', () => {
     it('AC-018: should soft-delete when more than one admin active', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([{ count: '2' }])           // count active admins
-        .mockResolvedValueOnce([[{ id: USER_ID }], 1]);     // update returning
+        .mockResolvedValueOnce([{ count: '2' }]) // count active admins
+        .mockResolvedValueOnce([[{ id: USER_ID }], 1]); // update returning
 
       const result = await service.softDelete(TENANT_ID, USER_ID);
 
@@ -250,29 +273,29 @@ describe('TenantAdminsService', () => {
       const { service, mockManager } = createService();
       mockManager.query.mockResolvedValueOnce([{ count: '1' }]); // only 1 admin
 
-      await expect(
-        service.softDelete(TENANT_ID, USER_ID)
-      ).rejects.toThrow(ConflictException);
+      await expect(service.softDelete(TENANT_ID, USER_ID)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('AC-019: should block deletion when zero admins (edge: race condition)', async () => {
       const { service, mockManager } = createService();
       mockManager.query.mockResolvedValueOnce([{ count: '0' }]); // 0 admins
 
-      await expect(
-        service.softDelete(TENANT_ID, USER_ID)
-      ).rejects.toThrow(ConflictException);
+      await expect(service.softDelete(TENANT_ID, USER_ID)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('EC-005: should return 404 for already-deleted admin', async () => {
       const { service, mockManager } = createService();
       mockManager.query
-        .mockResolvedValueOnce([{ count: '3' }])    // 3 active
-        .mockResolvedValueOnce([[], 0]);              // update affected 0 rows
+        .mockResolvedValueOnce([{ count: '3' }]) // 3 active
+        .mockResolvedValueOnce([[], 0]); // update affected 0 rows
 
-      await expect(
-        service.softDelete(TENANT_ID, USER_ID)
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.softDelete(TENANT_ID, USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

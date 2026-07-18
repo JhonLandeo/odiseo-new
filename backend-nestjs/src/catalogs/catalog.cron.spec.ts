@@ -46,7 +46,7 @@ describe('CatalogCronService', () => {
         {
           provide: HttpService,
           useValue: mockHttpService,
-        }
+        },
       ],
     }).compile();
 
@@ -81,7 +81,9 @@ describe('CatalogCronService', () => {
   });
 
   it('should log an error if Core API fails', async () => {
-    jest.spyOn(httpService, 'get').mockReturnValue(throwError(() => new Error('Internal Server Error')));
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValue(throwError(() => new Error('Internal Server Error')));
 
     const loggerSpy = jest.spyOn(service['logger'], 'error');
 

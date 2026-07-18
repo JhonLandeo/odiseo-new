@@ -55,7 +55,10 @@ export class MaterialsController {
     description: 'La solicitud ha sido encolada exitosamente.',
   })
   @ApiResponse({ status: 400, description: 'Error de validación de negocio.' })
-  async generateMaterial(@Body() request: GenerateMaterialDto, @Req() req: Request) {
+  async generateMaterial(
+    @Body() request: GenerateMaterialDto,
+    @Req() req: Request,
+  ) {
     const tenantId = this.cls.get('companyId');
     if (!tenantId) {
       throw new UnauthorizedException('Tenant not identified');
@@ -112,7 +115,11 @@ export class MaterialsController {
   ) {
     const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.approveMaterialReviewUseCase.saveDraft(id, request, userId);
+    return await this.approveMaterialReviewUseCase.saveDraft(
+      id,
+      request,
+      userId,
+    );
   }
 
   @Post(':id/approve')
@@ -133,7 +140,12 @@ export class MaterialsController {
     const tenantId = this.cls.get('companyId');
     const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.approveMaterialReviewUseCase.execute(id, request, userId, tenantId);
+    return await this.approveMaterialReviewUseCase.execute(
+      id,
+      request,
+      userId,
+      tenantId,
+    );
   }
 
   @Get(':id/courses/:courseId/download')
@@ -154,9 +166,15 @@ export class MaterialsController {
     @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
     @Res() res: Response,
   ) {
-    const result = await this.materialDownloadsUseCase.getDownloadUrl(id, courseId, type);
+    const result = await this.materialDownloadsUseCase.getDownloadUrl(
+      id,
+      courseId,
+      type,
+    );
     try {
-      const buffer = await this.materialDownloadsUseCase.streamDownload(result.s3Key);
+      const buffer = await this.materialDownloadsUseCase.streamDownload(
+        result.s3Key,
+      );
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
         'Content-Disposition',
@@ -184,9 +202,14 @@ export class MaterialsController {
     @Query('type') type: 'student' | 'keys' | 'solutions' = 'student',
     @Res() res: Response,
   ) {
-    const result = await this.materialDownloadsUseCase.getMergedDownloadUrl(id, type);
+    const result = await this.materialDownloadsUseCase.getMergedDownloadUrl(
+      id,
+      type,
+    );
     try {
-      const buffer = await this.materialDownloadsUseCase.streamDownload(result.s3Key);
+      const buffer = await this.materialDownloadsUseCase.streamDownload(
+        result.s3Key,
+      );
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
         'Content-Disposition',
@@ -269,7 +292,9 @@ export class MaterialsController {
     description: 'Datos de la pregunta.',
   })
   async getQuestionPreview(@Param('questionId') questionId: string) {
-    return await this.getMaterialQuestionsUseCase.getQuestionPreview(questionId);
+    return await this.getMaterialQuestionsUseCase.getQuestionPreview(
+      questionId,
+    );
   }
 
   @Post('question/alternatives/search')
@@ -281,9 +306,7 @@ export class MaterialsController {
     status: 200,
     description: 'Lista de 3 preguntas alternativas.',
   })
-  async getQuestionAlternatives(
-    @Body() body: GetQuestionAlternativesDto
-  ) {
+  async getQuestionAlternatives(@Body() body: GetQuestionAlternativesDto) {
     return await this.getMaterialQuestionsUseCase.getQuestionAlternatives(
       body.courseId,
       body.topicId,

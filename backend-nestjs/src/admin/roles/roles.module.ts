@@ -17,7 +17,12 @@ import { AuthModule } from '../../auth/auth.module';
     // Required so JwtAuthGuard can resolve AuthService on the roles controllers.
     forwardRef(() => AuthModule),
   ],
-  controllers: [RolesController, UserRolesController, PermissionsController, UsersController],
+  controllers: [
+    RolesController,
+    UserRolesController,
+    PermissionsController,
+    UsersController,
+  ],
   providers: [RolesService, RolesResolverService, UsersService],
   exports: [RolesService, RolesResolverService, UsersService],
 })

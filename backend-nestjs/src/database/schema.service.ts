@@ -38,12 +38,11 @@ export class SchemaService {
    * Builds the tenant's structure by running the ordered tenant migrations
    * (single source of truth) and seeds the default system role idempotently.
    */
-  async seedTenantSchema(
-    schemaName: string,
-    companyId: string,
-  ): Promise<void> {
+  async seedTenantSchema(schemaName: string, companyId: string): Promise<void> {
     assertValidSchema(schemaName);
-    this.logger.log(`Seeding tables and initial data for tenant: ${schemaName}`);
+    this.logger.log(
+      `Seeding tables and initial data for tenant: ${schemaName}`,
+    );
 
     // 1. Create base tables via the versioned tenant migration runner.
     await this.tenantMigrationService.runMigrations(schemaName);
@@ -57,7 +56,9 @@ export class SchemaService {
       // schema (roles.name is UNIQUE). No user is seeded here (FR-08: decoupled
       // admin creation). Permissions use the canonical UPPERCASE vocabulary that
       // the PermissionsGuard enforces (single source of truth).
-      const superAdminPermsJSON = JSON.stringify(TENANT_SUPER_ADMIN_PERMISSIONS);
+      const superAdminPermsJSON = JSON.stringify(
+        TENANT_SUPER_ADMIN_PERMISSIONS,
+      );
       await queryRunner.query(
         `
         INSERT INTO "${schemaName}".roles (name, description, is_system_default, permissions)

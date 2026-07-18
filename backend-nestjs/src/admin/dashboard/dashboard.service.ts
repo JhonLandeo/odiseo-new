@@ -18,31 +18,36 @@ export class DashboardService {
     try {
       if (tenantId === 'all') {
         const companies = await this.metricRepository.manager.query(
-          `SELECT id FROM public.companies WHERE is_active = true`
+          `SELECT id FROM public.companies WHERE is_active = true`,
         );
 
         const results = await Promise.all(
           companies.map(async (comp: any) => {
             try {
               const res = await this.metricRepository.manager.query(
-                `SELECT COUNT(*) FROM "tenant_${comp.id}".users WHERE is_active = true`
+                `SELECT COUNT(*) FROM "tenant_${comp.id}".users WHERE is_active = true`,
               );
               return parseInt(res[0].count, 10);
             } catch (e) {
-              this.logger.warn(`Schema tenant_${comp.id} not available for metrics: ${(e as Error).message}`);
+              this.logger.warn(
+                `Schema tenant_${comp.id} not available for metrics: ${(e as Error).message}`,
+              );
               return 0;
             }
-          })
+          }),
         );
         activeUsers = results.reduce((sum, count) => sum + count, 0);
       } else {
         const res = await this.metricRepository.manager.query(
-          `SELECT COUNT(*) FROM "tenant_${tenantId}".users WHERE is_active = true`
+          `SELECT COUNT(*) FROM "tenant_${tenantId}".users WHERE is_active = true`,
         );
         activeUsers = parseInt(res[0].count, 10);
       }
     } catch (e) {
-      this.logger.error(`Error fetching dashboard metrics: ${(e as Error).message}`, (e as Error).stack);
+      this.logger.error(
+        `Error fetching dashboard metrics: ${(e as Error).message}`,
+        (e as Error).stack,
+      );
     }
 
     return {

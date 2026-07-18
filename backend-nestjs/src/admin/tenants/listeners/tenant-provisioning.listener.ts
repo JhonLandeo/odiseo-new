@@ -18,7 +18,9 @@ export class TenantProvisioningListener {
 
   @OnEvent('tenant.provisioning.started', { async: true })
   async handleTenantProvisioningEvent(event: TenantProvisioningEvent) {
-    this.logger.log(`Received provisioning event for tenant ${event.schemaName}`);
+    this.logger.log(
+      `Received provisioning event for tenant ${event.schemaName}`,
+    );
     try {
       // Create the schema
       await this.schemaService.createTenantSchema(event.schemaName);
@@ -32,11 +34,16 @@ export class TenantProvisioningListener {
       this.logger.log(`Tenant ${event.schemaName} successfully provisioned.`);
       // Optionally update company status here if you add an 'isActive' or 'isProvisioned' column
       await this.companyRepository.update(event.companyId, { isActive: true });
-
     } catch (error) {
-      this.logger.error(`Error provisioning tenant ${event.schemaName}:`, error);
+      this.logger.error(
+        `Error provisioning tenant ${event.schemaName}:`,
+        error,
+      );
       // Fallback: suspend the company or mark it as failed so admins know
-      await this.companyRepository.update(event.companyId, { isActive: false, status: 'SUSPENDED' });
+      await this.companyRepository.update(event.companyId, {
+        isActive: false,
+        status: 'SUSPENDED',
+      });
     }
   }
 }

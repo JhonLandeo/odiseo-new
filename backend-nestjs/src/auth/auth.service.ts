@@ -73,8 +73,10 @@ export class AuthService {
         );
 
         const mergedPermissions = Array.from(
-          new Set(userRolesResult.flatMap((r: any) => r.permissions || []))
-        ) as string[];
+          new Set<string>(
+            userRolesResult.flatMap((r: any) => r.permissions || []),
+          ),
+        );
 
         return {
           user,
@@ -137,16 +139,16 @@ export class AuthService {
           INNER JOIN user_roles ur ON ur.role_id = r.id
           WHERE ur.user_id = $1
           `,
-          [user.id]
+          [user.id],
         );
 
         const mergedPermissions = Array.from(
-          new Set(rolesResult.flatMap((r: any) => r.permissions || []))
-        ) as string[];
+          new Set<string>(rolesResult.flatMap((r: any) => r.permissions || [])),
+        );
 
         return {
           user,
-          permissions: mergedPermissions
+          permissions: mergedPermissions,
         };
       },
     );
@@ -168,26 +170,32 @@ export class AuthService {
   /**
    * Dynamically loads permissions for a user. Used by Guards.
    */
-  async getUserPermissions(userId: string, companyId: string): Promise<string[]> {
+  async getUserPermissions(
+    userId: string,
+    companyId: string,
+  ): Promise<string[]> {
     const cacheKey = `auth:permissions:${companyId}:${userId}`;
     const cached = await this.cacheManager.get<string[]>(cacheKey);
     if (cached) return cached;
 
     const schemaName = `tenant_${companyId}`;
-    const permissions = await this.tenantService.runInSchema(schemaName, async (manager) => {
-      const rolesResult = await manager.query(
-        `
+    const permissions = await this.tenantService.runInSchema(
+      schemaName,
+      async (manager) => {
+        const rolesResult = await manager.query(
+          `
         SELECT r.permissions
         FROM roles r
         INNER JOIN user_roles ur ON ur.role_id = r.id
         WHERE ur.user_id = $1
         `,
-        [userId]
-      );
-      return Array.from(
-        new Set(rolesResult.flatMap((r: any) => r.permissions || []))
-      ) as string[];
-    });
+          [userId],
+        );
+        return Array.from(
+          new Set<string>(rolesResult.flatMap((r: any) => r.permissions || [])),
+        );
+      },
+    );
 
     // Short TTL keeps the "avoid stale claims" contract honest: role/permission
     // changes propagate in <= 60s even without explicit invalidation. Wire
@@ -201,7 +209,10 @@ export class AuthService {
    * request to reload them from the database. Call this from role/permission
    * mutation flows (role edited, role assigned/revoked) for instant propagation.
    */
-  async invalidateUserPermissions(companyId: string, userId: string): Promise<void> {
+  async invalidateUserPermissions(
+    companyId: string,
+    userId: string,
+  ): Promise<void> {
     await this.cacheManager.del(`auth:permissions:${companyId}:${userId}`);
   }
 }

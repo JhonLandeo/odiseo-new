@@ -1,6 +1,12 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { PermissionsGuard, RequirePermissions } from '../../../common/guards/permissions.guard';
-import { PERMISSIONS_METADATA, PERMISSIONS } from '../constants/permissions.constant';
+import {
+  PermissionsGuard,
+  RequirePermissions,
+} from '../../../common/guards/permissions.guard';
+import {
+  PERMISSIONS_METADATA,
+  PERMISSIONS,
+} from '../constants/permissions.constant';
 import { JwtAuthGuard } from '../../../auth/auth.guard';
 
 @Controller('v1/admin/permissions')

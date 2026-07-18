@@ -26,10 +26,10 @@ describe('AuthService', () => {
   };
 
   const mockRoles = [
-    { 
-      name: 'admin', 
-      permissions: ['view_catalogs', 'edit_catalogs', 'generate_material'] 
-    }
+    {
+      name: 'admin',
+      permissions: ['view_catalogs', 'edit_catalogs', 'generate_material'],
+    },
   ];
 
   beforeEach(async () => {

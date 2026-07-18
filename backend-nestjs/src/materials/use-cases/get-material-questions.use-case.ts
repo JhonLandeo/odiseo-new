@@ -1,7 +1,10 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { GcsService } from '../../gcs/gcs.service';
 import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
-
 
 @Injectable()
 export class GetMaterialQuestionsUseCase {
@@ -106,7 +109,10 @@ export class GetMaterialQuestionsUseCase {
         level: null,
         excludeIds: combinedExcludeIds,
       });
-      selectedIds = [...selectedIds, ...shuffle(fallbackIds).slice(0, remainingLimit)];
+      selectedIds = [
+        ...selectedIds,
+        ...shuffle(fallbackIds).slice(0, remainingLimit),
+      ];
     }
 
     if (selectedIds.length === 0) {

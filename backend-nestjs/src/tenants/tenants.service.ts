@@ -3,10 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Company } from './entities/tenant.entity';
 
-
 @Injectable()
 export class TenantsService {
-
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,

@@ -27,7 +27,9 @@ export class WebhookAuthGuard implements CanActivate {
 
     if (!secret) {
       if (process.env.NODE_ENV === 'production') {
-        throw new UnauthorizedException('Webhook authentication is not configured');
+        throw new UnauthorizedException(
+          'Webhook authentication is not configured',
+        );
       }
       this.logger.warn(
         'WORKER_WEBHOOK_SECRET is not set — webhook is UNPROTECTED (dev only). Set it before production.',

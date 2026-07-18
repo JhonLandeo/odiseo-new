@@ -1,7 +1,15 @@
-import { Injectable, Inject, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { IAcademicTimeRepository } from './repositories/i-academic-time.repository';
 import { v4 as uuidv4 } from 'uuid';
-import { CreateCycleMaterialTemplateDto, CreateTemplateCourseDto } from './dtos/create-material-template.dto';
+import {
+  CreateCycleMaterialTemplateDto,
+  CreateTemplateCourseDto,
+} from './dtos/create-material-template.dto';
 import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -128,7 +136,10 @@ export class AcademicTimeUseCase {
       cycleUpdate.weeks = [];
       for (let i = 1; i <= finalTotalWeeks; i++) {
         const currentWeekStart = start.add((i - 1) * 7, 'day');
-        const currentWeekEnd = currentWeekStart.add(finalDaysPerWeek - 1, 'day');
+        const currentWeekEnd = currentWeekStart.add(
+          finalDaysPerWeek - 1,
+          'day',
+        );
 
         const existingWeek = existingWeeks.find((w: any) => w.weekNumber === i);
 
@@ -201,7 +212,11 @@ export class AcademicTimeUseCase {
     return { id: templateId };
   }
 
-  async updateTemplate(cycleId: string, templateId: string, dto: UpdateCycleMaterialTemplateDto) {
+  async updateTemplate(
+    cycleId: string,
+    templateId: string,
+    dto: UpdateCycleMaterialTemplateDto,
+  ) {
     // Note: In a real scenario, we might verify template belongs to cycleId
     const templateData: any = {};
     if (dto.name !== undefined) templateData.name = dto.name;

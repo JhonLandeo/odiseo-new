@@ -41,7 +41,10 @@ export class CatalogCronService {
       const payload = response.data;
 
       await this.catalogRepository.upsertCatalogs(payload);
-      await this.cacheManager.set(LAST_SYNC_CACHE_KEY, new Date().toISOString());
+      await this.cacheManager.set(
+        LAST_SYNC_CACHE_KEY,
+        new Date().toISOString(),
+      );
 
       this.logger.log(
         'Successfully synchronized catalogs to the public schema.',

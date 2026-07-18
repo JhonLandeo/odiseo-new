@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { ISyllabusRepository, SyllabusWithProgress } from './i-syllabus.repository';
+import {
+  ISyllabusRepository,
+  SyllabusWithProgress,
+} from './i-syllabus.repository';
 import { Syllabus } from '../entities/syllabus.entity';
 import { SyllabusDistribution } from '../entities/syllabus-distribution.entity';
 import { TenantService } from '../../database/tenant.service';
@@ -38,10 +41,12 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
-  async findByCycleWithProgress(cycleId: string): Promise<SyllabusWithProgress[]> {
+  async findByCycleWithProgress(
+    cycleId: string,
+  ): Promise<SyllabusWithProgress[]> {
     return this.tenantService.runInTenant(async (manager) => {
       return manager.query(
-         `SELECT
+        `SELECT
           s.id,
           s.cycle_id AS "cycleId",
           s.course_id AS "courseId",
@@ -96,7 +101,10 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
-  async updateDistributionQuantity(id: string, questionCount: number): Promise<void> {
+  async updateDistributionQuantity(
+    id: string,
+    questionCount: number,
+  ): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
       await manager.update(SyllabusDistribution, { id }, { questionCount });
     });
@@ -148,5 +156,4 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
       return rows.map((r: any) => r.week_number);
     });
   }
-
 }

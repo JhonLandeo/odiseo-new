@@ -43,9 +43,13 @@ export class CycleMaterialTemplateCourse {
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 
-  @ManyToOne(() => CycleMaterialTemplate, (template: CycleMaterialTemplate) => template.courses, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => CycleMaterialTemplate,
+    (template: CycleMaterialTemplate) => template.courses,
+    {
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'template_id' })
   template: CycleMaterialTemplate;
 }

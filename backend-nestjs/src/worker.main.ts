@@ -20,7 +20,10 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
   });
   app.enableShutdownHooks();
-  Logger.log('🛠️  Materials worker running (queue processing, no HTTP)', 'WorkerBootstrap');
+  Logger.log(
+    '🛠️  Materials worker running (queue processing, no HTTP)',
+    'WorkerBootstrap',
+  );
 }
 
 bootstrap();

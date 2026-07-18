@@ -3,7 +3,10 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TenantService } from '../../database/tenant.service';
 import { WebhookStatusRequestDto } from '../dto/webhook-status-request.dto';
-import { MaterialRequestCourse, CourseMaterialStatus } from '../entities/material-request-course.entity';
+import {
+  MaterialRequestCourse,
+  CourseMaterialStatus,
+} from '../entities/material-request-course.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestStatus } from '../entities/material-status.enum';
 import { Material } from '../entities/material.entity';
@@ -103,7 +106,9 @@ export class HandleMaterialWebhookUseCase {
           (c) => c.status === CourseMaterialStatus.FAILED,
         );
         const hasWarnings = siblingCourses.some(
-          (c) => c.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS || c.status === CourseMaterialStatus.EMPTY_BANK,
+          (c) =>
+            c.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS ||
+            c.status === CourseMaterialStatus.EMPTY_BANK,
         );
 
         let finalStatus = MaterialRequestStatus.COMPLETED;
@@ -141,7 +146,9 @@ export class HandleMaterialWebhookUseCase {
           if (request) {
             const tenantId = this.cls.get('companyId');
             if (!tenantId) {
-              this.logger.warn('Cannot dispatch merge job: tenant not identified');
+              this.logger.warn(
+                'Cannot dispatch merge job: tenant not identified',
+              );
               return;
             }
             await this.materialsQueue.add('merge-pdf', {

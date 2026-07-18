@@ -13,7 +13,11 @@ export function getLevelIdsForDifficulty(difficulty: string): number[] {
   if (upperDiff === 'EASY' || upperDiff === 'FACIL') {
     return QUESTION_DIFFICULTY_MAPPING.EASY;
   }
-  if (upperDiff === 'MEDIUM' || upperDiff === 'INTERMEDIO' || upperDiff === 'MEDIA') {
+  if (
+    upperDiff === 'MEDIUM' ||
+    upperDiff === 'INTERMEDIO' ||
+    upperDiff === 'MEDIA'
+  ) {
     return QUESTION_DIFFICULTY_MAPPING.MEDIUM;
   }
   if (upperDiff === 'HARD' || upperDiff === 'DIFICIL') {

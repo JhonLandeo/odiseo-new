@@ -99,7 +99,9 @@ describe('CatalogUseCase', () => {
     expect(
       mockCatalogRepository.updateTopicLocalVisibility,
     ).toHaveBeenCalledWith('topic-1', false);
-    expect(mockCatalogRepository.findCourseIdByTopicId).toHaveBeenCalledWith('topic-1');
+    expect(mockCatalogRepository.findCourseIdByTopicId).toHaveBeenCalledWith(
+      'topic-1',
+    );
     expect(mockCacheManager.del).toHaveBeenCalledWith(
       expect.stringContaining('catalogs:courses:tenant_test:all'),
     );

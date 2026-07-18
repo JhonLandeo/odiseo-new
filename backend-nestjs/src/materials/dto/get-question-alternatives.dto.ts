@@ -1,4 +1,11 @@
-import { IsUUID, IsNumber, IsOptional, IsArray, Min, IsString } from 'class-validator';
+import {
+  IsUUID,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  Min,
+  IsString,
+} from 'class-validator';
 
 export class GetQuestionAlternativesDto {
   @IsString()
@@ -27,4 +34,3 @@ export class GetQuestionAlternativesDto {
   @IsOptional()
   excludeIds?: string[];
 }
-

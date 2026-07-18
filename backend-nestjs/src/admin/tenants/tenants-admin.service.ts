@@ -1,4 +1,8 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -48,25 +52,29 @@ export class TenantsAdminService {
           ...company,
           hasActiveSuperadmin,
         };
-      })
+      }),
     );
 
     return result;
   }
 
-  async create(data: { 
-    name: string; 
-    subdomain: string; 
-    subscription_plan_id: string; 
+  async create(data: {
+    name: string;
+    subdomain: string;
+    subscription_plan_id: string;
     contactEmail?: string;
     phone?: string;
     address?: string;
     taxId?: string;
     logoUrl?: string;
   }): Promise<Company> {
-    const existing = await this.companyRepository.findOne({ where: { subdomain: data.subdomain } });
+    const existing = await this.companyRepository.findOne({
+      where: { subdomain: data.subdomain },
+    });
     if (existing) {
-      throw new ConflictException(`Tenant con subdominio ${data.subdomain} ya existe.`);
+      throw new ConflictException(
+        `Tenant con subdominio ${data.subdomain} ya existe.`,
+      );
     }
 
     // Create the company entity first (so we have its ID for the tenant schema tables)
@@ -94,7 +102,11 @@ export class TenantsAdminService {
     return savedCompany;
   }
 
-  async updateStatus(id: string, status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD', gracePeriodUntil?: Date): Promise<Company> {
+  async updateStatus(
+    id: string,
+    status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD',
+    gracePeriodUntil?: Date,
+  ): Promise<Company> {
     const company = await this.companyRepository.findOne({ where: { id } });
     if (!company) {
       throw new NotFoundException('Tenant no encontrado');
@@ -110,23 +122,29 @@ export class TenantsAdminService {
     return this.companyRepository.save(company);
   }
 
-  async update(id: string, data: { 
-    commercialName?: string; 
-    subscription_plan_id?: string;
-    contactEmail?: string;
-    phone?: string;
-    address?: string;
-    taxId?: string;
-    logoUrl?: string;
-  }): Promise<Company> {
+  async update(
+    id: string,
+    data: {
+      commercialName?: string;
+      subscription_plan_id?: string;
+      contactEmail?: string;
+      phone?: string;
+      address?: string;
+      taxId?: string;
+      logoUrl?: string;
+    },
+  ): Promise<Company> {
     const company = await this.companyRepository.findOne({ where: { id } });
     if (!company) {
       throw new NotFoundException('Tenant no encontrado');
     }
 
-    if (data.commercialName !== undefined) company.commercialName = data.commercialName;
-    if (data.subscription_plan_id !== undefined) company.subscriptionPlanId = data.subscription_plan_id;
-    if (data.contactEmail !== undefined) company.contactEmail = data.contactEmail;
+    if (data.commercialName !== undefined)
+      company.commercialName = data.commercialName;
+    if (data.subscription_plan_id !== undefined)
+      company.subscriptionPlanId = data.subscription_plan_id;
+    if (data.contactEmail !== undefined)
+      company.contactEmail = data.contactEmail;
     if (data.phone !== undefined) company.phone = data.phone;
     if (data.address !== undefined) company.address = data.address;
     if (data.taxId !== undefined) company.taxId = data.taxId;
@@ -139,7 +157,11 @@ export class TenantsAdminService {
     id: string,
     newEmail: string,
     newPassword?: string,
-  ): Promise<{ success: boolean; newEmail: string; temporaryPassword?: string }> {
+  ): Promise<{
+    success: boolean;
+    newEmail: string;
+    temporaryPassword?: string;
+  }> {
     const company = await this.companyRepository.findOne({ where: { id } });
     if (!company) {
       throw new NotFoundException('Tenant no encontrado');
@@ -147,15 +169,19 @@ export class TenantsAdminService {
 
     // No hardcoded default: when no password is supplied, generate a strong
     // random one and return it once so the operator can hand it over.
-    const generated = newPassword ? undefined : randomBytes(12).toString('base64url');
+    const generated = newPassword
+      ? undefined
+      : randomBytes(12).toString('base64url');
     const password = newPassword ?? generated!;
     const passwordHash = await bcrypt.hash(password, 10);
     const schemaName = `tenant_${company.id}`;
 
-    const rows = await this.tenantService.runInSchema(schemaName, async (manager) => {
-      // search_path is set to the tenant schema, so tables are unqualified.
-      return manager.query(
-        `
+    const rows = await this.tenantService.runInSchema(
+      schemaName,
+      async (manager) => {
+        // search_path is set to the tenant schema, so tables are unqualified.
+        return manager.query(
+          `
         UPDATE users
         SET email = $1, password_hash = $2, updated_at = now()
         WHERE id = (
@@ -167,9 +193,10 @@ export class TenantsAdminService {
         )
         RETURNING id
       `,
-        [newEmail, passwordHash, SUPER_ADMIN_ROLE_NAME],
-      );
-    });
+          [newEmail, passwordHash, SUPER_ADMIN_ROLE_NAME],
+        );
+      },
+    );
 
     if (!rows || rows.length === 0) {
       throw new NotFoundException(
