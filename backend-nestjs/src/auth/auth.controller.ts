@@ -15,12 +15,15 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './auth.guard';
+import { Public } from '../common/decorators/public.decorator';
 
 @Controller('v1/auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  // Entry point of the session: by definition there is no JWT yet.
+  @Public()
   @HttpCode(HttpStatus.OK)
   // Brute-force protection: max 5 login attempts per minute per IP.
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -79,6 +82,9 @@ export class AuthController {
   }
 
   @Post('logout')
+  // Clearing the cookie must succeed even when the token is already expired or
+  // invalid; otherwise the client is stuck holding a stale cookie.
+  @Public()
   @HttpCode(HttpStatus.OK)
   async logout(@Res({ passthrough: true }) res: express.Response) {
     res.clearCookie('jwt', {

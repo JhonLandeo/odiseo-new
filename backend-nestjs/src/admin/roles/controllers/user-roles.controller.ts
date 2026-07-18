@@ -8,11 +8,17 @@ import { PERMISSIONS } from '../constants/permissions.constant';
 import { JwtAuthGuard } from '../../../auth/auth.guard';
 import { TenantService } from '../../../database/tenant.service';
 import { AssignRolesDto } from '../dto/assign-roles.dto';
+import { AuthService } from '../../../auth/auth.service';
+import { ClsService } from 'nestjs-cls';
 
 @Controller('v1/admin/users/:userId/roles')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UserRolesController {
-  constructor(private readonly tenantService: TenantService) {}
+  constructor(
+    private readonly tenantService: TenantService,
+    private readonly authService: AuthService,
+    private readonly cls: ClsService,
+  ) {}
 
   @Put()
   @RequirePermissions(PERMISSIONS.MANAGE_USERS)
@@ -33,6 +39,14 @@ export class UserRolesController {
         await repo.save(newUserRoles);
       }
     });
+
+    // The user's effective permissions just changed; drop the cached set after
+    // the transaction commits so the very next request re-reads them instead of
+    // running on the previous role set for up to 60s.
+    const companyId = this.cls.get('companyId');
+    if (companyId) {
+      await this.authService.invalidateUserPermissions(companyId, userId);
+    }
 
     return { success: true };
   }

@@ -17,6 +17,7 @@ import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ClsService } from 'nestjs-cls';
 import { WebhookAuthGuard } from './guards/webhook-auth.guard';
+import { Public } from '../common/decorators/public.decorator';
 import { GenerateMaterialDto } from './dto/generate-material.dto';
 import { WebhookStatusRequestDto } from './dto/webhook-status-request.dto';
 import { ApproveReviewDto } from './dto/approve-review.dto';
@@ -73,6 +74,10 @@ export class MaterialsController {
 
   @Post('webhook/status')
   @HttpCode(HttpStatus.OK)
+  // Machine-to-machine callback from the Worker: it carries a shared webhook
+  // secret, not a user JWT. @Public() only bypasses the global JwtAuthGuard —
+  // WebhookAuthGuard below still authenticates the caller.
+  @Public()
   @UseGuards(WebhookAuthGuard)
   @ApiOperation({
     summary: 'Webhook interno para actualización de estado desde el Worker',

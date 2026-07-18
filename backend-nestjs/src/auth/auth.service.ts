@@ -197,17 +197,21 @@ export class AuthService {
       },
     );
 
-    // Short TTL keeps the "avoid stale claims" contract honest: role/permission
-    // changes propagate in <= 60s even without explicit invalidation. Wire
-    // invalidateUserPermissions() at role-mutation sites for instant propagation.
+    // Role/permission mutations call invalidateUserPermissions() explicitly, so
+    // changes normally propagate on the next request. The short TTL is the
+    // backstop for anything that bypasses those paths (direct SQL, a failed
+    // cache delete): worst case, stale permissions live at most 60s.
     await this.cacheManager.set(cacheKey, permissions, 60 * 1000);
     return permissions;
   }
 
   /**
    * Invalidates the cached permissions for a specific user, forcing the next
-   * request to reload them from the database. Call this from role/permission
-   * mutation flows (role edited, role assigned/revoked) for instant propagation.
+   * request to reload them from the database.
+   *
+   * Wired into every role/permission mutation flow: RolesService.update/remove
+   * (which fans out to every holder of the role) and UserRolesController
+   * assignment. The cache is Redis-backed, so the delete reaches every instance.
    */
   async invalidateUserPermissions(
     companyId: string,

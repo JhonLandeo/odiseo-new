@@ -20,6 +20,9 @@ import { ExpressAdapter } from '@bull-board/express';
 import { GcsModule } from './gcs/gcs.module';
 import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './auth/auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 
 @Module({
   imports: [
@@ -53,7 +56,15 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     OnboardingModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Security is deny-by-default: every route requires a valid JWT unless it
+    // is explicitly marked @Public(). Order matters — JwtAuthGuard must run
+    // first because PermissionsGuard reads request.user.permissions, which only
+    // exists after JwtAuthGuard has populated it.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
