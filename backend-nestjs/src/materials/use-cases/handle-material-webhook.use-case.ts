@@ -25,6 +25,35 @@ export class HandleMaterialWebhookUseCase {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  /**
+   * Maps a Worker-reported status string onto a course status.
+   *
+   * An unknown value is a contract violation, not a course outcome. Previously
+   * it fell through to FAILED, which silently turned a producer bug into a
+   * failed material. We now reject it (400). The retry implication: a 4xx tells
+   * BullMQ the payload is bad, so it may re-deliver — which is the correct
+   * behaviour for a genuinely malformed status (it will keep failing loudly and
+   * surface in dead-letter inspection) and is preferable to silently corrupting
+   * a course. Transient infrastructure errors take a different path (they throw
+   * 5xx elsewhere), so this does not cause an infinite retry of a healthy job.
+   */
+  private mapStatus(status: string): CourseMaterialStatus {
+    switch (status) {
+      case 'completed':
+        return CourseMaterialStatus.COMPLETED;
+      case 'completed_with_warnings':
+        return CourseMaterialStatus.COMPLETED_WITH_WARNINGS;
+      case 'empty_bank':
+        return CourseMaterialStatus.EMPTY_BANK;
+      case 'failed':
+        return CourseMaterialStatus.FAILED;
+      case 'processing':
+        return CourseMaterialStatus.PROCESSING;
+      default:
+        throw new BadRequestException(`Unknown webhook status: ${status}`);
+    }
+  }
+
   async execute(statusData: WebhookStatusRequestDto): Promise<void> {
     if (!statusData.job_id || !statusData.status) {
       throw new BadRequestException('job_id and status are required');
@@ -33,34 +62,61 @@ export class HandleMaterialWebhookUseCase {
       `Received internal webhook update for job ${statusData.job_id}: ${statusData.status}`,
     );
 
+    // Reject an out-of-contract status before opening a transaction.
+    const incomingStatus = this.mapStatus(statusData.status);
+
     await this.tenantService.runInTenant(async (manager) => {
       // Find course request by ID
       const courseReq = await manager.findOne(MaterialRequestCourse, {
         where: { id: statusData.job_id },
       });
       if (!courseReq) {
+        // A callback for a course that no longer exists (e.g. its request was
+        // deleted) is a benign no-op, never a 500.
         this.logger.warn(
           `No MaterialRequestCourse found for job_id: ${statusData.job_id}`,
         );
         return;
       }
 
-      let courseStatus: CourseMaterialStatus = CourseMaterialStatus.FAILED;
-      if (statusData.status === 'completed') {
-        courseStatus = CourseMaterialStatus.COMPLETED;
-      } else if (statusData.status === 'completed_with_warnings') {
-        courseStatus = CourseMaterialStatus.COMPLETED_WITH_WARNINGS;
-      } else if (statusData.status === 'empty_bank') {
-        courseStatus = CourseMaterialStatus.EMPTY_BANK;
-      } else if (statusData.status === 'failed') {
-        courseStatus = CourseMaterialStatus.FAILED;
-      } else if (statusData.status === 'processing') {
-        courseStatus = CourseMaterialStatus.PROCESSING;
+      // --- Idempotency / terminal-state guard (ASYMMETRIC) -----------------
+      //
+      // The Worker delivers at-least-once and BullMQ retries (attempts: 3), so
+      // duplicate and late callbacks are NORMAL traffic, not an attack.
+      //
+      // Success is AUTHORITATIVE. Once a course reached COMPLETED or
+      // COMPLETED_WITH_WARNINGS its PDFs exist in S3; nothing that arrives
+      // afterwards may undo that. Ignoring a late `failed` here is exactly what
+      // stops a finished material from being rolled back to FAILED, and makes a
+      // duplicate `completed` an idempotent no-op.
+      if (
+        courseReq.status === CourseMaterialStatus.COMPLETED ||
+        courseReq.status === CourseMaterialStatus.COMPLETED_WITH_WARNINGS
+      ) {
+        this.logger.log(
+          `Ignoring '${statusData.status}' for course ${courseReq.id}: ` +
+            `already in success-terminal state ${courseReq.status}`,
+        );
+        return;
+      }
+
+      // FAILED (and the intermediate PROCESSING / EMPTY_BANK) are PROVISIONAL,
+      // not final: a later retry that finally succeeds MUST be allowed to
+      // overwrite them, so we do NOT ignore a `completed` arriving after a
+      // `failed`. Only a redelivery of the exact same non-success status is a
+      // no-op — this keeps a repeated `failed` from re-running the parent
+      // roll-up (and, defensively, from re-dispatching the merge job).
+      if (courseReq.status === incomingStatus) {
+        this.logger.log(
+          `Ignoring duplicate '${statusData.status}' for course ` +
+            `${courseReq.id}: status unchanged (${courseReq.status})`,
+        );
+        return;
       }
 
       // Update course request
       await manager.update(MaterialRequestCourse, courseReq.id, {
-        status: courseStatus,
+        status: incomingStatus,
         downloadUrl: statusData.download_url || undefined,
         keyDownloadUrl: statusData.key_download_url || undefined,
         solutionDownloadUrl: statusData.solution_download_url || undefined,
@@ -70,17 +126,32 @@ export class HandleMaterialWebhookUseCase {
       });
 
       this.logger.log(
-        `MaterialRequestCourse ${courseReq.id} updated to ${courseStatus}`,
+        `MaterialRequestCourse ${courseReq.id} updated to ${incomingStatus}`,
       );
 
+      // --- Serialize the parent roll-up with a pessimistic write lock ------
+      //
+      // Two final callbacks for two different courses of the same request run
+      // in separate transactions and can both otherwise observe "all finished"
+      // and both dispatch the merge job. Taking a FOR UPDATE lock on the parent
+      // row forces them to serialize: the second callback blocks here until the
+      // first commits, then (under READ COMMITTED, TypeORM/Postgres default)
+      // reads the first one's committed sibling update and sees the transition
+      // into "all finished" exactly once.
       const requestParent = await manager.findOne(MaterialRequest, {
         where: { id: courseReq.materialRequestId },
+        lock: { mode: 'pessimistic_write' },
       });
+
+      // Snapshot the parent status BEFORE the roll-up so we can tell whether
+      // THIS callback is the one transitioning the request into a final
+      // success state (see the merge-once guard below).
+      const previousParentStatus = requestParent?.status;
 
       if (
         requestParent &&
-        (courseStatus === CourseMaterialStatus.COMPLETED ||
-          courseStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS)
+        (incomingStatus === CourseMaterialStatus.COMPLETED ||
+          incomingStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS)
       ) {
         this.eventEmitter.emit('material.course.generated', {
           cycleId: requestParent.cycleId,
@@ -89,7 +160,9 @@ export class HandleMaterialWebhookUseCase {
         });
       }
 
-      // Check if all courses in the parent MaterialRequest are complete
+      // Check if all courses in the parent MaterialRequest are complete. This
+      // read happens while holding the parent lock, so it observes a serialized,
+      // fully-committed view of the sibling courses.
       const siblingCourses = await manager.find(MaterialRequestCourse, {
         where: { materialRequestId: courseReq.materialRequestId },
       });
@@ -139,8 +212,20 @@ export class HandleMaterialWebhookUseCase {
           );
         }
 
-        // Dispatch merge job if all courses completed
-        if (!hasFailed && siblingCourses.length >= 2) {
+        // --- Dispatch merge-pdf EXACTLY ONCE ------------------------------
+        //
+        // Merge-once guard: only dispatch when THIS callback is the one that
+        // transitions the parent INTO a final success state. If the parent was
+        // ALREADY in a success roll-up state (COMPLETED / REVIEW_REQUIRED),
+        // some earlier callback already completed the roll-up and dispatched
+        // the merge, so a redelivered final callback must not dispatch a
+        // second one. A previous FAILED is deliberately NOT treated as final
+        // here, so a genuine retry-success (FAILED -> COMPLETED) still merges.
+        const parentAlreadyFinalized =
+          previousParentStatus === MaterialRequestStatus.COMPLETED ||
+          previousParentStatus === MaterialRequestStatus.REVIEW_REQUIRED;
+
+        if (!hasFailed && siblingCourses.length >= 2 && !parentAlreadyFinalized) {
           const request = await manager.findOne(MaterialRequest, {
             where: { id: courseReq.materialRequestId },
           });
