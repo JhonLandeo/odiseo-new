@@ -17,6 +17,7 @@ import {
   RequirePermissions,
 } from '../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../roles/constants/permissions.constant';
+import { TenantParamScopeGuard } from './guards/tenant-param-scope.guard';
 import {
   CreateTenantAdminDto,
   UpdateTenantAdminDto,
@@ -25,7 +26,9 @@ import {
 
 @ApiTags('Admin / Tenant Admins')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// Order matters: JwtAuthGuard populates req.user, TenantParamScopeGuard binds
+// the :tenantId param to that user, PermissionsGuard checks the granular perms.
+@UseGuards(JwtAuthGuard, TenantParamScopeGuard, PermissionsGuard)
 @Controller('v1/admin/tenants/:tenantId/admins')
 export class TenantAdminsController {
   constructor(private readonly tenantAdminsService: TenantAdminsService) {}
