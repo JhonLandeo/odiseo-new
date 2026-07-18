@@ -33,6 +33,14 @@ export interface FlatQuestionSearchFilters {
   level?: string | null;
   excludeIds?: string[];
   /**
+   * Topic ids the caller's tenant is NOT allowed to see (the hide-list from
+   * `tenant_topic_visibility` where `is_active = false`). Questions whose
+   * subtopic belongs to any of these topics are excluded from the result. An
+   * empty/omitted list applies no restriction, matching the default-visible
+   * semantics Catalogs uses (`COALESCE(is_active, true)`).
+   */
+  excludeTopicIds?: Array<string | number>;
+  /**
    * How many ids the caller ultimately intends to keep. The repository bounds
    * the SQL result to a small oversample of this so a broad course-only search
    * over the shared bank can no longer stream every matching id into Node.

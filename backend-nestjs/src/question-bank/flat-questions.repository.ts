@@ -105,6 +105,28 @@ export class FlatQuestionsRepository {
   }
 
   /**
+   * Resolve the distinct topic ids a question belongs to, via its active
+   * subtopic mappings. Used by the object-level authorization gate to decide
+   * whether a question is visible to a tenant. Returns [] when the question has
+   * no subtopic mapping (which the gate treats as visible-by-default, matching
+   * the Catalogs `COALESCE(is_active, true)` rule).
+   */
+  async findTopicIdsForQuestion(
+    questionId: string | number,
+  ): Promise<string[]> {
+    const rows = await this.manager.query(
+      `SELECT DISTINCT s.topic_id
+       FROM odiseo.question_subtopic qs
+       INNER JOIN odiseo.subtopic s ON qs.subtopic_id = s.id
+       WHERE qs.question_id = $1 AND qs.fl_status = true`,
+      [BigInt(questionId)],
+    );
+    return rows
+      .map((r: any) => (r.topic_id == null ? null : String(r.topic_id)))
+      .filter((id: string | null): id is string => id !== null);
+  }
+
+  /**
    * Search question ids by course/topic/subtopic and optional difficulty.
    * Returns only ids; selection/shuffle/limit stay in the caller (business logic).
    */
@@ -167,6 +189,23 @@ export class FlatQuestionsRepository {
       if (numericExcludeIds.length > 0) {
         sql += ` AND fq.question_id NOT IN (${numericExcludeIds.map((_, i) => `$${params.length + 1 + i}`).join(', ')})`;
         params.push(...numericExcludeIds);
+      }
+    }
+
+    // Object-level authorization gate: drop questions whose subtopic belongs to
+    // a topic this tenant has hidden. `s.topic_id` is always in scope here (the
+    // subtopic `s` is joined unconditionally above). This is the exact inverse
+    // of the Catalogs visibility rule — a topic is invisible only when an
+    // explicit `tenant_topic_visibility` row sets `is_active = false`, so the
+    // caller passes precisely that set.
+    const excludeTopicIds = filters.excludeTopicIds ?? [];
+    if (excludeTopicIds.length > 0) {
+      const numericExcludeTopicIds = excludeTopicIds
+        .map(Number)
+        .filter((id) => !isNaN(id));
+      if (numericExcludeTopicIds.length > 0) {
+        sql += ` AND s.topic_id NOT IN (${numericExcludeTopicIds.map((_, i) => `$${params.length + 1 + i}`).join(', ')})`;
+        params.push(...numericExcludeTopicIds);
       }
     }
 

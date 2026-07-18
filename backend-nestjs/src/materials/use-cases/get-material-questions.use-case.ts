@@ -2,16 +2,43 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { GcsService } from '../../gcs/gcs.service';
 import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
+import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
 export class GetMaterialQuestionsUseCase {
+  private readonly logger = new Logger(GetMaterialQuestionsUseCase.name);
+
   constructor(
     private readonly flatQuestionsRepo: FlatQuestionsRepository,
     private readonly gcsService: GcsService,
+    private readonly tenantService: TenantService,
   ) {}
+
+  /**
+   * Topic ids the caller's tenant has explicitly hidden.
+   *
+   * Mirrors the Catalogs visibility rule EXACTLY. Catalogs treats a topic as
+   * visible when `COALESCE(ttv.is_active, true) = true`
+   * (catalog.repository.ts), i.e. it is a hide-list over a default-visible
+   * catalogue: a topic is invisible ONLY when an explicit
+   * `tenant_topic_visibility` row sets `is_active = false`; an absent row means
+   * visible. This set is therefore precisely the rows with `is_active = false`.
+   * It lives in the tenant schema on the default connection, while the question
+   * bank is a separate connection, so the two cannot be joined in one query —
+   * the gate reads this set and filters the bank results in application code.
+   */
+  private async getHiddenTopicIds(): Promise<string[]> {
+    const rows = await this.tenantService.runInTenant((manager) =>
+      manager.query(
+        `SELECT topic_id FROM tenant_topic_visibility WHERE is_active = false`,
+      ),
+    );
+    return rows.map((r: any) => String(r.topic_id));
+  }
 
   private async mapFlatQuestion(flatQ: any): Promise<any> {
     const signedImages = await Promise.all(
@@ -63,6 +90,28 @@ export class GetMaterialQuestionsUseCase {
       throw new BadRequestException('ID de pregunta inválido');
     }
 
+    // Object-level authorization: the question bank is GLOBAL, so previewing by
+    // id must still be gated by what this tenant may see. Resolve the question's
+    // topic(s) from the bank and apply the SAME hide-list rule Catalogs uses. If
+    // every topic the question belongs to is hidden, the question does not exist
+    // FOR THIS TENANT -> 404 (which also avoids disclosing that an out-of-scope
+    // question exists). A question with no resolvable topic is left visible,
+    // matching the default-visible semantics.
+    const [topicIds, hiddenTopicIds] = await Promise.all([
+      this.flatQuestionsRepo.findTopicIdsForQuestion(dbQuestionId),
+      this.getHiddenTopicIds(),
+    ]);
+    if (topicIds.length > 0 && hiddenTopicIds.length > 0) {
+      const hidden = new Set(hiddenTopicIds);
+      const hasVisibleTopic = topicIds.some((id) => !hidden.has(id));
+      if (!hasVisibleTopic) {
+        this.logger.warn(
+          `Denied cross-scope question preview: questionId=${dbQuestionId} topicIds=[${topicIds.join(',')}]`,
+        );
+        throw new NotFoundException('Pregunta no encontrada');
+      }
+    }
+
     let flatQ = await this.flatQuestionsRepo.findById(dbQuestionId);
     if (!flatQ) {
       flatQ = await this.flatQuestionsRepo.findByIdFromNormalized(dbQuestionId);
@@ -89,12 +138,18 @@ export class GetMaterialQuestionsUseCase {
       return array;
     };
 
+    // Object-level authorization: restrict results to topics visible to this
+    // tenant, using the identical hide-list rule Catalogs applies. Passed to
+    // every bank search below (primary AND the level fallback).
+    const hiddenTopicIds = await this.getHiddenTopicIds();
+
     const primaryIds = await this.flatQuestionsRepo.searchQuestionIds({
       courseId,
       topicId,
       subtopicId,
       level: levelIdOrExpectedLevel || null,
       excludeIds,
+      excludeTopicIds: hiddenTopicIds,
       limit,
     });
     let selectedIds = shuffle(primaryIds).slice(0, limit);
@@ -109,6 +164,7 @@ export class GetMaterialQuestionsUseCase {
         subtopicId,
         level: null,
         excludeIds: combinedExcludeIds,
+        excludeTopicIds: hiddenTopicIds,
         limit,
       });
       selectedIds = [
