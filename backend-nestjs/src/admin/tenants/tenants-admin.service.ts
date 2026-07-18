@@ -180,26 +180,41 @@ export class TenantsAdminService {
       schemaName,
       async (manager) => {
         // search_path is set to the tenant schema, so tables are unqualified.
+        //
+        // Refuse rather than choose. This overwrites an administrator's email
+        // and password irreversibly, and a tenant may hold more than one Super
+        // Administrator. Picking one — even deterministically — silently
+        // designates a victim the operator never named and cannot see. The
+        // ambiguity is the operator's to resolve, so surface it instead.
+        // `tenant-admins.service.ts` sets the same precedent when it refuses to
+        // deactivate the last remaining administrator.
+        const admins = await manager.query(
+          `SELECT u.id
+           FROM user_roles ur
+           JOIN roles r ON ur.role_id = r.id
+           JOIN users u ON u.id = ur.user_id
+           WHERE r.name = $1`,
+          [SUPER_ADMIN_ROLE_NAME],
+        );
+
+        if (admins.length === 0) {
+          throw new NotFoundException(
+            'Administrador principal no encontrado en el esquema del cliente.',
+          );
+        }
+        if (admins.length > 1) {
+          throw new ConflictException(
+            `La empresa tiene ${admins.length} administradores principales. ` +
+              'Indique cuál restablecer desde la gestión de administradores del cliente.',
+          );
+        }
+
         return manager.query(
-          `
-        UPDATE users
-        SET email = $1, password_hash = $2, updated_at = now()
-        WHERE id = (
-          SELECT u.id
-          FROM user_roles ur
-          JOIN roles r ON ur.role_id = r.id
-          JOIN users u ON u.id = ur.user_id
-          WHERE r.name = $3
-          -- Deterministic target: this is a destructive operation, and a tenant
-          -- can hold more than one Super Administrator. Without ORDER BY the
-          -- planner decides which account loses its email and password. Oldest
-          -- first (id as tie-breaker) makes the choice stable and predictable.
-          ORDER BY u.created_at ASC, u.id ASC
-          LIMIT 1
-        )
-        RETURNING id
-      `,
-          [newEmail, passwordHash, SUPER_ADMIN_ROLE_NAME],
+          `UPDATE users
+           SET email = $1, password_hash = $2, updated_at = now()
+           WHERE id = $3
+           RETURNING id`,
+          [newEmail, passwordHash, admins[0].id],
         );
       },
     );
