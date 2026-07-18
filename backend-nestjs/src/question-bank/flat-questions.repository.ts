@@ -16,6 +16,21 @@ import { getLevelIdsForDifficulty } from './constants/question-levels.constant';
  */
 @Injectable()
 export class FlatQuestionsRepository {
+  /**
+   * How many candidate ids to pull as a multiple of the caller's intended
+   * `limit`, mirroring the `POOL_OVERSAMPLE` convention in QuestionBankService.
+   * The caller shuffles the returned ids and slices `limit`, so oversampling
+   * keeps the picked set varied while the SQL result stays bounded.
+   */
+  private static readonly SEARCH_OVERSAMPLE = 3;
+
+  /**
+   * Defensive fallback when a caller omits `limit`. Keeps the query bounded
+   * (at most DEFAULT * SEARCH_OVERSAMPLE rows) instead of returning the whole
+   * matching set from the shared bank.
+   */
+  private static readonly DEFAULT_SEARCH_LIMIT = 25;
+
   // Exactly the columns the SaaS consumes from flat_questions.
   private static readonly FLAT_COLUMNS =
     'question_id, code, level_id, level_name, type, html_content, ' +
@@ -97,6 +112,10 @@ export class FlatQuestionsRepository {
     filters: FlatQuestionSearchFilters,
   ): Promise<string[]> {
     const { courseId, topicId, subtopicId, level, excludeIds = [] } = filters;
+    const desiredLimit =
+      filters.limit && filters.limit > 0
+        ? filters.limit
+        : FlatQuestionsRepository.DEFAULT_SEARCH_LIMIT;
 
     let sql = `
       SELECT fq.question_id
@@ -150,6 +169,14 @@ export class FlatQuestionsRepository {
         params.push(...numericExcludeIds);
       }
     }
+
+    // Bound the result in SQL: sample at most `limit * oversample` random ids
+    // instead of every matching row. The caller still shuffles and slices to
+    // its exact limit, so the picked set stays varied but memory is capped.
+    // The limit is parameterized ($n), never interpolated.
+    const boundLimit = desiredLimit * FlatQuestionsRepository.SEARCH_OVERSAMPLE;
+    sql += ` ORDER BY random() LIMIT $${params.length + 1}`;
+    params.push(boundLimit);
 
     const rows = await this.manager.query(sql, params);
     return rows.map((r: any) => String(r.question_id));

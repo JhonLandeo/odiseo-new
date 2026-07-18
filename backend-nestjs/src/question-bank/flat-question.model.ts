@@ -32,4 +32,12 @@ export interface FlatQuestionSearchFilters {
   /** Difficulty label (EASY/MEDIUM/HARD/…) or a raw numeric level id as string. */
   level?: string | null;
   excludeIds?: string[];
+  /**
+   * How many ids the caller ultimately intends to keep. The repository bounds
+   * the SQL result to a small oversample of this so a broad course-only search
+   * over the shared bank can no longer stream every matching id into Node.
+   * Callers should always pass their real limit; a defensive default applies
+   * when omitted so the query is bounded regardless.
+   */
+  limit?: number;
 }

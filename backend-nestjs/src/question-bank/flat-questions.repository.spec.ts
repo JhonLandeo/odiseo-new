@@ -102,3 +102,50 @@ describe('FlatQuestionsRepository.findByIdsFromNormalized (answer_id derivation)
     expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('FlatQuestionsRepository.searchQuestionIds (bounded result set)', () => {
+  it('appends a parameterized LIMIT sized as limit * oversample (never interpolated)', async () => {
+    const { repo, query } = makeRepo();
+
+    await repo.searchQuestionIds({ courseId: '10', limit: 5 });
+
+    const [sql, params] = query.mock.calls[0];
+    // The LIMIT must be a bound parameter placeholder, not an inline literal.
+    expect(sql).toMatch(/ORDER BY random\(\) LIMIT \$\d+\s*$/);
+    expect(sql).not.toMatch(/LIMIT\s+\d+/);
+    // Bound value = limit (5) * SEARCH_OVERSAMPLE (3) = 15, last param.
+    expect(params[params.length - 1]).toBe(15);
+  });
+
+  it('binds the LIMIT placeholder right after the filter params', async () => {
+    const { repo, query } = makeRepo();
+
+    // courseId '1,2' contributes two filter params before the LIMIT param.
+    await repo.searchQuestionIds({ courseId: '1,2', limit: 4 });
+
+    const [sql, params] = query.mock.calls[0];
+    // Two course ids -> $1,$2 ; the LIMIT must therefore bind $3.
+    expect(sql).toContain('LIMIT $3');
+    expect(params).toEqual([1, 2, 12]);
+  });
+
+  it('falls back to a bounded default LIMIT when no limit is provided', async () => {
+    const { repo, query } = makeRepo();
+
+    await repo.searchQuestionIds({ courseId: '10' });
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toMatch(/ORDER BY random\(\) LIMIT \$\d+\s*$/);
+    // DEFAULT_SEARCH_LIMIT (25) * SEARCH_OVERSAMPLE (3) = 75.
+    expect(params[params.length - 1]).toBe(75);
+  });
+
+  it('leaves the happy path unchanged: fewer rows than the bound are all returned', async () => {
+    // Two rows come back, well under the bound; every id is mapped through.
+    const { repo } = makeRepo([{ question_id: 101 }, { question_id: 202 }]);
+
+    const ids = await repo.searchQuestionIds({ courseId: '10', limit: 25 });
+
+    expect(ids).toEqual(['101', '202']);
+  });
+});

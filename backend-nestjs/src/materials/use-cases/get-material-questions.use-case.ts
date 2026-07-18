@@ -95,6 +95,7 @@ export class GetMaterialQuestionsUseCase {
       subtopicId,
       level: levelIdOrExpectedLevel || null,
       excludeIds,
+      limit,
     });
     let selectedIds = shuffle(primaryIds).slice(0, limit);
 
@@ -108,6 +109,7 @@ export class GetMaterialQuestionsUseCase {
         subtopicId,
         level: null,
         excludeIds: combinedExcludeIds,
+        limit,
       });
       selectedIds = [
         ...selectedIds,
