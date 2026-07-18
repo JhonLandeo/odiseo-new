@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { TenantService } from '../../database/tenant.service';
 import { CreateTenantAdminDto, UpdateTenantAdminDto, UpdatePasswordDto } from './dto/tenant-admins.dto';
+import { TENANT_SUPER_ADMIN_PERMISSIONS } from '../roles/constants/permissions.constant';
 
 @Injectable()
 export class TenantAdminsService {
@@ -75,10 +76,9 @@ export class TenantAdminsService {
       let roleResult = await manager.query(`SELECT id FROM "${schema}".roles WHERE name = 'Super Administrador' LIMIT 1`);
       let roleId;
       if (roleResult.length === 0) {
-        const superAdminPermsJSON = JSON.stringify([
-          'view_catalogs', 'edit_catalogs', 'view_materials', 'generate_material', 
-          'review_material', 'view_syllabus', 'edit_syllabus', 'manage_academic_time'
-        ]);
+        // Canonical UPPERCASE permission vocabulary enforced by PermissionsGuard
+        // (single source of truth) — never the stale lowercase set.
+        const superAdminPermsJSON = JSON.stringify(TENANT_SUPER_ADMIN_PERMISSIONS);
         const newRole = await manager.query(`
           INSERT INTO "${schema}".roles (name, description, is_system_default, permissions)
           VALUES ('Super Administrador', 'Administrador Principal de la Institución', true, $1::jsonb)

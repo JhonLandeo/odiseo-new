@@ -26,17 +26,29 @@ export class MaterialsCron {
   async handleCron() {
     this.logger.log('Running US5: Automatic Material Generation (Cron)');
 
-    // Obtener la primera compañía activa en el esquema público
-    const company = await this.entityManager.findOne(Company, {
+    // Process EVERY active company, not just the first one.
+    const companies = await this.entityManager.find(Company, {
       where: { isActive: true },
     });
 
-    if (!company) {
+    if (companies.length === 0) {
       this.logger.warn('No active company found. Skipping automatic material generation.');
       return;
     }
 
-    const tenantId = company.id;
+    for (const company of companies) {
+      try {
+        await this.generateForTenant(company.id);
+      } catch (error: any) {
+        this.logger.error(
+          `Automatic material generation failed for tenant ${company.id}: ${error.message}`,
+        );
+        // Continue with the next tenant; one tenant's failure must not block the rest.
+      }
+    }
+  }
+
+  private async generateForTenant(tenantId: string) {
     const schemaName = `tenant_${tenantId}`;
 
     // Buscar un perfil (CycleMaterialTemplate) activo en el esquema del tenant

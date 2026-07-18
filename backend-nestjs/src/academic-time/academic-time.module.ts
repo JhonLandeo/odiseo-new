@@ -8,6 +8,7 @@ import { Cycle } from './entities/cycle.entity';
 import { CycleWeek } from './entities/cycle-week.entity';
 import { CycleMaterialTemplate } from './entities/cycle-material-template.entity';
 import { CycleMaterialTemplateCourse } from './entities/cycle-material-template-course.entity';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -17,6 +18,8 @@ import { CycleMaterialTemplateCourse } from './entities/cycle-material-template-
       CycleMaterialTemplate,
       CycleMaterialTemplateCourse,
     ]),
+    // Required so JwtAuthGuard (and PermissionsGuard) can resolve AuthService.
+    AuthModule,
   ],
   controllers: [AcademicTimeController],
   providers: [

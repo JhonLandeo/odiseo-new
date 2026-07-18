@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 
 export class CreateTenantAdminDto {
   @IsEmail()
@@ -11,6 +11,7 @@ export class CreateTenantAdminDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(8)
   password: string;
 }
 
@@ -27,5 +28,6 @@ export class UpdateTenantAdminDto {
 export class UpdatePasswordDto {
   @IsString()
   @IsNotEmpty()
+  @MinLength(8)
   password: string;
 }

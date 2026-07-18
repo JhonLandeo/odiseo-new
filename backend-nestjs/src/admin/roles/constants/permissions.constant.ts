@@ -14,13 +14,45 @@ export const PERMISSIONS = {
   // Module: Syllabus
   VIEW_SYLLABUS: 'VIEW_SYLLABUS',
   EDIT_SYLLABUS: 'EDIT_SYLLABUS',
-  
+
+  // Module: Academic Time
+  VIEW_ACADEMIC_TIME: 'VIEW_ACADEMIC_TIME',
+  MANAGE_ACADEMIC_TIME: 'MANAGE_ACADEMIC_TIME',
+
+  // Module: Catalogs
+  VIEW_CATALOGS: 'VIEW_CATALOGS',
+  EDIT_CATALOGS: 'EDIT_CATALOGS',
+
   // Module: Materials
   VIEW_MATERIALS: 'VIEW_MATERIALS',
   EDIT_MATERIALS: 'EDIT_MATERIALS',
 } as const;
 
 export type PermissionType = keyof typeof PERMISSIONS;
+
+/**
+ * Canonical permission set granted to a tenant's system-default Super Admin
+ * (the institution Director). Single source of truth used by both the tenant
+ * provisioning seed and the reconciliation migration. Excludes MANAGE_TENANTS,
+ * which is a platform-level permission, not an institution-level one.
+ */
+export const TENANT_SUPER_ADMIN_PERMISSIONS: string[] = [
+  PERMISSIONS.MANAGE_ROLES,
+  PERMISSIONS.MANAGE_USERS,
+  PERMISSIONS.LIST_TENANT_ADMINS,
+  PERMISSIONS.CREATE_TENANT_ADMINS,
+  PERMISSIONS.EDIT_TENANT_ADMINS,
+  PERMISSIONS.CHANGE_PASSWORD_TENANT_ADMINS,
+  PERMISSIONS.DELETE_TENANT_ADMINS,
+  PERMISSIONS.VIEW_SYLLABUS,
+  PERMISSIONS.EDIT_SYLLABUS,
+  PERMISSIONS.VIEW_ACADEMIC_TIME,
+  PERMISSIONS.MANAGE_ACADEMIC_TIME,
+  PERMISSIONS.VIEW_CATALOGS,
+  PERMISSIONS.EDIT_CATALOGS,
+  PERMISSIONS.VIEW_MATERIALS,
+  PERMISSIONS.EDIT_MATERIALS,
+];
 
 export const PERMISSIONS_METADATA = [
   {
@@ -46,6 +78,20 @@ export const PERMISSIONS_METADATA = [
     permissions: [
       { code: PERMISSIONS.VIEW_SYLLABUS, description: 'Ver plan de estudios' },
       { code: PERMISSIONS.EDIT_SYLLABUS, description: 'Modificar plan de estudios' },
+    ],
+  },
+  {
+    module: 'Academic Time',
+    permissions: [
+      { code: PERMISSIONS.VIEW_ACADEMIC_TIME, description: 'Ver ciclos y semanas académicas' },
+      { code: PERMISSIONS.MANAGE_ACADEMIC_TIME, description: 'Gestionar ciclos, semanas y plantillas' },
+    ],
+  },
+  {
+    module: 'Catalogs',
+    permissions: [
+      { code: PERMISSIONS.VIEW_CATALOGS, description: 'Ver catálogo de cursos y temas' },
+      { code: PERMISSIONS.EDIT_CATALOGS, description: 'Gestionar visibilidad de temas' },
     ],
   },
   {

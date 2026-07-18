@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsNotEmpty, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsNotEmpty, IsEnum, MinLength, IsDateString } from 'class-validator';
 
 export class CreateTenantDto {
   @IsString()
@@ -13,9 +13,7 @@ export class CreateTenantDto {
   @IsNotEmpty()
   subscription_plan_id: string;
 
-
-
-  @IsString()
+  @IsEmail()
   @IsOptional()
   contactEmail?: string;
 
@@ -70,7 +68,7 @@ export class UpdateTenantStatusDto {
   @IsEnum(['ACTIVE', 'SUSPENDED', 'GRACE_PERIOD'])
   status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD';
 
-  @IsString()
+  @IsDateString()
   @IsOptional()
   grace_period_until?: string;
 }
@@ -82,5 +80,6 @@ export class ResetAdminDto {
 
   @IsString()
   @IsOptional()
+  @MinLength(8)
   password?: string;
 }

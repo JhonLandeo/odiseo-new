@@ -14,7 +14,6 @@ import { CatalogsModule } from './catalogs/catalogs.module';
 import { AcademicTimeModule } from './academic-time/academic-time.module';
 import { SyllabusModule } from './syllabus/syllabus.module';
 import { MaterialsModule } from './materials/materials.module';
-import { WorkerModule } from './worker/worker.module';
 import { QuestionBankModule } from './question-bank/question-bank.module';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
@@ -50,7 +49,6 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     AcademicTimeModule,
     SyllabusModule,
     MaterialsModule,
-    WorkerModule,
     QuestionBankModule,
     OnboardingModule,
   ],

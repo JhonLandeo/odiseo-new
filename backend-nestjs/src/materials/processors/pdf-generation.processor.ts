@@ -32,6 +32,7 @@ import { TenantService } from '../../database/tenant.service';
 import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
 import { Cycle } from '../../academic-time/entities/cycle.entity';
 import { GcsService } from '../../gcs/gcs.service';
+import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
 
 @Processor('materials-queue')
 export class PdfGenerationProcessor extends WorkerHost {
@@ -48,8 +49,7 @@ export class PdfGenerationProcessor extends WorkerHost {
     private readonly materialsRepo: IMaterialsRepository,
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
-    @InjectEntityManager('questionsConnection')
-    private readonly questionsEntityManager: EntityManager,
+    private readonly flatQuestionsRepo: FlatQuestionsRepository,
     private readonly tenantService: TenantService,
     private readonly gcsService: GcsService,
   ) {
@@ -192,10 +192,7 @@ export class PdfGenerationProcessor extends WorkerHost {
 
             let questionMap = new Map<string, any>();
             if (questionIds.length > 0) {
-              const dbQuestions = await this.questionsEntityManager.query(
-                `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
-                [questionIds.map((id) => BigInt(id))],
-              );
+              const dbQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
               questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
             }
 
@@ -380,26 +377,28 @@ export class PdfGenerationProcessor extends WorkerHost {
             });
           }
 
-          // Save question usages
+          // Save question usages (idempotent: a job retry re-generates this
+          // course, so clear prior usages for this request+course before
+          // re-inserting to avoid duplicating the anti-repetition ledger).
           if (allQuestions.length > 0) {
             await this.tenantService.runInSchema(schemaName, async (manager) => {
-              await this.tenantService.runInSchema(schemaName, async (manager) => {
-                const usages = allQuestions.map((q, idx) => {
-                  const u = new MaterialQuestionUsage();
-                  u.materialRequestId = material_request_id;
-                  u.cycleId = cycle_id;
-                  u.questionId = q.id;
-                  u.courseId = courseId;
-                  u.topicId = q.topicId;
-                  u.subtopicId = q.subtopicId;
-                  u.positionInPdf = idx + 1;
-                  u.wasReplacement = false;
-                  return u;
-                });
-                await manager.save(MaterialQuestionUsage, usages);
-
+              await manager.delete(MaterialQuestionUsage, {
+                materialRequestId: material_request_id,
+                courseId,
               });
-
+              const usages = allQuestions.map((q, idx) => {
+                const u = new MaterialQuestionUsage();
+                u.materialRequestId = material_request_id;
+                u.cycleId = cycle_id;
+                u.questionId = q.id;
+                u.courseId = courseId;
+                u.topicId = q.topicId;
+                u.subtopicId = q.subtopicId;
+                u.positionInPdf = idx + 1;
+                u.wasReplacement = false;
+                return u;
+              });
+              await manager.save(MaterialQuestionUsage, usages);
             });
           }
 
@@ -569,10 +568,7 @@ export class PdfGenerationProcessor extends WorkerHost {
 
           let questionMap = new Map<string, any>();
           if (questionIds.length > 0) {
-            const dbQuestions = await this.questionsEntityManager.query(
-              `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
-              [questionIds.map((id) => BigInt(id))],
-            );
+            const dbQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
             questionMap = new Map(dbQuestions.map((q: any) => [String(q.question_id), q]));
           }
 
@@ -718,21 +714,27 @@ export class PdfGenerationProcessor extends WorkerHost {
           });
         }
 
-        // Save question usages
+        // Save question usages (idempotent — see handleGeneratePdf).
         if (allQuestions.length > 0) {
-          const usages = allQuestions.map((q, idx) => {
-            const u = new MaterialQuestionUsage();
-            u.materialRequestId = material_request_id;
-            u.cycleId = cycle_id;
-            u.questionId = q.id;
-            u.courseId = courseId;
-            u.topicId = q.topicId;
-            u.subtopicId = q.subtopicId;
-            u.positionInPdf = idx + 1;
-            u.wasReplacement = false;
-            return u;
+          await this.tenantService.runInSchema(schemaName, async (manager) => {
+            await manager.delete(MaterialQuestionUsage, {
+              materialRequestId: material_request_id,
+              courseId,
+            });
+            const usages = allQuestions.map((q, idx) => {
+              const u = new MaterialQuestionUsage();
+              u.materialRequestId = material_request_id;
+              u.cycleId = cycle_id;
+              u.questionId = q.id;
+              u.courseId = courseId;
+              u.topicId = q.topicId;
+              u.subtopicId = q.subtopicId;
+              u.positionInPdf = idx + 1;
+              u.wasReplacement = false;
+              return u;
+            });
+            await manager.save(MaterialQuestionUsage, usages);
           });
-          await this.tenantService.runInSchema(schemaName, async (m) => m.save(MaterialQuestionUsage, usages));
         }
 
         return { course_id: courseId, download_url: downloadUrl, status };

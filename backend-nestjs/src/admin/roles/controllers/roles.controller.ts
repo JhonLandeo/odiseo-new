@@ -4,9 +4,10 @@ import { CreateRoleDto } from '../dto/create-role.dto';
 import { UpdateRoleDto } from '../dto/update-role.dto';
 import { PermissionsGuard, RequirePermissions } from '../../../common/guards/permissions.guard';
 import { PERMISSIONS } from '../constants/permissions.constant';
+import { JwtAuthGuard } from '../../../auth/auth.guard';
 
 @Controller('v1/admin/roles')
-@UseGuards(PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 

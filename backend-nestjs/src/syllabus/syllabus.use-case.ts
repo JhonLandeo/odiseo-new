@@ -10,6 +10,8 @@ import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
 import { TenantService } from '../database/tenant.service';
 import { AcademicTimeUseCase } from '../academic-time/academic-time.use-case';
+import { Syllabus } from './entities/syllabus.entity';
+import { SyllabusDistribution } from './entities/syllabus-distribution.entity';
 
 @Injectable()
 export class SyllabusUseCase {
@@ -116,7 +118,11 @@ export class SyllabusUseCase {
     });
   }
 
-  private async buildTemplateMapping(sourceSyllabus: any, targetSyllabus: any, sourceDistributions: any[]) {
+  private async buildTemplateMapping(
+    sourceSyllabus: Syllabus,
+    targetSyllabus: Syllabus,
+    sourceDistributions: SyllabusDistribution[],
+  ) {
     const templateMap: Record<string, string | null> = {};
     if (sourceSyllabus.cycleId === targetSyllabus.cycleId) return templateMap;
 
@@ -164,10 +170,10 @@ export class SyllabusUseCase {
 
   private async copyDistributions(
     syllabusId: string,
-    sourceDistributions: any[],
+    sourceDistributions: SyllabusDistribution[],
     activeWeeks: number[],
-    sourceSyllabus: any,
-    targetSyllabus: any,
+    sourceSyllabus: Syllabus,
+    targetSyllabus: Syllabus,
     templateMap: Record<string, string | null>,
   ) {
     const distributionsToCreate: any[] = [];
@@ -198,10 +204,10 @@ export class SyllabusUseCase {
   }
 
   private async setDefaultTemplate(
-    syllabusId: string, 
-    sourceSyllabus: any, 
-    targetSyllabus: any, 
-    templateMap: Record<string, string | null>
+    syllabusId: string,
+    sourceSyllabus: Syllabus,
+    targetSyllabus: Syllabus,
+    templateMap: Record<string, string | null>,
   ) {
     if (!sourceSyllabus.templateId) return;
 
@@ -215,44 +221,49 @@ export class SyllabusUseCase {
   }
 
   async cloneCycleSyllabuses(targetCycleId: string, sourceCycleId: string) {
-    const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
+    // Atomic: the whole cycle clone runs in a single tenant transaction so a
+    // mid-way failure rolls back every syllabus instead of leaving a partial
+    // clone. Nested repo/use-case calls reuse this ambient transaction.
+    return this.tenantService.runInTenant(async () => {
+      const sourceSyllabuses = await this.syllabusRepo.findByCycle(sourceCycleId);
 
-    if (sourceSyllabuses.length === 0) {
-      throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
-    }
-
-    const targetActiveWeeks =
-      await this.academicTimeUseCase.getActiveWeekNumbers(targetCycleId);
-
-    const existingTargets = await this.syllabusRepo.findByCycle(targetCycleId);
-    const existingTargetMap = new Map(existingTargets.map(s => [s.courseId, s]));
-
-    let clonedCount = 0;
-    for (const sourceSyllabus of sourceSyllabuses) {
-      const existingTarget = existingTargetMap.get(sourceSyllabus.courseId);
-
-      let targetSyllabusId;
-      if (existingTarget) {
-        targetSyllabusId = existingTarget.id;
-      } else {
-        const newSyllabus = await this.syllabusRepo.createSyllabus({
-          cycleId: targetCycleId,
-          courseId: sourceSyllabus.courseId,
-          name: sourceSyllabus.name,
-          isActive: true,
-        });
-        targetSyllabusId = newSyllabus.id;
+      if (sourceSyllabuses.length === 0) {
+        throw new BadRequestException('El ciclo origen no tiene sílabos para clonar.');
       }
 
-      await this.cloneSyllabus(
-        targetSyllabusId,
-        sourceSyllabus.id,
-        targetActiveWeeks,
-      );
-      clonedCount++;
-    }
+      const targetActiveWeeks =
+        await this.academicTimeUseCase.getActiveWeekNumbers(targetCycleId);
 
-    return { clonedCount };
+      const existingTargets = await this.syllabusRepo.findByCycle(targetCycleId);
+      const existingTargetMap = new Map(existingTargets.map(s => [s.courseId, s]));
+
+      let clonedCount = 0;
+      for (const sourceSyllabus of sourceSyllabuses) {
+        const existingTarget = existingTargetMap.get(sourceSyllabus.courseId);
+
+        let targetSyllabusId;
+        if (existingTarget) {
+          targetSyllabusId = existingTarget.id;
+        } else {
+          const newSyllabus = await this.syllabusRepo.createSyllabus({
+            cycleId: targetCycleId,
+            courseId: sourceSyllabus.courseId,
+            name: sourceSyllabus.name,
+            isActive: true,
+          });
+          targetSyllabusId = newSyllabus.id;
+        }
+
+        await this.cloneSyllabus(
+          targetSyllabusId,
+          sourceSyllabus.id,
+          targetActiveWeeks,
+        );
+        clonedCount++;
+      }
+
+      return { clonedCount };
+    });
   }
 
   async setTemplate(syllabusId: string, templateId: string) {

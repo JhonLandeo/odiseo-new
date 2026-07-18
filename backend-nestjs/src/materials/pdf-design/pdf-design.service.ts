@@ -84,12 +84,14 @@ export class PdfDesignService {
     });
   }
 
+  // Spec-kit: state-mutating updates mutate and return void. The HTTP layer
+  // re-reads the resource to return its representation (see the controller).
   async update(
     id: string,
     tenantId: string,
     dto: Partial<CreatePdfDesignDto>,
-  ): Promise<PdfDesignTemplate> {
-    return this.tenantService.runInTenant(async (manager) => {
+  ): Promise<void> {
+    await this.tenantService.runInTenant(async (manager) => {
       const designRepo = manager.getRepository(PdfDesignTemplate);
       const design = await this.findById(id, tenantId);
       if (dto.isDefault && !design.isDefault) {
@@ -106,7 +108,7 @@ export class PdfDesignService {
         }
       }
       Object.assign(design, dto);
-      return designRepo.save(design);
+      await designRepo.save(design);
     });
   }
 

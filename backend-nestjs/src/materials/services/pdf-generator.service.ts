@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { chromium, Browser } from 'playwright';
 import { PDFDocument } from 'pdf-lib';
 import { ExtractedQuestion } from './core-api.service';
@@ -26,8 +26,49 @@ export interface DesignTemplateConfig {
 }
 
 @Injectable()
-export class PdfGeneratorService {
+export class PdfGeneratorService implements OnModuleDestroy {
   private readonly logger = new Logger(PdfGeneratorService.name);
+
+  // Shared browser instance (pool of one). Launching Chromium is the expensive
+  // operation (~hundreds of ms + a full process); rendering pages is cheap. We
+  // launch once, reuse across all generatePdf calls via isolated contexts, and
+  // relaunch only if the browser crashes/disconnects.
+  private browser: Browser | null = null;
+  private browserLaunch: Promise<Browser> | null = null;
+
+  private async getBrowser(): Promise<Browser> {
+    if (this.browser && this.browser.isConnected()) {
+      return this.browser;
+    }
+    if (!this.browserLaunch) {
+      this.browserLaunch = chromium
+        .launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        })
+        .then((browser) => {
+          this.browser = browser;
+          this.browserLaunch = null;
+          browser.on('disconnected', () => {
+            this.browser = null;
+          });
+          this.logger.log('Chromium browser launched (shared pool instance)');
+          return browser;
+        })
+        .catch((err) => {
+          this.browserLaunch = null;
+          throw err;
+        });
+    }
+    return this.browserLaunch;
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
 
   private async convertUrlToBase64(
     url: string | null | undefined,
@@ -135,13 +176,12 @@ export class PdfGeneratorService {
 
     const footerTemplate = buildGridHtml(resolvedDesign.footerConfig, false);
 
-    let browser: Browser | null = null;
+    const browser = await this.getBrowser();
+    // One isolated context per PDF: closing it tears down all its pages, so a
+    // long-lived shared browser does not leak pages across generations.
+    const context = await browser.newContext();
     try {
-      browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-      const page = await browser.newPage();
+      const page = await context.newPage();
       await page.setContent(html, { waitUntil: 'networkidle' });
 
       const playwrightHeader = buildGridHtml(resolvedDesign.headerConfig, true);
@@ -188,7 +228,7 @@ export class PdfGeneratorService {
         <body><div class="cover"></div></body>
         </html>`;
 
-        const coverPage = await browser.newPage();
+        const coverPage = await context.newPage();
         await coverPage.setContent(coverHtml, { waitUntil: 'networkidle' });
         const coverPdfBuffer = await coverPage.pdf({
           format: 'A4',
@@ -223,9 +263,7 @@ export class PdfGeneratorService {
       );
       throw error;
     } finally {
-      if (browser) {
-        await browser.close();
-      }
+      await context.close();
     }
   }
 

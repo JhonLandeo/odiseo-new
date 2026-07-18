@@ -189,8 +189,19 @@ export class AuthService {
       ) as string[];
     });
 
-    // Set cache with a 30-minute TTL (in milliseconds for cache-manager v5+)
-    await this.cacheManager.set(cacheKey, permissions, 30 * 60 * 1000);
+    // Short TTL keeps the "avoid stale claims" contract honest: role/permission
+    // changes propagate in <= 60s even without explicit invalidation. Wire
+    // invalidateUserPermissions() at role-mutation sites for instant propagation.
+    await this.cacheManager.set(cacheKey, permissions, 60 * 1000);
     return permissions;
+  }
+
+  /**
+   * Invalidates the cached permissions for a specific user, forcing the next
+   * request to reload them from the database. Call this from role/permission
+   * mutation flows (role edited, role assigned/revoked) for instant propagation.
+   */
+  async invalidateUserPermissions(companyId: string, userId: string): Promise<void> {
+    await this.cacheManager.del(`auth:permissions:${companyId}:${userId}`);
   }
 }

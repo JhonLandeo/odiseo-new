@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { TenantMiddleware } from './tenant.middleware';
 import { Company } from '../tenants/entities/tenant.entity';
 
@@ -149,6 +149,36 @@ describe('TenantMiddleware', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(mockNext).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('subscription status enforcement', () => {
+    it('should throw ForbiddenException when the company is SUSPENDED', async () => {
+      mockCompanyRepo.findOne.mockResolvedValue({
+        ...mockCompany,
+        status: 'SUSPENDED',
+      });
+
+      await expect(
+        middleware.use(createMockReq(), mockRes, mockNext),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(mockCls.set).not.toHaveBeenCalledWith(
+        'tenantSchema',
+        'tenant_uuid-company-A',
+      );
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+
+    it('should allow a company in GRACE_PERIOD to resolve', async () => {
+      mockCompanyRepo.findOne.mockResolvedValue({
+        ...mockCompany,
+        status: 'GRACE_PERIOD',
+      });
+
+      await middleware.use(createMockReq(), mockRes, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
     });
   });
 

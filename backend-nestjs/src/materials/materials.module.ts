@@ -29,6 +29,15 @@ import { BullModule } from '@nestjs/bullmq';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { QuestionBankModule } from '../question-bank/question-bank.module';
+import { WebhookAuthGuard } from './guards/webhook-auth.guard';
+
+// Invariant: heavy compute (headless-browser PDF render) must run outside the
+// process that serves HTTP. When PROCESS_ROLE=api, the queue processor is NOT
+// registered, so API nodes never render PDFs; the separate worker entrypoint
+// (worker.main.ts, PROCESS_ROLE=worker) owns processing. Default (unset) keeps
+// both in one process for local/dev convenience.
+const isApiOnly = process.env.PROCESS_ROLE === 'api';
+const queueProcessors = isApiOnly ? [] : [PdfGenerationProcessor];
 
 @Module({
   imports: [
@@ -65,7 +74,8 @@ import { QuestionBankModule } from '../question-bank/question-bank.module';
     GetMaterialQuestionsUseCase,
     CoreApiService,
     PdfGeneratorService,
-    PdfGenerationProcessor,
+    WebhookAuthGuard,
+    ...queueProcessors,
     {
       provide: I_MATERIALS_REPOSITORY,
       useClass: MaterialsRepository,

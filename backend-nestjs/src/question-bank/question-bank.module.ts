@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Question } from './entities/question.entity';
 import { Alternative } from './entities/alternative.entity';
 import { QuestionBankService } from './question-bank.service';
+import { FlatQuestionsRepository } from './flat-questions.repository';
 import { MaterialReviewQuestion } from '../materials/entities/material-review-question.entity';
 
 @Module({
@@ -10,7 +11,7 @@ import { MaterialReviewQuestion } from '../materials/entities/material-review-qu
     TypeOrmModule.forFeature([Question, Alternative], 'questionsConnection'),
     TypeOrmModule.forFeature([MaterialReviewQuestion]),
   ],
-  providers: [QuestionBankService],
-  exports: [QuestionBankService],
+  providers: [QuestionBankService, FlatQuestionsRepository],
+  exports: [QuestionBankService, FlatQuestionsRepository],
 })
 export class QuestionBankModule {}

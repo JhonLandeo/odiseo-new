@@ -2,6 +2,7 @@ import {
   Injectable,
   NestMiddleware,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ClsService } from 'nestjs-cls';
@@ -67,6 +68,14 @@ export class TenantMiddleware implements NestMiddleware {
     if (!company) {
       throw new BadRequestException(
         `The subdomain '${subdomain}' does not correspond to any registered company.`,
+      );
+    }
+
+    // Enforce subscription status: a SUSPENDED company must not resolve to its
+    // tenant context, even if isActive is still true. GRACE_PERIOD stays allowed.
+    if (company.status === 'SUSPENDED') {
+      throw new ForbiddenException(
+        `The company '${subdomain}' is currently suspended. Please contact support.`,
       );
     }
 

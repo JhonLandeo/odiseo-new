@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { ClsService } from 'nestjs-cls';
+import { assertValidSchema } from './schema-name.util';
 
 @Injectable()
 export class TenantService {
@@ -23,32 +24,35 @@ export class TenantService {
       throw new Error('Tenant Schema no está definido en el contexto actual');
     }
 
-    const existingManager = this.cls.get('tx_manager') as EntityManager;
-    if (existingManager) {
-      return operation(existingManager);
-    }
-
-    return this.dataSource.transaction(async (manager) => {
-      await manager.query(`SET LOCAL search_path TO "${tenantSchema}", public`);
-      return this.cls.runWith({ ...this.cls.get(), tx_manager: manager } as any, () => operation(manager));
-    });
+    return this.runInSchema(tenantSchema, operation);
   }
 
   /**
-   * Helper para cuando se necesita pasar un schema explícito (ej. procesos background)
+   * Ejecuta una operación con un esquema explícito (ej. procesos background).
+   *
+   * Aislamiento: solo se reutiliza la transacción ambiente cuando pertenece
+   * EXACTAMENTE al mismo esquema solicitado. Si el esquema difiere, se abre
+   * una transacción nueva (conexión distinta del pool con su propio
+   * search_path), evitando operar sobre el esquema equivocado.
    */
   async runInSchema<T>(
     schema: string,
     operation: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
+    assertValidSchema(schema);
+
     const existingManager = this.cls.get('tx_manager') as EntityManager;
-    if (existingManager) {
+    const existingSchema = this.cls.get('tx_schema') as string;
+    if (existingManager && existingSchema === schema) {
       return operation(existingManager);
     }
 
     return this.dataSource.transaction(async (manager) => {
       await manager.query(`SET LOCAL search_path TO "${schema}", public`);
-      return this.cls.runWith({ ...this.cls.get(), tx_manager: manager } as any, () => operation(manager));
+      return this.cls.runWith(
+        { ...this.cls.get(), tx_manager: manager, tx_schema: schema } as any,
+        () => operation(manager),
+      );
     });
   }
 }

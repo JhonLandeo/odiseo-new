@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import * as express from 'express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './auth.guard';
@@ -21,6 +22,9 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  // Brute-force protection: max 5 login attempts per minute per IP.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(ThrottlerGuard)
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: express.Response,

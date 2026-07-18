@@ -120,9 +120,10 @@ export class AcademicTimeUseCase {
     if (needsRecalculation) {
       const start = dayjs.utc(finalStartDate);
 
-      // Fetch existing weeks to preserve their IDs
-      const existingWeeksResult = await this.repository.getCycles(1, 0, existingCycle.name);
-      const existingWeeks = existingWeeksResult.data[0]?.weeks || [];
+      // Fetch existing weeks by cycleId (its stable key) to preserve their IDs
+      // and isActive state. Never look them up by name — names are not unique
+      // and an ILIKE search could return a different cycle's weeks.
+      const existingWeeks = await this.repository.getWeeksByCycle(id);
 
       cycleUpdate.weeks = [];
       for (let i = 1; i <= finalTotalWeeks; i++) {

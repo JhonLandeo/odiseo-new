@@ -1,53 +1,51 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { UserRole } from '../entities/user-role.entity';
 import { Role } from '../entities/role.entity';
+import { TenantService } from '../../../database/tenant.service';
 
 @Injectable()
 export class RolesResolverService {
-  constructor(
-    @InjectRepository(UserRole)
-    private readonly userRoleRepository: Repository<UserRole>,
-    @InjectRepository(Role)
-    private readonly roleRepository: Repository<Role>,
-  ) {}
+  // Roles/user_roles live in the per-tenant schema; resolve inside the tenant
+  // transaction rather than against the default (public) connection.
+  constructor(private readonly tenantService: TenantService) {}
 
   /**
    * Calculates the flattened list of all unique permissions a user has,
    * taking into account all their assigned roles and any roles those inherit from.
    */
   async getFlattenedPermissionsForUser(userId: string): Promise<string[]> {
-    const userRoles = await this.userRoleRepository.find({ where: { userId } });
-    if (!userRoles.length) return [];
+    return this.tenantService.runInTenant(async (manager) => {
+      const userRoles = await manager
+        .getRepository(UserRole)
+        .find({ where: { userId } });
+      if (!userRoles.length) return [];
 
-    const roleIds = userRoles.map(ur => ur.roleId);
-    
-    // Fetch all roles with their inherited roles
-    const allRoles = await this.roleRepository.find({ relations: ['inheritedRoles'] });
-    
-    const permissionsSet = new Set<string>();
-    const visitedRoleIds = new Set<string>();
+      const roleIds = userRoles.map((ur) => ur.roleId);
 
-    const resolveRolePermissions = (currentRoleId: string) => {
-      if (visitedRoleIds.has(currentRoleId)) return; // Prevent cyclic inheritance issues
-      visitedRoleIds.add(currentRoleId);
+      // Fetch all roles with their inherited roles
+      const allRoles = await manager
+        .getRepository(Role)
+        .find({ relations: ['inheritedRoles'] });
 
-      const role = allRoles.find(r => r.id === currentRoleId);
-      if (!role) return;
+      const permissionsSet = new Set<string>();
+      const visitedRoleIds = new Set<string>();
 
-      // Add direct permissions
-      role.permissions?.forEach(p => permissionsSet.add(p));
+      const resolveRolePermissions = (currentRoleId: string) => {
+        if (visitedRoleIds.has(currentRoleId)) return; // Prevent cyclic inheritance issues
+        visitedRoleIds.add(currentRoleId);
 
-      // Recursively add inherited permissions
-      role.inheritedRoles?.forEach(inherited => {
-        resolveRolePermissions(inherited.id);
-      });
-    };
+        const role = allRoles.find((r) => r.id === currentRoleId);
+        if (!role) return;
 
-    // Start resolution from directly assigned roles
-    roleIds.forEach(id => resolveRolePermissions(id));
+        role.permissions?.forEach((p) => permissionsSet.add(p));
+        role.inheritedRoles?.forEach((inherited) => {
+          resolveRolePermissions(inherited.id);
+        });
+      };
 
-    return Array.from(permissionsSet);
+      roleIds.forEach((id) => resolveRolePermissions(id));
+
+      return Array.from(permissionsSet);
+    });
   }
 }

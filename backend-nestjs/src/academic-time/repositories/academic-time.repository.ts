@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { IsNull, ILike } from 'typeorm';
 import { IAcademicTimeRepository } from './i-academic-time.repository';
 import { Cycle } from '../entities/cycle.entity';
@@ -9,6 +9,8 @@ import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
 export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
+  private readonly logger = new Logger(AcademicTimeRepositoryImpl.name);
+
   constructor(private readonly tenantService: TenantService) {}
 
   async getCycles(
@@ -118,6 +120,15 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
     });
   }
 
+  async getWeeksByCycle(cycleId: string): Promise<CycleWeek[]> {
+    return this.tenantService.runInTenant(async (manager) => {
+      return manager.find(CycleWeek, {
+        where: { cycleId },
+        order: { weekNumber: 'ASC' },
+      });
+    });
+  }
+
   async getCycleWithSyllabus(id: string): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const cycle = await manager.findOne(Cycle, { where: { id } });
@@ -132,7 +143,11 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
         );
         hasSyllabus = parseInt(result[0]?.count || '0', 10) > 0;
       } catch (e) {
-        // Fallback to false if the table doesn't exist yet
+        // The syllabus table should always exist in a provisioned tenant;
+        // surface the failure instead of silently assuming no syllabus.
+        this.logger.warn(
+          `Could not check syllabus relations for cycle ${id}: ${(e as Error).message}`,
+        );
       }
 
       return { ...cycle, hasSyllabus };

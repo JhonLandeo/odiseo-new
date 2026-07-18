@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TenantService } from './tenant.service';
 import { SchemaService } from './schema.service';
+import { TenantMigrationService } from './tenant-migration.service';
 import { Company } from '../tenants/entities/tenant.entity';
 import { Question } from '../question-bank/entities/question.entity';
 import { Alternative } from '../question-bank/entities/alternative.entity';
@@ -51,7 +52,7 @@ import { Alternative } from '../question-bank/entities/alternative.entity';
     // Company entity needed by TenantMiddleware (global scope)
     TypeOrmModule.forFeature([Company]),
   ],
-  providers: [TenantService, SchemaService],
-  exports: [TenantService, SchemaService, TypeOrmModule],
+  providers: [TenantService, SchemaService, TenantMigrationService],
+  exports: [TenantService, SchemaService, TenantMigrationService, TypeOrmModule],
 })
 export class DatabaseModule { }

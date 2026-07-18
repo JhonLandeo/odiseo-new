@@ -2,11 +2,21 @@ import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/co
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsAdminService } from './tenants-admin.service';
 import { JwtAuthGuard } from '../../auth/auth.guard';
+import {
+  PermissionsGuard,
+  RequirePermissions,
+} from '../../common/guards/permissions.guard';
+import { PERMISSIONS } from '../roles/constants/permissions.constant';
 import { CreateTenantDto, UpdateTenantDto, UpdateTenantStatusDto, ResetAdminDto } from './dto/tenant.dto';
 
+// Platform control plane: every endpoint manages tenants across the whole
+// platform, so all require the platform-level MANAGE_TENANTS permission (which
+// tenant-scoped Super Admins do NOT have). Without this, any authenticated user
+// of any tenant could suspend companies or reset another tenant's admin.
 @ApiTags('Admin / Tenants')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(PERMISSIONS.MANAGE_TENANTS)
 @Controller('v1/admin/tenants')
 export class TenantsAdminController {
   constructor(private readonly tenantsAdminService: TenantsAdminService) {}

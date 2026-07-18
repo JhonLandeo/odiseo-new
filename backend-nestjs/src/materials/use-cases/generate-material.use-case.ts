@@ -2,8 +2,7 @@ import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { v4 as uuidv4 } from 'uuid';
-import { InjectEntityManager } from '@nestjs/typeorm';
-import { EntityManager, Between, In } from 'typeorm';
+import { Between, In } from 'typeorm';
 import {
   I_MATERIALS_REPOSITORY,
   type IMaterialsRepository,
@@ -39,8 +38,6 @@ export class GenerateMaterialUseCase {
     @InjectQueue('materials-queue')
     private readonly materialsQueue: Queue,
     private readonly tenantService: TenantService,
-    @InjectEntityManager('questionsConnection')
-    private readonly questionsEntityManager: EntityManager,
     private readonly questionBankService: QuestionBankService,
   ) {}
 
@@ -119,8 +116,13 @@ export class GenerateMaterialUseCase {
           ...Array(mediumCount).fill('MEDIUM'),
           ...Array(hardCount).fill('HARD')
         ];
-        // Shuffle the levels pool to distribute difficulties randomly across subtopics
-        levelsPool.sort(() => 0.5 - Math.random());
+        // Shuffle the levels pool (unbiased Fisher-Yates) to distribute
+        // difficulties randomly across subtopics. `sort(() => 0.5 - random)` is
+        // a biased shuffle and must not be used.
+        for (let i = levelsPool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [levelsPool[i], levelsPool[j]] = [levelsPool[j], levelsPool[i]];
+        }
 
         const topics = distributions.map((dist, idx) => {
           const baseQty = Math.floor(targetQuantity / distributions.length);

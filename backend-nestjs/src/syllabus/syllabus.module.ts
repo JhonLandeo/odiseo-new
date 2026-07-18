@@ -8,11 +8,14 @@ import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import { SyllabusUseCase } from './syllabus.use-case';
 import { MaterialGeneratedListener } from './listeners/material-generated.listener';
 import { AcademicTimeModule } from '../academic-time/academic-time.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Syllabus, SyllabusDistribution]),
     AcademicTimeModule,
+    // Required so JwtAuthGuard (and PermissionsGuard) can resolve AuthService.
+    AuthModule,
   ],
   controllers: [SyllabusController],
   providers: [

@@ -60,7 +60,9 @@ export class PdfDesignController {
     @Param('id') id: string,
     @Body() dto: Partial<CreatePdfDesignDto>,
   ) {
-    return this.pdfDesignService.update(id, this.getTenantId(), dto);
+    const tenantId = this.getTenantId();
+    await this.pdfDesignService.update(id, tenantId, dto);
+    return this.pdfDesignService.findById(id, tenantId);
   }
 
   @Delete(':id')

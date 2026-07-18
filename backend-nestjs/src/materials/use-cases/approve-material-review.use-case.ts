@@ -38,7 +38,17 @@ export class ApproveMaterialReviewUseCase {
         throw new NotFoundException('La solicitud de material no existe');
       }
 
-      if (request.version !== dto.version) {
+      // Atomic optimistic guard: bump the version only if it still matches the
+      // client's last-known value. A concurrent draft that already bumped it
+      // gets affected=0 here and loses — so two admins can no longer overwrite
+      // each other's curation silently (the previous read-only check did not
+      // bump the version, leaving concurrent drafts unprotected).
+      const bump = await manager.update(
+        MaterialRequest,
+        { id, version: dto.version },
+        { version: () => '"version" + 1' },
+      );
+      if (bump.affected === 0) {
         throw new ConflictException(
           'El material ya está siendo revisado por otro administrador o su estado ha cambiado',
         );

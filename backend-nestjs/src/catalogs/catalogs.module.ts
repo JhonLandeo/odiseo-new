@@ -21,6 +21,7 @@ const providers: any[] = [
 import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { HttpModule } from '@nestjs/axios';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -33,6 +34,8 @@ import { HttpModule } from '@nestjs/axios';
       timeout: 10000,
       maxRedirects: 3,
     }),
+    // Required so JwtAuthGuard / PermissionsGuard can resolve AuthService.
+    AuthModule,
   ],
   controllers: [CatalogsController],
   providers,

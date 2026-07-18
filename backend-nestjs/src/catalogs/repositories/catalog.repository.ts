@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { InjectEntityManager } from '@nestjs/typeorm';
+import { EntityManager } from 'typeorm';
 import { ICatalogRepository } from './i-catalog.repository';
 import { Course } from '../entities/course.entity';
 import { Topic } from '../entities/topic.entity';
@@ -7,7 +9,11 @@ import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
 export class CatalogRepositoryImpl implements ICatalogRepository {
-  constructor(private readonly tenantService: TenantService) {}
+  constructor(
+    private readonly tenantService: TenantService,
+    @InjectEntityManager()
+    private readonly defaultManager: EntityManager,
+  ) {}
 
   async getActiveHierarchy(): Promise<any[]> {
     return this.tenantService.runInTenant(async (manager) => {
@@ -159,49 +165,53 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
   }
 
   async upsertCatalogs(payload: any): Promise<void> {
-    await this.tenantService.runInTenant(async (manager) => {
-      if (!payload || !payload.courses) return;
+    // Catalogs (courses/topics/subtopics) are GLOBAL public-schema entities, so
+    // this write needs NO tenant context. It is called from the cron, which has
+    // no CLS tenant — using runInTenant here previously threw "Tenant Schema no
+    // está definido" every run and silently killed the sync.
+    const manager = this.defaultManager;
 
-      const courses = payload.courses;
-      if (courses.length === 0) return;
+    if (!payload || !payload.courses) return;
 
-      // 1. Upsert Courses
-      const coursesData = courses.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-      }));
-      await manager.upsert(Course, coursesData, ['id']);
+    const courses = payload.courses;
+    if (courses.length === 0) return;
 
-      // 2. Gather & Upsert Topics and Subtopics
-      const topicsData: any[] = [];
-      const subtopicsData: any[] = [];
+    // 1. Upsert Courses
+    const coursesData = courses.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+    }));
+    await manager.upsert(Course, coursesData, ['id']);
 
-      for (const c of courses) {
-        if (!c.topics) continue;
-        for (const t of c.topics) {
-          topicsData.push({
-            id: t.id,
-            courseId: c.id,
-            name: t.name,
+    // 2. Gather & Upsert Topics and Subtopics
+    const topicsData: any[] = [];
+    const subtopicsData: any[] = [];
+
+    for (const c of courses) {
+      if (!c.topics) continue;
+      for (const t of c.topics) {
+        topicsData.push({
+          id: t.id,
+          courseId: c.id,
+          name: t.name,
+        });
+        if (!t.subtopics) continue;
+        for (const s of t.subtopics) {
+          subtopicsData.push({
+            id: s.id,
+            topicId: t.id,
+            name: s.name,
           });
-          if (!t.subtopics) continue;
-          for (const s of t.subtopics) {
-            subtopicsData.push({
-              id: s.id,
-              topicId: t.id,
-              name: s.name,
-            });
-          }
         }
       }
+    }
 
-      if (topicsData.length > 0) {
-        await manager.upsert(Topic, topicsData, ['id']);
-      }
+    if (topicsData.length > 0) {
+      await manager.upsert(Topic, topicsData, ['id']);
+    }
 
-      if (subtopicsData.length > 0) {
-        await manager.upsert(Subtopic, subtopicsData, ['id']);
-      }
-    });
+    if (subtopicsData.length > 0) {
+      await manager.upsert(Subtopic, subtopicsData, ['id']);
+    }
   }
 }

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QuestionBankService } from '../../question-bank/question-bank.service';
+import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
 import { GcsService } from '../../gcs/gcs.service';
@@ -41,8 +42,7 @@ export class CoreApiService {
 
   constructor(
     private readonly questionBankService: QuestionBankService,
-    @InjectEntityManager('questionsConnection')
-    private readonly questionsEntityManager: EntityManager,
+    private readonly flatQuestionsRepo: FlatQuestionsRepository,
     private readonly gcsService: GcsService,
     @InjectEntityManager()
     private readonly defaultEntityManager: EntityManager,
@@ -60,7 +60,6 @@ export class CoreApiService {
       `Fetching ${quantity} questions for topic ${topicId}, subtopic ${subtopicId}. Excluded: ${excludeIds.length}`,
     );
 
-    const activeTenantId = tenantId || '7b89-11c2-d344';
     const dbQuestions = await this.questionBankService.getRandomQuestions(
       subtopicId,
       quantity,
@@ -74,10 +73,7 @@ export class CoreApiService {
     if (filteredQuestions.length === 0) return [];
 
     const questionIds = filteredQuestions.map((q) => q.id);
-    const flatQuestions = await this.questionsEntityManager.query(
-      `SELECT * FROM odiseo.flat_questions WHERE question_id = ANY($1)`,
-      [questionIds.map((id) => BigInt(id))],
-    );
+    const flatQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
 
     const cycle = cycleId
       ? await this.defaultEntityManager.findOne(Cycle, { where: { id: cycleId } })

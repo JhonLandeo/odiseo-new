@@ -2,9 +2,14 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TenantProvisioningEvent } from './events/tenant-provisioning.event';
+import { TenantService } from '../../database/tenant.service';
+
+// Name of the tenant's system-default admin role (matches the provisioning seed).
+const SUPER_ADMIN_ROLE_NAME = 'Super Administrador';
 
 @Injectable()
 export class TenantsAdminService {
@@ -12,6 +17,7 @@ export class TenantsAdminService {
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     private readonly eventEmitter: EventEmitter2,
+    private readonly tenantService: TenantService,
   ) {}
 
   async findAll(): Promise<any[]> {
@@ -129,43 +135,48 @@ export class TenantsAdminService {
     return this.companyRepository.save(company);
   }
 
-  async resetAdminCredentials(id: string, newEmail: string, newPassword?: string): Promise<{ success: boolean; newEmail: string }> {
+  async resetAdminCredentials(
+    id: string,
+    newEmail: string,
+    newPassword?: string,
+  ): Promise<{ success: boolean; newEmail: string; temporaryPassword?: string }> {
     const company = await this.companyRepository.findOne({ where: { id } });
     if (!company) {
       throw new NotFoundException('Tenant no encontrado');
     }
 
-    const password = newPassword || 'Temporal123!';
+    // No hardcoded default: when no password is supplied, generate a strong
+    // random one and return it once so the operator can hand it over.
+    const generated = newPassword ? undefined : randomBytes(12).toString('base64url');
+    const password = newPassword ?? generated!;
     const passwordHash = await bcrypt.hash(password, 10);
     const schemaName = `tenant_${company.id}`;
 
-    const queryRunner = this.companyRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // Find and update the Director user in the tenant schema
-      const updateQuery = `
-        UPDATE "${schemaName}".users 
+    const rows = await this.tenantService.runInSchema(schemaName, async (manager) => {
+      // search_path is set to the tenant schema, so tables are unqualified.
+      return manager.query(
+        `
+        UPDATE users
         SET email = $1, password_hash = $2, updated_at = now()
         WHERE id = (
-          SELECT ur.user_id 
-          FROM "${schemaName}".user_roles ur 
-          JOIN "${schemaName}".roles r ON ur.role_id = r.id 
-          WHERE r.name = 'Director'
+          SELECT ur.user_id
+          FROM user_roles ur
+          JOIN roles r ON ur.role_id = r.id
+          WHERE r.name = $3
           LIMIT 1
         )
-      `;
-      const result = await queryRunner.query(updateQuery, [newEmail, passwordHash]);
-      
-      if (result[1] === 0) { // result[1] is the rowCount in Postgres update
-        throw new NotFoundException('Usuario Director no encontrado en el esquema del cliente.');
-      }
-      
-      return { success: true, newEmail };
-    } catch (error) {
-      throw error;
-    } finally {
-      await queryRunner.release();
+        RETURNING id
+      `,
+        [newEmail, passwordHash, SUPER_ADMIN_ROLE_NAME],
+      );
+    });
+
+    if (!rows || rows.length === 0) {
+      throw new NotFoundException(
+        'Administrador principal no encontrado en el esquema del cliente.',
+      );
     }
+
+    return { success: true, newEmail, temporaryPassword: generated };
   }
 }

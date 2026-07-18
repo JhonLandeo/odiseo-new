@@ -10,11 +10,13 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ClsService } from 'nestjs-cls';
+import { WebhookAuthGuard } from './guards/webhook-auth.guard';
 import { GenerateMaterialDto } from './dto/generate-material.dto';
 import { WebhookStatusRequestDto } from './dto/webhook-status-request.dto';
 import { ApproveReviewDto } from './dto/approve-review.dto';
@@ -68,6 +70,7 @@ export class MaterialsController {
 
   @Post('webhook/status')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(WebhookAuthGuard)
   @ApiOperation({
     summary: 'Webhook interno para actualización de estado desde el Worker',
   })
