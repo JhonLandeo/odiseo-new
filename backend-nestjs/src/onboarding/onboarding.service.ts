@@ -36,75 +36,57 @@ export class OnboardingService {
 
   constructor(private readonly tenantService: TenantService) {}
 
+  /**
+   * Read-only by design.
+   *
+   * This used to INSERT a progress row and UPDATE the cached step list from
+   * inside a GET, which broke HTTP safety: a browser prefetch mutated state and
+   * a retry duplicated the insert — the actual mechanism behind the duplicate
+   * rows. Step completion is derived from the real tables on every call anyway,
+   * so persisting it on read bought nothing and is simply dropped.
+   *
+   * Consequence: `onboarding_progress.steps_completed` is now written by no one
+   * and read by no one. It is vestigial, left in place because dropping a column
+   * needs a migration.
+   */
   async getProgress(): Promise<OnboardingProgressDto> {
     return this.tenantService.runInTenant(async (manager) => {
-      // Load or create progress record
-      let progressRows = await manager.query(
-        `SELECT steps_completed, is_dismissed FROM onboarding_progress LIMIT 1`,
+      // Deterministic pick: the table has no unique constraint, so an already
+      // duplicated tenant must at least resolve to the same row every time.
+      const dismissalRows = await manager.query(
+        `SELECT is_dismissed FROM onboarding_progress ORDER BY created_at ASC, id ASC LIMIT 1`,
       );
+      // Absent row simply means "not dismissed" — no write needed to say that.
+      const isDismissed: boolean = dismissalRows[0]?.is_dismissed ?? false;
 
-      if (progressRows.length === 0) {
-        await manager.query(
-          `INSERT INTO onboarding_progress (steps_completed, is_dismissed) VALUES ('[]'::jsonb, false)`,
-        );
-        progressRows = [{ steps_completed: [], is_dismissed: false }];
-      }
-
-      const { steps_completed: stepsCompleted, is_dismissed: isDismissed } =
-        progressRows[0];
-      const verifiedSteps = new Set<OnboardingStep>(
-        stepsCompleted as OnboardingStep[],
-      );
-
-      // Step 1: Check cycles
-      const hasCycle = await manager.query(
-        `SELECT 1 FROM cycles WHERE deleted_at IS NULL LIMIT 1`,
-      );
-      if (hasCycle.length > 0) verifiedSteps.add('create_cycle');
-
-      // Step 2: Check templates
-      const hasTemplate = await manager.query(
-        `SELECT 1 FROM pdf_design_templates LIMIT 1`,
-      );
-      if (hasTemplate.length > 0) verifiedSteps.add('create_pdf_template');
-
-      // Step 3: Check syllabus
-      const hasSyllabus = await manager.query(
-        `SELECT 1 FROM syllabus WHERE is_active = true LIMIT 1`,
-      );
-      if (hasSyllabus.length > 0) verifiedSteps.add('setup_syllabus');
-
-      // Step 4: Check material requests
-      const hasMaterial = await manager.query(
-        `SELECT 1 FROM materials LIMIT 1`,
-      );
-      if (hasMaterial.length > 0) verifiedSteps.add('generate_material');
-
-      const completedArray = Array.from(verifiedSteps);
-      const progressPercentage = Math.round(
-        (completedArray.length / ONBOARDING_STEPS.length) * 100,
+      // One round-trip for all four checks. They were four sequential
+      // `SELECT 1 ... LIMIT 1` on an endpoint the frontend hits on every load.
+      const [flags] = await manager.query(
+        `SELECT
+           EXISTS(SELECT 1 FROM cycles WHERE deleted_at IS NULL) AS create_cycle,
+           EXISTS(SELECT 1 FROM pdf_design_templates) AS create_pdf_template,
+           EXISTS(SELECT 1 FROM syllabus WHERE is_active = true) AS setup_syllabus,
+           EXISTS(SELECT 1 FROM materials) AS generate_material`,
       );
 
       const availableSteps: OnboardingStepInfo[] = ONBOARDING_STEPS.map(
         (id) => ({
           id,
           label: STEP_LABELS[id],
-          completed: verifiedSteps.has(id),
+          completed: Boolean(flags?.[id]),
         }),
       );
 
-      // Update if changed
-      if (completedArray.length !== stepsCompleted.length) {
-        await manager.query(
-          `UPDATE onboarding_progress SET steps_completed = $1::jsonb, updated_at = now()`,
-          [JSON.stringify(completedArray)],
-        );
-      }
+      const stepsCompleted = availableSteps
+        .filter((step) => step.completed)
+        .map((step) => step.id);
 
       return {
-        stepsCompleted: completedArray,
+        stepsCompleted,
         isDismissed,
-        progressPercentage,
+        progressPercentage: Math.round(
+          (stepsCompleted.length / ONBOARDING_STEPS.length) * 100,
+        ),
         availableSteps,
       };
     });
@@ -120,22 +102,48 @@ export class OnboardingService {
     return { success: true };
   }
 
+  /**
+   * Atomic get-or-create of the tenant's single progress row.
+   *
+   * `onboarding_progress` has no unique constraint to hang an
+   * `ON CONFLICT ... DO UPDATE` on (only `id UUID PRIMARY KEY DEFAULT
+   * gen_random_uuid()`), so exclusion is taken explicitly: a transaction-scoped
+   * advisory lock keyed on the tenant's own schema serialises concurrent
+   * get-or-create for that tenant, and one CTE statement then updates the
+   * existing row or inserts the first one. Two parallel calls can no longer
+   * both observe "no row" and both insert.
+   *
+   * The previous COUNT-then-INSERT/UPDATE also updated EVERY row (no WHERE);
+   * the UPDATE below is scoped to the single row the CTE selected.
+   */
   private async upsertTourDismissal(isDismissed: boolean): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      const count = await manager.query(
-        `SELECT COUNT(*) FROM onboarding_progress`,
+      // runInTenant runs inside a transaction, so this lock is released on
+      // commit/rollback. current_schema() is the tenant schema (search_path),
+      // which keeps the key distinct per tenant.
+      await manager.query(
+        `SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.onboarding_progress'))`,
       );
-      if (parseInt(count[0].count) === 0) {
-        await manager.query(
-          `INSERT INTO onboarding_progress (steps_completed, is_dismissed) VALUES ('[]'::jsonb, $1)`,
-          [isDismissed],
-        );
-      } else {
-        await manager.query(
-          `UPDATE onboarding_progress SET is_dismissed = $1, updated_at = now()`,
-          [isDismissed],
-        );
-      }
+
+      await manager.query(
+        `
+        WITH existing AS (
+          SELECT id FROM onboarding_progress
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1
+        ), updated AS (
+          UPDATE onboarding_progress p
+          SET is_dismissed = $1, updated_at = now()
+          FROM existing e
+          WHERE p.id = e.id
+          RETURNING p.id
+        )
+        INSERT INTO onboarding_progress (steps_completed, is_dismissed)
+        SELECT '[]'::jsonb, $1
+        WHERE NOT EXISTS (SELECT 1 FROM updated)
+        `,
+        [isDismissed],
+      );
     });
   }
 }

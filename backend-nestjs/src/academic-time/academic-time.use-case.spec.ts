@@ -1,5 +1,16 @@
-import { ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { AcademicTimeUseCase } from './academic-time.use-case';
+
+const NO_TEMPLATE_USAGE = {
+  syllabus: 0,
+  syllabusDistribution: 0,
+  materialRequests: 0,
+  materials: 0,
+};
 
 describe('AcademicTimeUseCase', () => {
   let useCase: AcademicTimeUseCase;
@@ -14,6 +25,8 @@ describe('AcademicTimeUseCase', () => {
       getWeeksByCycle: jest.fn(),
       softDeleteCycle: jest.fn().mockResolvedValue(undefined),
       createTemplate: jest.fn().mockResolvedValue(undefined),
+      getTemplateUsage: jest.fn().mockResolvedValue(NO_TEMPLATE_USAGE),
+      deleteTemplate: jest.fn().mockResolvedValue(undefined),
     };
     useCase = new AcademicTimeUseCase(mockRepo);
   });
@@ -169,6 +182,90 @@ describe('AcademicTimeUseCase', () => {
 
       await useCase.deleteCycle('c1');
       expect(mockRepo.softDeleteCycle).toHaveBeenCalledWith('c1');
+    });
+
+    // B2 — the syllabus check must fail closed. If getCycleWithSyllabus cannot
+    // prove the cycle is unused, the delete must not proceed.
+    it('does not delete when the syllabus check itself fails', async () => {
+      mockRepo.getCycleWithSyllabus.mockRejectedValue(
+        new Error('relation "syllabus" does not exist'),
+      );
+
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow();
+      expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────── B1: deleteTemplate ─────────────
+  describe('deleteTemplate', () => {
+    it('deletes a template nothing depends on', async () => {
+      await useCase.deleteTemplate('c1', 't1');
+
+      expect(mockRepo.getTemplateUsage).toHaveBeenCalledWith('t1');
+      expect(mockRepo.deleteTemplate).toHaveBeenCalledWith('t1');
+    });
+
+    it('blocks deletion when syllabus distributions still reference it', async () => {
+      mockRepo.getTemplateUsage.mockResolvedValue({
+        ...NO_TEMPLATE_USAGE,
+        syllabusDistribution: 3,
+      });
+
+      await expect(useCase.deleteTemplate('c1', 't1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRepo.deleteTemplate).not.toHaveBeenCalled();
+    });
+
+    it('blocks deletion when generated materials still reference it', async () => {
+      mockRepo.getTemplateUsage.mockResolvedValue({
+        ...NO_TEMPLATE_USAGE,
+        materials: 1,
+      });
+
+      await expect(useCase.deleteTemplate('c1', 't1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRepo.deleteTemplate).not.toHaveBeenCalled();
+    });
+
+    it('names every kind of dependant in the conflict message', async () => {
+      mockRepo.getTemplateUsage.mockResolvedValue({
+        syllabus: 2,
+        syllabusDistribution: 5,
+        materialRequests: 1,
+        materials: 4,
+      });
+
+      await expect(useCase.deleteTemplate('c1', 't1')).rejects.toThrow(
+        /2 syllabus, 5 syllabus distributions, 1 material requests, 4 generated materials/,
+      );
+    });
+
+    it('does not delete when the usage check itself fails', async () => {
+      mockRepo.getTemplateUsage.mockRejectedValue(new Error('connection lost'));
+
+      await expect(useCase.deleteTemplate('c1', 't1')).rejects.toThrow();
+      expect(mockRepo.deleteTemplate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────── B3: 404 not 500 ────────────────
+  describe('missing cycle raises NotFoundException (not a bare Error)', () => {
+    it('updateCycle throws NotFoundException', async () => {
+      mockRepo.getCycleWithSyllabus.mockResolvedValue(null);
+
+      await expect(useCase.updateCycle('missing', { name: 'x' })).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('createTemplate throws NotFoundException', async () => {
+      mockRepo.getCycleWithSyllabus.mockResolvedValue(null);
+
+      await expect(
+        useCase.createTemplate('missing', { name: 't', scope: 'CURRENT_WEEK' } as any),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

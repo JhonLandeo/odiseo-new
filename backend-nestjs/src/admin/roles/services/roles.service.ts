@@ -1,6 +1,7 @@
 import {
   Injectable,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -58,6 +59,46 @@ export class RolesService {
     );
   }
 
+  /**
+   * Rejects any attempt to put a permission into a role that the acting user
+   * does not itself hold.
+   *
+   * MANAGE_ROLES alone used to be enough to mint a role carrying ANY
+   * permission — including platform-level MANAGE_TENANTS — and then self-assign
+   * it through the user-roles endpoint. That is vertical privilege escalation:
+   * one delegated capability silently becomes all of them. Grants are therefore
+   * bounded by the actor's own effective permission set.
+   *
+   * Reads through AuthService rather than trusting the request payload: that is
+   * the authoritative, cache-invalidated source the guards themselves use.
+   */
+  private async assertCanGrant(
+    actorUserId: string,
+    permissions?: string[],
+  ): Promise<void> {
+    if (!permissions || permissions.length === 0) return;
+
+    const companyId = this.cls.get('companyId');
+    // Fail closed: without a tenant context the actor's permissions cannot be
+    // resolved, so no grant can be proven safe.
+    if (!companyId || !actorUserId) {
+      throw new ForbiddenException(
+        'Cannot verify the acting user permissions for this tenant',
+      );
+    }
+
+    const actorPermissions = new Set(
+      await this.authService.getUserPermissions(actorUserId, companyId),
+    );
+
+    const notGrantable = permissions.filter((p) => !actorPermissions.has(p));
+    if (notGrantable.length > 0) {
+      throw new ForbiddenException(
+        `You cannot grant permissions you do not hold: ${notGrantable.join(', ')}`,
+      );
+    }
+  }
+
   async findAll(): Promise<Role[]> {
     return this.tenantService.runInTenant((manager) =>
       manager.getRepository(Role).find({ relations: ['inheritedRoles'] }),
@@ -80,7 +121,12 @@ export class RolesService {
     return role;
   }
 
-  async create(createRoleDto: CreateRoleDto): Promise<Role> {
+  async create(
+    createRoleDto: CreateRoleDto,
+    actorUserId: string,
+  ): Promise<Role> {
+    await this.assertCanGrant(actorUserId, createRoleDto.permissions);
+
     return this.tenantService.runInTenant(async (manager) => {
       const repo = manager.getRepository(Role);
       const { inheritedRoleIds, ...roleData } = createRoleDto;
@@ -95,7 +141,16 @@ export class RolesService {
     });
   }
 
-  async update(id: string, updateRoleDto: UpdateRoleDto): Promise<Role> {
+  async update(
+    id: string,
+    updateRoleDto: UpdateRoleDto,
+    actorUserId: string,
+  ): Promise<Role> {
+    // Checked against the full submitted set, not just the delta: the payload
+    // replaces the role's permissions wholesale, so anything left in it is a
+    // grant the actor is making right now.
+    await this.assertCanGrant(actorUserId, updateRoleDto.permissions);
+
     const { role, holderIds } = await this.tenantService.runInTenant(
       async (manager) => {
         const repo = manager.getRepository(Role);

@@ -3,6 +3,19 @@ import { CycleWeek } from '../entities/cycle-week.entity';
 
 export const IAcademicTimeRepository = Symbol('IAcademicTimeRepository');
 
+/**
+ * How many live rows still point at a material template. The FKs are SET NULL
+ * (syllabus, syllabus_distribution) or CASCADE (materials, material_requests),
+ * so the database will NOT stop a delete — it will quietly break or erase the
+ * dependants. These counts are what makes the deletion refusable.
+ */
+export interface TemplateUsage {
+  syllabus: number;
+  syllabusDistribution: number;
+  materialRequests: number;
+  materials: number;
+}
+
 export interface IAcademicTimeRepository {
   getCycles(
     limit?: number,
@@ -22,5 +35,6 @@ export interface IAcademicTimeRepository {
   getTemplatesByCycle(cycleId: string): Promise<any[]>;
   createTemplate(data: any): Promise<void>;
   updateTemplate(templateId: string, data: any): Promise<void>;
+  getTemplateUsage(templateId: string): Promise<TemplateUsage>;
   deleteTemplate(templateId: string): Promise<void>;
 }

@@ -176,7 +176,7 @@ export class TenantsAdminService {
     const passwordHash = await bcrypt.hash(password, 10);
     const schemaName = `tenant_${company.id}`;
 
-    const rows = await this.tenantService.runInSchema(
+    const result = await this.tenantService.runInSchema(
       schemaName,
       async (manager) => {
         // search_path is set to the tenant schema, so tables are unqualified.
@@ -185,10 +185,16 @@ export class TenantsAdminService {
         UPDATE users
         SET email = $1, password_hash = $2, updated_at = now()
         WHERE id = (
-          SELECT ur.user_id
+          SELECT u.id
           FROM user_roles ur
           JOIN roles r ON ur.role_id = r.id
+          JOIN users u ON u.id = ur.user_id
           WHERE r.name = $3
+          -- Deterministic target: this is a destructive operation, and a tenant
+          -- can hold more than one Super Administrator. Without ORDER BY the
+          -- planner decides which account loses its email and password. Oldest
+          -- first (id as tie-breaker) makes the choice stable and predictable.
+          ORDER BY u.created_at ASC, u.id ASC
           LIMIT 1
         )
         RETURNING id
@@ -198,7 +204,12 @@ export class TenantsAdminService {
       },
     );
 
-    if (!rows || rows.length === 0) {
+    // TypeORM's Postgres driver returns `[rows, affectedRowCount]` for UPDATE
+    // and DELETE commands — NOT the row array. Checking `result.length` here
+    // would always see 2 and never fire, reporting success for a reset that
+    // touched nothing. Only the affected count proves the write happened.
+    const affectedRows = Array.isArray(result) ? (result[1] as number) : 0;
+    if (!affectedRows) {
       throw new NotFoundException(
         'Administrador principal no encontrado en el esquema del cliente.',
       );

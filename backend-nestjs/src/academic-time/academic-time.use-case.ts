@@ -3,6 +3,7 @@ import {
   Inject,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { IAcademicTimeRepository } from './repositories/i-academic-time.repository';
 import { v4 as uuidv4 } from 'uuid';
@@ -87,7 +88,7 @@ export class AcademicTimeUseCase {
     // Check if cycle has active syllabus relations
     const existingCycle = await this.repository.getCycleWithSyllabus(id);
     if (!existingCycle) {
-      throw new Error('Cycle not found');
+      throw new NotFoundException('Cycle not found');
     }
 
     const normalizeDate = (d: any): string => {
@@ -195,7 +196,7 @@ export class AcademicTimeUseCase {
     // Optionally check if cycle exists
     const cycle = await this.repository.getCycleWithSyllabus(cycleId);
     if (!cycle) {
-      throw new Error('Cycle not found');
+      throw new NotFoundException('Cycle not found');
     }
 
     const templateId = uuidv4();
@@ -233,6 +234,28 @@ export class AcademicTimeUseCase {
   }
 
   async deleteTemplate(cycleId: string, templateId: string) {
+    // Same guard shape as deleteCycle. The template's FKs are SET NULL or
+    // CASCADE, so the database happily deletes a template still in use — which
+    // leaves GenerateMaterialUseCase failing with "El perfil seleccionado no
+    // existe" forever and breaks the syllabus clone's template mapping. Refuse
+    // instead, naming what depends on it so the operator can act.
+    const usage = await this.repository.getTemplateUsage(templateId);
+    const dependants = [
+      { count: usage.syllabus, label: 'syllabus' },
+      { count: usage.syllabusDistribution, label: 'syllabus distributions' },
+      { count: usage.materialRequests, label: 'material requests' },
+      { count: usage.materials, label: 'generated materials' },
+    ].filter((d) => d.count > 0);
+
+    if (dependants.length > 0) {
+      const detail = dependants
+        .map((d) => `${d.count} ${d.label}`)
+        .join(', ');
+      throw new ConflictException(
+        `Cannot delete this material template because it is used by ${detail}. Remove or reassign them first.`,
+      );
+    }
+
     await this.repository.deleteTemplate(templateId);
     return { success: true };
   }

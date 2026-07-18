@@ -1,6 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { IsNull, ILike } from 'typeorm';
-import { IAcademicTimeRepository } from './i-academic-time.repository';
+import {
+  IAcademicTimeRepository,
+  TemplateUsage,
+} from './i-academic-time.repository';
 import { Cycle } from '../entities/cycle.entity';
 import { CycleWeek } from '../entities/cycle-week.entity';
 import { CycleMaterialTemplate } from '../entities/cycle-material-template.entity';
@@ -150,10 +157,15 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
         );
         hasSyllabus = parseInt(result[0]?.count || '0', 10) > 0;
       } catch (e) {
-        // The syllabus table should always exist in a provisioned tenant;
-        // surface the failure instead of silently assuming no syllabus.
-        this.logger.warn(
+        // FAIL CLOSED. deleteCycle/updateCycle read hasSyllabus as their only
+        // guard against destroying a cycle that syllabuses depend on. Returning
+        // false after a failed check would report "no syllabus" on no evidence
+        // and silently disable that guard, so the failure is surfaced instead.
+        this.logger.error(
           `Could not check syllabus relations for cycle ${id}: ${(e as Error).message}`,
+        );
+        throw new InternalServerErrorException(
+          'Could not verify syllabus relations for this cycle. Please retry.',
         );
       }
 
@@ -211,6 +223,31 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
           await manager.save(templateCourses);
         }
       }
+    });
+  }
+
+  async getTemplateUsage(templateId: string): Promise<TemplateUsage> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // One round-trip: four scalar sub-selects instead of four queries.
+      const [row] = await manager.query(
+        `
+        SELECT
+          (SELECT COUNT(1) FROM "syllabus" WHERE "template_id" = $1) AS syllabus,
+          (SELECT COUNT(1) FROM "syllabus_distribution" WHERE "template_id" = $1) AS syllabus_distribution,
+          (SELECT COUNT(1) FROM "material_requests" WHERE "profile_id" = $1) AS material_requests,
+          (SELECT COUNT(1) FROM "materials" WHERE "profile_id" = $1) AS materials
+        `,
+        [templateId],
+      );
+
+      // No try/catch on purpose: like getCycleWithSyllabus, a failed usage check
+      // must block the delete rather than read as "nothing depends on it".
+      return {
+        syllabus: parseInt(row?.syllabus ?? '0', 10),
+        syllabusDistribution: parseInt(row?.syllabus_distribution ?? '0', 10),
+        materialRequests: parseInt(row?.material_requests ?? '0', 10),
+        materials: parseInt(row?.materials ?? '0', 10),
+      };
     });
   }
 
