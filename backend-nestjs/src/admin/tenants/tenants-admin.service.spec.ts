@@ -113,6 +113,19 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
       expect(params).toContain('user-1');
     });
 
+    // AC-016: the operator chose this password, so the administrator must
+    // replace it before the account can do anything else.
+    it('holds the account for a password change', async () => {
+      const { service, mockManager } = createService();
+      mockQueries(mockManager, [{ id: 'user-1' }]);
+
+      await service.resetAdminCredentials(TENANT_ID, 'new@test.com');
+
+      expect(mockManager.query.mock.calls[1][0]).toMatch(
+        /force_password_reset\s*=\s*true/,
+      );
+    });
+
     it('reports success and returns the generated password', async () => {
       const { service, mockManager } = createService();
       mockQueries(mockManager, [{ id: 'user-1' }]);

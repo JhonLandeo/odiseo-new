@@ -38,16 +38,16 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = this.authService.verifyToken(token);
-      // Dynamically load permissions to avoid stale claims
-      const permissions = await this.authService.getUserPermissions(
-        payload.sub,
-        payload.companyId,
-      );
+      // Dynamically load permissions and the password-reset hold to avoid stale
+      // claims — one cached lookup serves both downstream guards.
+      const { permissions, forcePasswordReset } =
+        await this.authService.getUserAuthState(payload.sub, payload.companyId);
 
-      // Attach decoded user and fresh permissions to request for downstream use
+      // Attach decoded user and fresh state to request for downstream use
       (request as any).user = {
         ...payload,
         permissions,
+        forcePasswordReset,
       };
       return true;
     } catch {

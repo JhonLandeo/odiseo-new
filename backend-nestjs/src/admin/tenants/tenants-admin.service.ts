@@ -209,9 +209,11 @@ export class TenantsAdminService {
           );
         }
 
+        // force_password_reset: see TenantAdminsService.create — the operator,
+        // not the administrator, chose this password (AC-016).
         return manager.query(
           `UPDATE users
-           SET email = $1, password_hash = $2, updated_at = now()
+           SET email = $1, password_hash = $2, force_password_reset = true, updated_at = now()
            WHERE id = $3
            RETURNING id`,
           [newEmail, passwordHash, admins[0].id],

@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
@@ -302,8 +302,15 @@ describe('AuthService.getUserPermissions with role inheritance', () => {
   const COMPANY_ID = 'company-1';
   const USER_ID = 'user-1';
 
-  function build(rows: Array<{ permissions: string[] | null }>) {
-    const manager = { query: jest.fn().mockResolvedValue(rows) };
+  function build(
+    rows: Array<{ permissions: string[] | null }>,
+    forcePasswordReset = false,
+  ) {
+    const manager = {
+      query: jest.fn().mockResolvedValue(rows),
+      // getUserAuthState reads the password-reset hold from the same lookup.
+      findOne: jest.fn().mockResolvedValue({ id: USER_ID, forcePasswordReset }),
+    };
     const tenantService = {
       runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
         op(manager),
@@ -373,11 +380,152 @@ describe('AuthService.getUserPermissions with role inheritance', () => {
 
   it('serves the cached set without re-resolving the hierarchy', async () => {
     const { service, manager, cacheManager } = build([]);
-    cacheManager.get.mockResolvedValue(['CACHED']);
+    cacheManager.get.mockResolvedValue({
+      permissions: ['CACHED'],
+      forcePasswordReset: false,
+    });
 
     expect(await service.getUserPermissions(USER_ID, COMPANY_ID)).toEqual([
       'CACHED',
     ]);
     expect(manager.query).not.toHaveBeenCalled();
+  });
+});
+
+// ───────── AC-016: the password-reset hold rides the permission lookup ────────
+describe('AuthService password-reset hold', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+
+  function build(user: any) {
+    const manager = {
+      query: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(user),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, manager, cacheManager };
+  }
+
+  async function heldUser(password = 'current-password') {
+    return {
+      id: USER_ID,
+      isActive: true,
+      passwordHash: await bcrypt.hash(password, 10),
+      forcePasswordReset: true,
+    };
+  }
+
+  describe('getUserAuthState', () => {
+    it('reports the hold alongside the permissions', async () => {
+      const { service } = build(await heldUser());
+
+      const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+      expect(state.forcePasswordReset).toBe(true);
+    });
+
+    it('caches permissions and the hold together under one key', async () => {
+      const { service, cacheManager } = build(await heldUser());
+
+      await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+      expect(cacheManager.set).toHaveBeenCalledWith(
+        `auth:permissions:${COMPANY_ID}:${USER_ID}`,
+        expect.objectContaining({ forcePasswordReset: true }),
+        60 * 1000,
+      );
+    });
+
+    it('does not hold an account whose user row has vanished', async () => {
+      const { service } = build(null);
+
+      const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+      expect(state.forcePasswordReset).toBe(false);
+    });
+  });
+
+  describe('changePassword', () => {
+    it('rejects a wrong current password and leaves the hold in place', async () => {
+      const { service, manager } = build(await heldUser());
+
+      await expect(
+        service.changePassword(USER_ID, COMPANY_ID, 'not-it', 'brand-new-pass'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(manager.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects reusing the current password', async () => {
+      const { service, manager } = build(await heldUser('current-password'));
+
+      await expect(
+        service.changePassword(
+          USER_ID,
+          COMPANY_ID,
+          'current-password',
+          'current-password',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(manager.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a session whose account is gone', async () => {
+      const { service } = build(null);
+
+      await expect(
+        service.changePassword(USER_ID, COMPANY_ID, 'whatever', 'new-password'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('stores a new bcrypt hash and clears the hold', async () => {
+      const { service, manager } = build(await heldUser('current-password'));
+
+      await service.changePassword(
+        USER_ID,
+        COMPANY_ID,
+        'current-password',
+        'brand-new-pass',
+      );
+
+      const [, criteria, patch] = manager.update.mock.calls[0];
+      expect(criteria).toEqual({ id: USER_ID });
+      expect(patch.forcePasswordReset).toBe(false);
+      expect(await bcrypt.compare('brand-new-pass', patch.passwordHash)).toBe(
+        true,
+      );
+    });
+
+    it('invalidates the cached entry so the hold lifts before the TTL', async () => {
+      const { service, cacheManager } = build(
+        await heldUser('current-password'),
+      );
+
+      await service.changePassword(
+        USER_ID,
+        COMPANY_ID,
+        'current-password',
+        'brand-new-pass',
+      );
+
+      expect(cacheManager.del).toHaveBeenCalledWith(
+        `auth:permissions:${COMPANY_ID}:${USER_ID}`,
+      );
+    });
   });
 });

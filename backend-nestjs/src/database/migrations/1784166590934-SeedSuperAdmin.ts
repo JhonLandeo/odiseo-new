@@ -78,11 +78,16 @@ export class SeedSuperAdmin1784166590934 implements MigrationInterface {
     // admin. Outside production a missing password is generated and printed
     // once, so local setup stays a single command and still never ships a
     // shared secret.
-    const sysEmail = process.env.SEED_SUPERADMIN_EMAIL ?? 'superadmin@odiseo.com';
+    const sysEmail =
+      process.env.SEED_SUPERADMIN_EMAIL ?? 'superadmin@odiseo.com';
     const sysPass = resolveSeedPassword();
     const sysPassHash = await bcrypt.hash(sysPass, 10);
     const sysUserInsert = await queryRunner.query(
-      `INSERT INTO "${sysSchema}".users (email, password_hash, name, company_id, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
+      // force_password_reset: the password below was chosen by the seed, not by
+      // the person who will own the account, so the owner must replace it before
+      // the session can do anything else (AC-016). The column exists by now —
+      // step 4 already ran the tenant migrations over this schema.
+      `INSERT INTO "${sysSchema}".users (email, password_hash, name, company_id, is_active, force_password_reset) VALUES ($1, $2, $3, $4, true, true) RETURNING id`,
       [sysEmail, sysPassHash, 'Super Administrador', sysCompanyId],
     );
     const sysUserId = sysUserInsert[0].id;

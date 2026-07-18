@@ -111,12 +111,19 @@ export class TenantAdminsService {
         roleId = roleResult[0].id;
       }
 
-      // Crear usuario
+      // Crear usuario.
+      //
+      // force_password_reset: AC-016. Every path in this file, and every other
+      // path that writes a password_hash the account owner did not choose
+      // (the seed migration, TenantsAdminService.resetAdminCredentials), raises
+      // this flag for the same reason — the password is a secret shared with
+      // whoever set it, so it is not the owner's password until the owner
+      // replaces it. PasswordResetGuard blocks the account meanwhile.
       const passwordHash = await bcrypt.hash(data.password, 10);
       const userRes = await manager.query(
         `
-        INSERT INTO "${schema}".users (email, password_hash, name, company_id, is_active)
-        VALUES ($1, $2, $3, $4, true) RETURNING id, email, name, is_active
+        INSERT INTO "${schema}".users (email, password_hash, name, company_id, is_active, force_password_reset)
+        VALUES ($1, $2, $3, $4, true, true) RETURNING id, email, name, is_active
       `,
         [data.email, passwordHash, data.name, tenantId],
       );
@@ -214,17 +221,16 @@ export class TenantAdminsService {
       if (existing.length === 0)
         throw new NotFoundException('Administrador activo no encontrado.');
 
+      // See `create` above for why force_password_reset is raised here.
       const passwordHash = await bcrypt.hash(data.password, 10);
       await manager.query(
         `
-        UPDATE "${schema}".users SET password_hash = $1, updated_at = now() WHERE id = $2
+        UPDATE "${schema}".users
+        SET password_hash = $1, force_password_reset = true, updated_at = now()
+        WHERE id = $2
       `,
         [passwordHash, userId],
       );
-
-      // The auto-reset on first login logic is preserved if it relies on a flag,
-      // but if the system does not have a flag in the DB, changing password forces next login reset as per spec AC-016.
-      // E.g. we might need to set `force_password_reset = true` if that column exists, but for now we just change it.
 
       return { success: true };
     });

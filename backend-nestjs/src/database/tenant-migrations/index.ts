@@ -388,4 +388,20 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       $do$;
     `,
   },
+  {
+    // AC-016: a password chosen by anyone other than the account owner (the
+    // seed, an operator resetting credentials, an admin creating or overwriting
+    // another admin's password) is a shared secret until the owner replaces it.
+    // The flag records that debt on the account itself so enforcement is
+    // server-side and survives any client.
+    //
+    // NOT NULL DEFAULT false is the safe default for the rows that already
+    // exist: their owners chose their own passwords, so backfilling `true`
+    // would lock out every current user of every tenant on deploy.
+    id: '0005_users_force_password_reset',
+    up: (schema: string) => `
+      ALTER TABLE "${schema}".users
+        ADD COLUMN IF NOT EXISTS force_password_reset BOOLEAN NOT NULL DEFAULT false;
+    `,
+  },
 ];

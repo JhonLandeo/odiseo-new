@@ -151,6 +151,29 @@ describe('TenantAdminsService', () => {
       expect(roleAssignCall[1]).toEqual([USER_ID, ROLE_ID]);
     });
 
+    // AC-016: the creating administrator knows this password, so it is not the
+    // new account's password until its owner replaces it.
+    it('AC-016: creates the account already held for a password change', async () => {
+      const { service, mockManager } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([]) // email check
+        .mockResolvedValueOnce([{ id: ROLE_ID }]) // role lookup
+        .mockResolvedValueOnce([
+          { id: USER_ID, email: 'new@b.com', name: 'N', is_active: true },
+        ]) // user INSERT
+        .mockResolvedValueOnce(undefined); // role assignment
+
+      await service.create(TENANT_ID, {
+        email: 'new@b.com',
+        name: 'N',
+        password: 'Pass123!',
+      });
+
+      const userInsertSql = mockManager.query.mock.calls[2][0];
+      expect(userInsertSql).toContain('force_password_reset');
+      expect(userInsertSql).toMatch(/VALUES\s*\([^)]*true\s*\)/);
+    });
+
     it('AC-007: should reject creation with duplicate email', async () => {
       const { service, mockManager } = createService();
       mockManager.query.mockResolvedValueOnce([{ id: 'existing-user' }]); // email exists
@@ -241,6 +264,23 @@ describe('TenantAdminsService', () => {
       const updateCall = mockManager.query.mock.calls[1];
       expect(updateCall[0]).toContain('password_hash');
       expect(updateCall[1][0]).toBe('$2b$10$hashedpassword');
+    });
+
+    // AC-016: an administrator picked this password, not its owner, so the
+    // account is held until the owner replaces it.
+    it('AC-016: raises force_password_reset on the target account', async () => {
+      const { service, mockManager } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([{ id: USER_ID }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updatePassword(TENANT_ID, USER_ID, {
+        password: 'NewPass123!',
+      });
+
+      expect(mockManager.query.mock.calls[1][0]).toMatch(
+        /force_password_reset\s*=\s*true/,
+      );
     });
 
     it('should reject password change for non-existent admin', async () => {

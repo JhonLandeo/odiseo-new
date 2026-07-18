@@ -28,6 +28,7 @@ import { LockingModule } from './common/locking/locking.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { PasswordResetGuard } from './common/guards/password-reset.guard';
 
 @Module({
   imports: [
@@ -72,9 +73,18 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     AppService,
     // Security is deny-by-default: every route requires a valid JWT unless it
     // is explicitly marked @Public(). Order matters — JwtAuthGuard must run
-    // first because PermissionsGuard reads request.user.permissions, which only
+    // first because the two guards after it read request.user, which only
     // exists after JwtAuthGuard has populated it.
+    //
+    // PasswordResetGuard sits BEFORE PermissionsGuard on purpose. An account
+    // under force_password_reset is suspended outright, so the answer must be
+    // the same machine-readable "change your password" for every route it
+    // touches. Behind PermissionsGuard the answer would instead depend on which
+    // permission the route happens to require: routes the user is not entitled
+    // to would return a bare 403 the frontend cannot act on, and the user would
+    // be told the wrong thing about why they are blocked.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PasswordResetGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
