@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { UserRole } from '../entities/user-role.entity';
-import { Role } from '../entities/role.entity';
 import { TenantService } from '../../../database/tenant.service';
+import { findEffectivePermissions } from '../permissions/flattened-permissions.query';
 
 @Injectable()
 export class RolesResolverService {
@@ -12,40 +11,15 @@ export class RolesResolverService {
   /**
    * Calculates the flattened list of all unique permissions a user has,
    * taking into account all their assigned roles and any roles those inherit from.
+   *
+   * Thin wrapper over the shared recursive-CTE traversal: this service resolves
+   * against the AMBIENT tenant (CLS), whereas AuthService resolves against an
+   * explicit schema derived from the JWT. Same traversal, same cycle-safety,
+   * one implementation — see flattened-permissions.query.ts.
    */
   async getFlattenedPermissionsForUser(userId: string): Promise<string[]> {
-    return this.tenantService.runInTenant(async (manager) => {
-      const userRoles = await manager
-        .getRepository(UserRole)
-        .find({ where: { userId } });
-      if (!userRoles.length) return [];
-
-      const roleIds = userRoles.map((ur) => ur.roleId);
-
-      // Fetch all roles with their inherited roles
-      const allRoles = await manager
-        .getRepository(Role)
-        .find({ relations: ['inheritedRoles'] });
-
-      const permissionsSet = new Set<string>();
-      const visitedRoleIds = new Set<string>();
-
-      const resolveRolePermissions = (currentRoleId: string) => {
-        if (visitedRoleIds.has(currentRoleId)) return; // Prevent cyclic inheritance issues
-        visitedRoleIds.add(currentRoleId);
-
-        const role = allRoles.find((r) => r.id === currentRoleId);
-        if (!role) return;
-
-        role.permissions?.forEach((p) => permissionsSet.add(p));
-        role.inheritedRoles?.forEach((inherited) => {
-          resolveRolePermissions(inherited.id);
-        });
-      };
-
-      roleIds.forEach((id) => resolveRolePermissions(id));
-
-      return Array.from(permissionsSet);
-    });
+    return this.tenantService.runInTenant((manager) =>
+      findEffectivePermissions(manager, userId),
+    );
   }
 }

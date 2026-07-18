@@ -5,6 +5,11 @@ import { ICatalogRepository } from './i-catalog.repository';
 import { Course } from '../entities/course.entity';
 import { Topic } from '../entities/topic.entity';
 import { Subtopic } from '../entities/subtopic.entity';
+import {
+  CatalogSyncState,
+  CORE_API_SYNC_SOURCE,
+} from '../entities/catalog-sync-state.entity';
+import { validateCatalogPayload } from '../dto/catalog-payload.dto';
 import { TenantService } from '../../database/tenant.service';
 
 @Injectable()
@@ -14,62 +19,6 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
     @InjectEntityManager()
     private readonly defaultManager: EntityManager,
   ) {}
-
-  async getActiveHierarchy(): Promise<any[]> {
-    return this.tenantService.runInTenant(async (manager) => {
-      // Usar Raw SQL para armar la jerarquía porque combinamos public y tenant schema
-      const query = `
-        SELECT 
-          c.id AS course_id, c.name AS course_name,
-          t.id AS topic_id, t.name AS topic_name,
-          COALESCE(ttv.is_active, true) AS is_active,
-          s.id AS subtopic_id, s.name AS subtopic_name
-        FROM public.courses c
-        LEFT JOIN public.topics t ON t.course_id = c.id
-        LEFT JOIN tenant_topic_visibility ttv ON ttv.topic_id = t.id
-        LEFT JOIN public.subtopics s ON s.topic_id = t.id
-        ORDER BY c.name, t.name, s.name;
-      `;
-      const rows = await manager.query(query);
-
-      // Agrupar filas en Course > Topic > Subtopic
-      const coursesMap = new Map();
-
-      for (const row of rows) {
-        if (!coursesMap.has(row.course_id)) {
-          coursesMap.set(row.course_id, {
-            id: row.course_id,
-            name: row.course_name,
-            topics: new Map(),
-          });
-        }
-
-        const course = coursesMap.get(row.course_id);
-        if (row.topic_id) {
-          if (!course.topics.has(row.topic_id)) {
-            course.topics.set(row.topic_id, {
-              id: row.topic_id,
-              name: row.topic_name,
-              isActive: row.is_active,
-              subtopics: [],
-            });
-          }
-
-          if (row.subtopic_id) {
-            course.topics.get(row.topic_id).subtopics.push({
-              id: row.subtopic_id,
-              name: row.subtopic_name,
-            });
-          }
-        }
-      }
-
-      return Array.from(coursesMap.values()).map((c) => ({
-        ...c,
-        topics: Array.from(c.topics.values()),
-      }));
-    });
-  }
 
   async getCourses(search?: string): Promise<Course[]> {
     return this.tenantService.runInTenant(async (manager) => {
@@ -164,54 +113,120 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
     });
   }
 
-  async upsertCatalogs(payload: any): Promise<void> {
+  async upsertCatalogs(payload: unknown): Promise<void> {
     // Catalogs (courses/topics/subtopics) are GLOBAL public-schema entities, so
     // this write needs NO tenant context. It is called from the cron, which has
     // no CLS tenant — using runInTenant here previously threw "Tenant Schema no
     // está definido" every run and silently killed the sync.
     const manager = this.defaultManager;
 
-    if (!payload || !payload.courses) return;
+    // Validate BEFORE touching the shared schema. Throws on a malformed
+    // payload, which the cron records as a failed sync — far better than
+    // half-writing garbage that every tenant then reads.
+    const validated = validateCatalogPayload(payload);
 
-    const courses = payload.courses;
+    const courses = validated.courses;
     if (courses.length === 0) return;
 
-    // 1. Upsert Courses
-    const coursesData = courses.map((c: any) => ({
-      id: c.id,
+    const coursesData = courses.map((c) => ({
+      id: String(c.id),
       name: c.name,
     }));
-    await manager.upsert(Course, coursesData, ['id']);
 
-    // 2. Gather & Upsert Topics and Subtopics
     const topicsData: any[] = [];
     const subtopicsData: any[] = [];
 
     for (const c of courses) {
-      if (!c.topics) continue;
       for (const t of c.topics) {
         topicsData.push({
-          id: t.id,
-          courseId: c.id,
+          id: String(t.id),
+          courseId: String(c.id),
           name: t.name,
         });
-        if (!t.subtopics) continue;
         for (const s of t.subtopics) {
           subtopicsData.push({
-            id: s.id,
-            topicId: t.id,
+            id: String(s.id),
+            topicId: String(t.id),
             name: s.name,
           });
         }
       }
     }
 
-    if (topicsData.length > 0) {
-      await manager.upsert(Topic, topicsData, ['id']);
-    }
+    // One transaction for all three levels. Previously each upsert committed
+    // on its own, so a failure partway through left the shared catalog
+    // inconsistent — courses present with no topics, or topics referencing
+    // courses that never landed. Foreign keys make the ordering mandatory and
+    // the transaction makes it atomic.
+    await manager.transaction(async (tx) => {
+      await tx.upsert(Course, coursesData, ['id']);
 
-    if (subtopicsData.length > 0) {
-      await manager.upsert(Subtopic, subtopicsData, ['id']);
-    }
+      if (topicsData.length > 0) {
+        await tx.upsert(Topic, topicsData, ['id']);
+      }
+
+      if (subtopicsData.length > 0) {
+        await tx.upsert(Subtopic, subtopicsData, ['id']);
+      }
+    });
+  }
+
+  async recordSyncAttempt(): Promise<void> {
+    await this.defaultManager.query(
+      `INSERT INTO public.catalog_sync_state (source, last_attempt_at, updated_at)
+       VALUES ($1, now(), now())
+       ON CONFLICT (source) DO UPDATE
+       SET last_attempt_at = now(), updated_at = now()`,
+      [CORE_API_SYNC_SOURCE],
+    );
+  }
+
+  async recordSyncSuccess(): Promise<void> {
+    await this.defaultManager.query(
+      `INSERT INTO public.catalog_sync_state
+         (source, last_attempt_at, last_success_at, last_outcome, last_error, updated_at)
+       VALUES ($1, now(), now(), 'SUCCESS', NULL, now())
+       ON CONFLICT (source) DO UPDATE
+       SET last_success_at = now(),
+           last_outcome = 'SUCCESS',
+           -- Cleared on success so a stale message from a long-resolved outage
+           -- cannot be mistaken for a current one.
+           last_error = NULL,
+           updated_at = now()`,
+      [CORE_API_SYNC_SOURCE],
+    );
+  }
+
+  async recordSyncFailure(error: string): Promise<void> {
+    await this.defaultManager.query(
+      `INSERT INTO public.catalog_sync_state
+         (source, last_attempt_at, last_outcome, last_error, updated_at)
+       VALUES ($1, now(), 'FAILED', $2, now())
+       ON CONFLICT (source) DO UPDATE
+       SET last_outcome = 'FAILED',
+           last_error = EXCLUDED.last_error,
+           updated_at = now()`,
+      // Bounded: an upstream stack trace should not become an unbounded column.
+      [CORE_API_SYNC_SOURCE, error.slice(0, 4000)],
+    );
+  }
+
+  async getSyncState(): Promise<CatalogSyncState | null> {
+    const rows = await this.defaultManager.query(
+      `SELECT source, last_attempt_at, last_success_at, last_outcome, last_error, updated_at
+       FROM public.catalog_sync_state WHERE source = $1`,
+      [CORE_API_SYNC_SOURCE],
+    );
+    if (rows.length === 0) return null;
+
+    const row = rows[0];
+    return {
+      source: row.source,
+      lastAttemptAt: row.last_attempt_at,
+      lastSuccessAt: row.last_success_at,
+      lastOutcome: row.last_outcome,
+      lastError: row.last_error,
+      updatedAt: row.updated_at,
+    };
   }
 }

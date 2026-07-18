@@ -11,6 +11,7 @@ import { UpdateRoleDto } from '../dto/update-role.dto';
 import { ClsService } from 'nestjs-cls';
 import { TenantService } from '../../../database/tenant.service';
 import { AuthService } from '../../../auth/auth.service';
+import { findDependentRoleHolderIds } from '../permissions/flattened-permissions.query';
 
 @Injectable()
 export class RolesService {
@@ -25,22 +26,26 @@ export class RolesService {
   ) {}
 
   /**
-   * Returns the ids of every user currently holding the role.
+   * Returns the ids of every user whose effective permissions depend on the
+   * role — its direct holders AND the holders of every role that inherits from
+   * it, transitively.
    *
    * Editing or deleting a role changes the effective permissions of ALL its
    * holders at once, so the cached permission set of each one has to be dropped
    * — invalidating only the acting user would leave everyone else on stale
    * (potentially over-privileged) permissions until the 60s TTL expired.
+   *
+   * The descendant walk is the part that inheritance makes mandatory: a user
+   * holding only "Editor" never appears in user_roles for "Admin", yet editing
+   * "Admin" changes what that user can do the moment Editor inherits from it.
+   * Invalidating direct holders alone would serve that user stale,
+   * over-privileged permissions for the full cache TTL.
    */
   private async findRoleHolderIds(
     manager: EntityManager,
     roleId: string,
   ): Promise<string[]> {
-    const rows = await manager.query(
-      `SELECT user_id FROM user_roles WHERE role_id = $1`,
-      [roleId],
-    );
-    return rows.map((row: { user_id: string }) => row.user_id);
+    return findDependentRoleHolderIds(manager, roleId);
   }
 
   /**

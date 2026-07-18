@@ -29,7 +29,9 @@ import KeyvRedis from '@keyv/redis';
         const host = config.get<string>('REDIS_HOST') || 'localhost';
         const port = parseInt(config.get<string>('REDIS_PORT') || '6379', 10);
         return {
-          stores: [new Keyv({ store: new KeyvRedis(`redis://${host}:${port}`) })],
+          stores: [
+            new Keyv({ store: new KeyvRedis(`redis://${host}:${port}`) }),
+          ],
         };
       },
     }),

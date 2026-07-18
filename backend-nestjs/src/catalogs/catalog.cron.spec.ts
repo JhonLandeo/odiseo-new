@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { HttpService } from '@nestjs/axios';
 import { of, throwError } from 'rxjs';
 import { CatalogCronService } from './catalog.cron';
@@ -8,20 +7,25 @@ import { ICatalogRepository } from './repositories/i-catalog.repository';
 
 describe('CatalogCronService', () => {
   let service: CatalogCronService;
-  let repository: ICatalogRepository;
+  let repository: any;
   let httpService: HttpService;
 
   beforeEach(async () => {
+    // Backoff is real time; collapse it so the retry tests stay fast.
+    jest
+      .spyOn(CatalogCronService.prototype as any, 'delay')
+      .mockResolvedValue(undefined);
+
     const mockRepository = {
       upsertCatalogs: jest.fn(),
+      recordSyncAttempt: jest.fn().mockResolvedValue(undefined),
+      recordSyncSuccess: jest.fn().mockResolvedValue(undefined),
+      recordSyncFailure: jest.fn().mockResolvedValue(undefined),
+      getSyncState: jest.fn(),
     };
 
     const mockConfigService = {
       get: jest.fn().mockReturnValue('http://localhost:3000/api/catalogs'),
-    };
-
-    const mockCacheManager = {
-      set: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockHttpService = {
@@ -40,10 +44,6 @@ describe('CatalogCronService', () => {
           useValue: mockConfigService,
         },
         {
-          provide: CACHE_MANAGER,
-          useValue: mockCacheManager,
-        },
-        {
           provide: HttpService,
           useValue: mockHttpService,
         },
@@ -56,7 +56,7 @@ describe('CatalogCronService', () => {
   });
 
   afterEach(() => {
-    jest.resetAllMocks();
+    jest.restoreAllMocks();
   });
 
   it('should be defined', () => {
@@ -80,6 +80,18 @@ describe('CatalogCronService', () => {
     expect(repository.upsertCatalogs).toHaveBeenCalledWith(expect.any(Object));
   });
 
+  it('records attempt and success in the durable sync state', async () => {
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValue(of({ data: { courses: [] } } as any));
+
+    await service.syncCatalogs();
+
+    expect(repository.recordSyncAttempt).toHaveBeenCalledTimes(1);
+    expect(repository.recordSyncSuccess).toHaveBeenCalledTimes(1);
+    expect(repository.recordSyncFailure).not.toHaveBeenCalled();
+  });
+
   it('should log an error if Core API fails', async () => {
     jest
       .spyOn(httpService, 'get')
@@ -92,7 +104,68 @@ describe('CatalogCronService', () => {
     expect(repository.upsertCatalogs).not.toHaveBeenCalled();
     expect(loggerSpy).toHaveBeenCalledWith(
       expect.stringContaining('Error during catalog sync'),
-      expect.any(String),
+      expect.anything(),
     );
+  });
+
+  it('retries with backoff before giving up, then records the failure', async () => {
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValue(throwError(() => new Error('upstream down')));
+
+    await service.syncCatalogs();
+
+    // Bounded retry: three attempts per scheduled run, then stop. The hourly
+    // schedule is the outer loop.
+    expect(httpService.get).toHaveBeenCalledTimes(3);
+    expect(service['delay']).toHaveBeenCalledTimes(2);
+    expect(service['delay']).toHaveBeenNthCalledWith(1, 1000);
+    expect(service['delay']).toHaveBeenNthCalledWith(2, 2000);
+
+    // The outage is persisted, not merely logged: this is the only way an
+    // operator sees a sync that has been dead for weeks.
+    expect(repository.recordSyncFailure).toHaveBeenCalledWith('upstream down');
+    expect(repository.recordSyncSuccess).not.toHaveBeenCalled();
+  });
+
+  it('succeeds without recording a failure when a retry recovers', async () => {
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValueOnce(throwError(() => new Error('transient')))
+      .mockReturnValueOnce(of({ data: { courses: [] } } as any));
+
+    await service.syncCatalogs();
+
+    expect(httpService.get).toHaveBeenCalledTimes(2);
+    expect(repository.recordSyncSuccess).toHaveBeenCalledTimes(1);
+    expect(repository.recordSyncFailure).not.toHaveBeenCalled();
+  });
+
+  it('treats an invalid payload as a failed sync', async () => {
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValue(of({ data: { nope: true } } as any));
+    repository.upsertCatalogs.mockRejectedValue(
+      new Error('Invalid catalog payload from Core API: "courses" is missing'),
+    );
+
+    await service.syncCatalogs();
+
+    expect(repository.recordSyncFailure).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid catalog payload'),
+    );
+    expect(repository.recordSyncSuccess).not.toHaveBeenCalled();
+  });
+
+  it('still reports success when the bookkeeping write fails', async () => {
+    jest
+      .spyOn(httpService, 'get')
+      .mockReturnValue(of({ data: { courses: [] } } as any));
+    repository.recordSyncSuccess.mockRejectedValue(new Error('db down'));
+
+    // A failed status write must not turn a successful catalog sync into a
+    // failure — nor throw out of the cron.
+    await expect(service.syncCatalogs()).resolves.toBeUndefined();
+    expect(repository.recordSyncFailure).not.toHaveBeenCalled();
   });
 });

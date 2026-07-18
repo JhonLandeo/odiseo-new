@@ -296,3 +296,88 @@ describe('AuthService', () => {
     });
   });
 });
+
+// ───────────────── A: role inheritance on the permission path ──────
+describe('AuthService.getUserPermissions with role inheritance', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+
+  function build(rows: Array<{ permissions: string[] | null }>) {
+    const manager = { query: jest.fn().mockResolvedValue(rows) };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, manager, tenantService, cacheManager };
+  }
+
+  it('returns the flattened set including INHERITED permissions', async () => {
+    // Two rows: the directly-held role and one reached through inheritance.
+    // The old flat query joined user_roles only and would have returned just
+    // the first.
+    const { service } = build([
+      { permissions: ['EDIT_SYLLABUS'] },
+      { permissions: ['VIEW_SYLLABUS'] },
+    ]);
+
+    const permissions = await service.getUserPermissions(USER_ID, COMPANY_ID);
+
+    expect(permissions.sort()).toEqual(['EDIT_SYLLABUS', 'VIEW_SYLLABUS']);
+  });
+
+  it('de-duplicates a permission shared by a role and its ancestor', async () => {
+    const { service } = build([
+      { permissions: ['SHARED', 'A'] },
+      { permissions: ['SHARED', 'B'] },
+    ]);
+
+    const permissions = await service.getUserPermissions(USER_ID, COMPANY_ID);
+
+    expect(permissions.sort()).toEqual(['A', 'B', 'SHARED']);
+  });
+
+  it('resolves the hierarchy with a cycle-safe recursive query', async () => {
+    const { service, manager } = build([]);
+
+    await service.getUserPermissions(USER_ID, COMPANY_ID);
+
+    const [sql, params] = manager.query.mock.calls[0];
+    expect(sql).toContain('WITH RECURSIVE');
+    // UNION, not UNION ALL: this is what makes a cyclic hierarchy terminate.
+    expect(sql).not.toContain('UNION ALL');
+    expect(params).toEqual([USER_ID]);
+  });
+
+  it('resolves against the tenant schema derived from the company id', async () => {
+    const { service, tenantService } = build([]);
+
+    await service.getUserPermissions(USER_ID, COMPANY_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledWith(
+      `tenant_${COMPANY_ID}`,
+      expect.any(Function),
+    );
+  });
+
+  it('serves the cached set without re-resolving the hierarchy', async () => {
+    const { service, manager, cacheManager } = build([]);
+    cacheManager.get.mockResolvedValue(['CACHED']);
+
+    expect(await service.getUserPermissions(USER_ID, COMPANY_ID)).toEqual([
+      'CACHED',
+    ]);
+    expect(manager.query).not.toHaveBeenCalled();
+  });
+});

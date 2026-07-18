@@ -35,6 +35,14 @@ describe('CatalogUseCase', () => {
       ]),
       updateTopicLocalVisibility: jest.fn().mockResolvedValue(undefined),
       findCourseIdByTopicId: jest.fn().mockResolvedValue('course-1'),
+      getSyncState: jest.fn().mockResolvedValue({
+        source: 'core-api',
+        lastAttemptAt: new Date('2026-01-01T10:00:00.000Z'),
+        lastSuccessAt: new Date('2026-01-01T10:00:00.000Z'),
+        lastOutcome: 'SUCCESS',
+        lastError: null,
+        updatedAt: new Date('2026-01-01T10:00:00.000Z'),
+      }),
     };
 
     mockCacheManager = {
@@ -93,17 +101,75 @@ describe('CatalogUseCase', () => {
     );
   });
 
+  it('debería exponer lastSyncedAt desde la tabla durable de estado de sync', async () => {
+    const result = await useCase.getCourses();
+
+    // Read from the sync-state table, not from a cache entry that expires long
+    // before the hourly sync refreshes it.
+    expect(mockCatalogRepository.getSyncState).toHaveBeenCalled();
+    expect(result.lastSyncedAt).toBe('2026-01-01T10:00:00.000Z');
+    expect(result.syncStatus.lastOutcome).toBe('SUCCESS');
+  });
+
+  it('reporta lastSyncedAt null cuando nunca hubo un sync exitoso', async () => {
+    mockCatalogRepository.getSyncState.mockResolvedValue({
+      source: 'core-api',
+      lastAttemptAt: new Date('2026-01-01T11:00:00.000Z'),
+      lastSuccessAt: null,
+      lastOutcome: 'FAILED',
+      lastError: 'boom',
+      updatedAt: new Date('2026-01-01T11:00:00.000Z'),
+    });
+
+    const result = await useCase.getCourses();
+
+    expect(result.lastSyncedAt).toBeNull();
+    // The failure is surfaced rather than hidden behind a blank timestamp.
+    expect(result.syncStatus.lastOutcome).toBe('FAILED');
+    expect(result.syncStatus.lastError).toBe('boom');
+  });
+
   it('debería aislar la actualización local en el repositorio e invalidar caché', async () => {
     await useCase.updateTopicVisibility('topic-1', false);
 
     expect(
       mockCatalogRepository.updateTopicLocalVisibility,
     ).toHaveBeenCalledWith('topic-1', false);
-    expect(mockCatalogRepository.findCourseIdByTopicId).toHaveBeenCalledWith(
-      'topic-1',
+    // Invalidation bumps the tenant's cache-namespace version, which retires
+    // every cached variant at once instead of only the ':all' keys.
+    expect(mockCacheManager.set).toHaveBeenCalledWith(
+      'catalogs:version:tenant_test',
+      expect.any(Number),
+      0,
     );
-    expect(mockCacheManager.del).toHaveBeenCalledWith(
-      expect.stringContaining('catalogs:courses:tenant_test:all'),
+  });
+
+  it('invalida TODAS las variantes de búsqueda, no solo ":all"', async () => {
+    // Regression guard: search-scoped entries used to survive a visibility
+    // toggle for the full TTL, so a user toggled, searched, and saw stale counts.
+    let version = 0;
+    mockCacheManager.get.mockImplementation(async (key: string) =>
+      key === 'catalogs:version:tenant_test' ? version : null,
     );
+    mockCacheManager.set.mockImplementation(async (key: string, value: any) => {
+      if (key === 'catalogs:version:tenant_test') version = value;
+    });
+
+    await useCase.getCourses('algebra');
+    const keyBefore = mockCacheManager.set.mock.calls.find((c: any[]) =>
+      c[0].includes(':courses:'),
+    )[0];
+    expect(keyBefore).toContain('algebra');
+
+    await useCase.updateTopicVisibility('topic-1', false);
+
+    mockCacheManager.set.mockClear();
+    await useCase.getCourses('algebra');
+    const keyAfter = mockCacheManager.set.mock.calls.find((c: any[]) =>
+      c[0].includes(':courses:'),
+    )[0];
+
+    // Same search term, different namespace => the old entry is unreachable.
+    expect(keyAfter).not.toBe(keyBefore);
   });
 });

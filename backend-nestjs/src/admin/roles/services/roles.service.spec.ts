@@ -9,7 +9,10 @@ import { PERMISSIONS } from '../constants/permissions.constant';
 const COMPANY_ID = 'company-1';
 const ACTOR_ID = 'actor-1';
 
-function createService(actorPermissions: string[], companyId: any = COMPANY_ID) {
+function createService(
+  actorPermissions: string[],
+  companyId: any = COMPANY_ID,
+) {
   const savedRole = { id: 'role-1', name: 'Coordinator' };
   const repo = {
     create: jest.fn((data: any) => ({ ...data })),
@@ -36,7 +39,7 @@ function createService(actorPermissions: string[], companyId: any = COMPANY_ID) 
     authService as any,
     cls as any,
   );
-  return { service, repo, tenantService, authService, cls };
+  return { service, repo, manager, tenantService, authService, cls };
 }
 
 // ─────────────────────────────── A3: DTO vocabulary ───────────────
@@ -143,7 +146,11 @@ describe('RolesService privilege escalation guard (A4)', () => {
   it('skips the check when the payload carries no permissions', async () => {
     const { service, authService, repo } = createService([]);
 
-    await service.update('role-1', { name: 'Renamed' } as UpdateRoleDto, ACTOR_ID);
+    await service.update(
+      'role-1',
+      { name: 'Renamed' } as UpdateRoleDto,
+      ACTOR_ID,
+    );
 
     expect(authService.getUserPermissions).not.toHaveBeenCalled();
     expect(repo.save).toHaveBeenCalled();
@@ -178,6 +185,66 @@ describe('RolesService privilege escalation guard (A4)', () => {
     expect(authService.getUserPermissions).toHaveBeenCalledWith(
       ACTOR_ID,
       COMPANY_ID,
+    );
+  });
+});
+
+// ───────────────────── A: inheritance-aware cache invalidation ─────
+describe('RolesService cache invalidation with role inheritance', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('invalidates holders of DESCENDANT roles when a parent role is edited', async () => {
+    const { service, manager, authService } = createService([]);
+    // The descendant walk resolves in SQL; the service must fan out over
+    // whatever it returns, not just over direct user_roles rows.
+    manager.query.mockResolvedValue([
+      { user_id: 'direct-holder' },
+      { user_id: 'child-role-holder' },
+    ]);
+
+    await service.update(
+      'role-1',
+      { name: 'Renamed' } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'direct-holder',
+    );
+    // The security-relevant half: this user holds only a CHILD role, so
+    // editing the parent silently changed their effective permissions.
+    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'child-role-holder',
+    );
+  });
+
+  it('resolves holders through the descendant-walking query, not a flat lookup', async () => {
+    const { service, manager } = createService([]);
+    manager.query.mockResolvedValue([]);
+
+    await service.update(
+      'role-1',
+      { name: 'Renamed' } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    const [sql, params] = manager.query.mock.calls.at(-1);
+    expect(sql).toContain('dependent_roles');
+    expect(sql).toContain('ri.parent_role_id = dr.role_id');
+    expect(params).toEqual(['role-1']);
+  });
+
+  it('also fans out to descendant holders on delete', async () => {
+    const { service, manager, authService } = createService([]);
+    manager.query.mockResolvedValue([{ user_id: 'child-role-holder' }]);
+
+    await service.remove('role-1');
+
+    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'child-role-holder',
     );
   });
 });

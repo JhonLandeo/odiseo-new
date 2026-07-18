@@ -1,14 +1,9 @@
 import { Course } from '../entities/course.entity';
+import { CatalogSyncState } from '../entities/catalog-sync-state.entity';
 
 export const ICatalogRepository = Symbol('ICatalogRepository');
 
 export interface ICatalogRepository {
-  /**
-   * Obtiene la jerarquía completa de catálogos (Cursos > Temas > Subtemas)
-   * interceptada con la visibilidad del tenant actual.
-   */
-  getActiveHierarchy(): Promise<Course[]>;
-
   /**
    * Obtiene la lista de cursos paginada o completa (son pocos)
    */
@@ -33,6 +28,21 @@ export interface ICatalogRepository {
 
   /**
    * Realiza un bulk upsert de courses, topics y subtopics en el esquema public.
+   *
+   * Recibe `unknown` a propósito: el payload viene de un sistema externo y la
+   * implementación lo valida antes de escribir en el esquema compartido.
    */
-  upsertCatalogs(payload: any): Promise<void>;
+  upsertCatalogs(payload: unknown): Promise<void>;
+
+  /** Marks that a sync attempt has just started. */
+  recordSyncAttempt(): Promise<void>;
+
+  /** Marks the current attempt as successful and clears any previous error. */
+  recordSyncSuccess(): Promise<void>;
+
+  /** Marks the current attempt as failed, persisting the reason. */
+  recordSyncFailure(error: string): Promise<void>;
+
+  /** Durable sync state, or null if no sync has ever run. */
+  getSyncState(): Promise<CatalogSyncState | null>;
 }

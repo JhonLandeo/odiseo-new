@@ -5,6 +5,11 @@ import { TenantService } from '../database/tenant.service';
 import { TenantsService } from '../tenants/tenants.service';
 import { JwtService } from '@nestjs/jwt';
 import { User } from './entities/user.entity';
+import {
+  findEffectiveRoles,
+  findEffectivePermissions,
+  flattenPermissions,
+} from '../admin/roles/permissions/flattened-permissions.query';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -60,28 +65,16 @@ export class AuthService {
         // Step 5: Cross-tenant isolation check
         if (user.companyId !== company.id) return null;
 
-        // Step 6: Load roles and permissions
-        // Step 6: Load roles and permissions using the new TypeORM schema
-        const userRolesResult = await manager.query(
-          `
-          SELECT r.id, r.name, r.permissions 
-          FROM roles r
-          INNER JOIN user_roles ur ON ur.role_id = r.id
-          WHERE ur.user_id = $1
-          `,
-          [user.id],
-        );
-
-        const mergedPermissions = Array.from(
-          new Set<string>(
-            userRolesResult.flatMap((r: any) => r.permissions || []),
-          ),
-        );
+        // Step 6: Load effective roles and permissions.
+        // Resolves the inheritance hierarchy, not just the direct assignments,
+        // so the token and the login response describe the same authority the
+        // guards will actually enforce.
+        const effectiveRoles = await findEffectiveRoles(manager, user.id);
 
         return {
           user,
-          roles: userRolesResult.map((r: any) => r.name),
-          permissions: mergedPermissions,
+          roles: effectiveRoles.map((r) => r.name),
+          permissions: flattenPermissions(effectiveRoles),
           companyId: company.id,
         };
       },
@@ -132,23 +125,9 @@ export class AuthService {
 
         if (!user) return null;
 
-        const rolesResult = await manager.query(
-          `
-          SELECT r.permissions
-          FROM roles r
-          INNER JOIN user_roles ur ON ur.role_id = r.id
-          WHERE ur.user_id = $1
-          `,
-          [user.id],
-        );
-
-        const mergedPermissions = Array.from(
-          new Set<string>(rolesResult.flatMap((r: any) => r.permissions || [])),
-        );
-
         return {
           user,
-          permissions: mergedPermissions,
+          permissions: await findEffectivePermissions(manager, user.id),
         };
       },
     );
@@ -179,22 +158,12 @@ export class AuthService {
     if (cached) return cached;
 
     const schemaName = `tenant_${companyId}`;
+    // Resolves the full role hierarchy: a role's permissions include everything
+    // it inherits, transitively. See flattened-permissions.query.ts for why the
+    // traversal lives in SQL and how it stays cycle-safe.
     const permissions = await this.tenantService.runInSchema(
       schemaName,
-      async (manager) => {
-        const rolesResult = await manager.query(
-          `
-        SELECT r.permissions
-        FROM roles r
-        INNER JOIN user_roles ur ON ur.role_id = r.id
-        WHERE ur.user_id = $1
-        `,
-          [userId],
-        );
-        return Array.from(
-          new Set<string>(rolesResult.flatMap((r: any) => r.permissions || [])),
-        );
-      },
+      (manager) => findEffectivePermissions(manager, userId),
     );
 
     // Role/permission mutations call invalidateUserPermissions() explicitly, so

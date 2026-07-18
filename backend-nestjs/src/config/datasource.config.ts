@@ -22,6 +22,7 @@ export const dataSourceOptions: DataSourceOptions = {
     join(__dirname, '../catalogs/entities/course.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/topic.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/subtopic.entity{.ts,.js}'),
+    join(__dirname, '../catalogs/entities/catalog-sync-state.entity{.ts,.js}'),
   ],
   // Directorio para crear migraciones
   migrations: [join(__dirname, '../database/migrations/*{.ts,.js}')],
