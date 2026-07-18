@@ -222,6 +222,11 @@ export class PdfGenerationProcessor extends WorkerHost {
                 if (mrq.questionId) {
                   const q = questionMap.get(mrq.questionId);
                   if (q) {
+                    // A signing failure throws and is deliberately left to
+                    // reach this course's `catch` below, which reports the
+                    // course as `failed` and fails the job. Swallowing it
+                    // would put an empty `src` in the PDF, shipping an exam
+                    // with missing images under a `completed` status.
                     const signedImages = await Promise.all(
                       (q.images || []).map(async (img: any) => ({
                         id: img.id,
@@ -613,6 +618,9 @@ export class PdfGenerationProcessor extends WorkerHost {
               if (mrq.questionId) {
                 const q = questionMap.get(mrq.questionId);
                 if (q) {
+                  // See handleGeneratePdf: a signing failure must fail this
+                  // course via the `catch` below rather than emit an empty
+                  // image `src` into a PDF reported as completed.
                   const signedImages = await Promise.all(
                     (q.images || []).map(async (img: any) => ({
                       id: img.id,

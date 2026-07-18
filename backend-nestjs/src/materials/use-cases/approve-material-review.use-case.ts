@@ -25,6 +25,24 @@ import { Company } from '../../tenants/entities/tenant.entity';
 import { Syllabus } from '../../syllabus/entities/syllabus.entity';
 import { SyllabusDistribution } from '../../syllabus/entities/syllabus-distribution.entity';
 import { CycleMaterialTemplate } from '../../academic-time/entities/cycle-material-template.entity';
+import { MATERIALS_JOB_OPTIONS } from '../constants/materials-queue.constants';
+
+/**
+ * Actor and tenancy context for a curation approval.
+ *
+ * This is a single named object rather than two adjacent `string` parameters
+ * on purpose: `execute(id, dto, tenantId, userId)` was being called as
+ * `execute(id, dto, userId, tenantId)` and TypeScript could not see it, because
+ * both positions have the same type. Every curated PDF was therefore branded
+ * with the fallback school name and logo (the company lookup keyed on a user
+ * uuid always returned null), the dispatched job carried a user uuid as its
+ * `tenant_id`, and the notification was addressed to a company uuid. Named
+ * fields make that whole class of mistake a compile error.
+ */
+export interface MaterialReviewContext {
+  tenantId: string;
+  userId: string;
+}
 
 @Injectable()
 export class ApproveMaterialReviewUseCase {
@@ -35,10 +53,17 @@ export class ApproveMaterialReviewUseCase {
     @InjectQueue('materials-queue') private readonly materialsQueue: Queue,
   ) {}
 
+  /**
+   * Takes the same named context object as `execute` so both entry points of
+   * this use case share one shape. The previous signature declared a third
+   * `tenantId` parameter that the controller filled with a user uuid and that
+   * the body never read — dead weight that also modelled the argument order
+   * wrongly for anyone reading the two methods side by side.
+   */
   async saveDraft(
     id: string,
     dto: ApproveReviewDto,
-    tenantId: string,
+    ctx: MaterialReviewContext,
   ): Promise<any> {
     return this.tenantService.runInTenant(async (manager) => {
       const request = await manager.findOne(MaterialRequest, {
@@ -85,6 +110,10 @@ export class ApproveMaterialReviewUseCase {
         );
       }
 
+      this.logger.log(
+        `Draft curation saved for MaterialRequest ${id} by user ${ctx.userId}`,
+      );
+
       return { status: 'OK', message: 'Borrador guardado exitosamente' };
     });
   }
@@ -92,9 +121,9 @@ export class ApproveMaterialReviewUseCase {
   async execute(
     id: string,
     dto: ApproveReviewDto,
-    tenantId: string,
-    userId: string,
+    ctx: MaterialReviewContext,
   ): Promise<any> {
+    const { tenantId, userId } = ctx;
     const jobsToDispatch: { name: string; data: any }[] = [];
 
     const result = await this.tenantService.runInTenant(async (manager) => {
@@ -106,11 +135,25 @@ export class ApproveMaterialReviewUseCase {
         throw new NotFoundException('La solicitud de material no existe');
       }
 
-      if (request.version !== dto.version) {
+      // Atomic optimistic guard, same as `saveDraft`. The previous read-then-
+      // compare left a TOCTOU window: two admins could both read version=3,
+      // both pass the comparison, and both enqueue a full PDF generation for
+      // the same request. Making the database decide the winner via a
+      // conditional UPDATE closes it — the loser gets affected=0.
+      const bump = await manager.update(
+        MaterialRequest,
+        { id, version: dto.version },
+        { version: () => '"version" + 1' },
+      );
+      if (bump.affected === 0) {
         throw new ConflictException(
           'El material ya está siendo revisado por otro administrador o su estado ha cambiado',
         );
       }
+      // Keep the in-memory entity in step with the row we just bumped. The
+      // later `manager.save(request)` calls issue an optimistic-lock UPDATE
+      // keyed on @VersionColumn, and a stale value here would make them fail.
+      request.version = dto.version + 1;
 
       for (const replacement of dto.replacements) {
         await manager.update(
@@ -278,8 +321,17 @@ export class ApproveMaterialReviewUseCase {
               company?.logoUrl ||
               'https://s3.aws.com/tenant-assets/odiseo-innova.png',
           },
-          material_type: 'BALOTARIO',
+          // Read the type the request was actually created with. Hardcoding
+          // 'BALOTARIO' here silently downgraded every EXAMEN that went
+          // through the review flow, because `GenerateMaterialUseCase` decides
+          // the type from `dto.exam_areas` and persists it on the entity.
+          material_type: request.materialType || 'BALOTARIO',
           course_id: courseReq.courseId,
+          // KNOWN GAP: there is no per-request difficulty in the domain model.
+          // `CycleMaterialTemplateCourse` stores easy/medium/hard *counts*, not
+          // a single level, and no consumer reads this field today (it exists
+          // only on the job DTOs). Left as a constant until a real source is
+          // modelled — do not mistake it for configured data.
           difficulty_level: 'MEDIA',
           syllabus_distribution: syllabusPayload,
           notification: { admin_user_id: userId },
@@ -295,7 +347,7 @@ export class ApproveMaterialReviewUseCase {
     });
 
     for (const job of jobsToDispatch) {
-      await this.materialsQueue.add(job.name, job.data);
+      await this.materialsQueue.add(job.name, job.data, MATERIALS_JOB_OPTIONS);
     }
 
     if (jobsToDispatch.length > 0) {

@@ -12,6 +12,7 @@ import { MaterialRequestStatus } from '../entities/material-status.enum';
 import { Material } from '../entities/material.entity';
 import { ClsService } from 'nestjs-cls';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { MATERIALS_JOB_OPTIONS } from '../constants/materials-queue.constants';
 
 @Injectable()
 export class HandleMaterialWebhookUseCase {
@@ -151,10 +152,14 @@ export class HandleMaterialWebhookUseCase {
               );
               return;
             }
-            await this.materialsQueue.add('merge-pdf', {
-              material_request_id: courseReq.materialRequestId,
-              tenant_id: tenantId,
-            });
+            await this.materialsQueue.add(
+              'merge-pdf',
+              {
+                material_request_id: courseReq.materialRequestId,
+                tenant_id: tenantId,
+              },
+              MATERIALS_JOB_OPTIONS,
+            );
             this.logger.log(
               `Merge job dispatched for MaterialRequest ${courseReq.materialRequestId}`,
             );

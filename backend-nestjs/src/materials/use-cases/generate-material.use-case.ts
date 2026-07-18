@@ -32,6 +32,7 @@ import {
 import { Material } from '../entities/material.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
+import { MATERIALS_JOB_OPTIONS } from '../constants/materials-queue.constants';
 
 @Injectable()
 export class GenerateMaterialUseCase {
@@ -49,7 +50,14 @@ export class GenerateMaterialUseCase {
     userId: string,
     dto: GenerateMaterialDto,
   ): Promise<any> {
-    return this.tenantService.runInTenant(async (manager) => {
+    // Jobs are collected here and dispatched only after `runInTenant` resolves
+    // (the same shape ApproveMaterialReviewUseCase uses). Enqueuing inside the
+    // transaction let a worker dequeue and query for a MaterialRequest row that
+    // was not committed yet, and a rollback left an orphan job pointing at a
+    // request that never existed.
+    const jobsToDispatch: { name: string; data: any }[] = [];
+
+    const result = await this.tenantService.runInTenant(async (manager) => {
       // 1. Fetch template info for naming
       const template = await manager.findOne(CycleMaterialTemplate, {
         where: { id: dto.profile_id },
@@ -390,7 +398,7 @@ export class GenerateMaterialUseCase {
             },
           );
         }
-        await this.materialsQueue.add('generate-pdf', jobPayload);
+        jobsToDispatch.push({ name: 'generate-pdf', data: jobPayload });
       }
 
       return {
@@ -405,5 +413,11 @@ export class GenerateMaterialUseCase {
         },
       };
     });
+
+    for (const job of jobsToDispatch) {
+      await this.materialsQueue.add(job.name, job.data, MATERIALS_JOB_OPTIONS);
+    }
+
+    return result;
   }
 }

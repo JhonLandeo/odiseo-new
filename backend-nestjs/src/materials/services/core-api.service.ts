@@ -58,6 +58,15 @@ export class CoreApiService {
     private readonly defaultEntityManager: EntityManager,
   ) {}
 
+  /**
+   * Rejects if any image URL cannot be signed, and that rejection must keep
+   * propagating. `GcsService.getSignedUrl` no longer degrades to `''` after its
+   * bounded retry — an empty `src` used to ship exams with missing question
+   * images while the job still reported `completed`. The only caller is
+   * `PdfGenerationProcessor`, whose per-course `catch` turns this into a
+   * `failed` webhook and fails the job. Do not wrap these calls in a catch that
+   * substitutes a placeholder URL.
+   */
   async fetchQuestions(
     topicId: string,
     subtopicId: string,

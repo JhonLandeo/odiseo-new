@@ -118,13 +118,13 @@ export class MaterialsController {
     @Body() request: ApproveReviewDto,
     @Req() req: Request,
   ) {
+    const tenantId = this.cls.get('companyId');
     const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.approveMaterialReviewUseCase.saveDraft(
-      id,
-      request,
+    return await this.approveMaterialReviewUseCase.saveDraft(id, request, {
+      tenantId,
       userId,
-    );
+    });
   }
 
   @Post(':id/approve')
@@ -145,12 +145,10 @@ export class MaterialsController {
     const tenantId = this.cls.get('companyId');
     const userId = (req as any).user?.sub;
     if (!userId) throw new UnauthorizedException('Tenant no identificado');
-    return await this.approveMaterialReviewUseCase.execute(
-      id,
-      request,
-      userId,
+    return await this.approveMaterialReviewUseCase.execute(id, request, {
       tenantId,
-    );
+      userId,
+    });
   }
 
   @Get(':id/courses/:courseId/download')
