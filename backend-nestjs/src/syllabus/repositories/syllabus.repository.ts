@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import {
   ISyllabusRepository,
   SyllabusWithProgress,
 } from './i-syllabus.repository';
+
+/** Postgres `unique_violation`. Raised by `uq_syllabus_cycle_course_active`. */
+const UNIQUE_VIOLATION = '23505';
 import { Syllabus } from '../entities/syllabus.entity';
 import { SyllabusDistribution } from '../entities/syllabus-distribution.entity';
 import { TenantService } from '../../database/tenant.service';
@@ -14,7 +17,20 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
   async createSyllabus(syllabus: Partial<Syllabus>): Promise<Syllabus> {
     return this.tenantService.runInTenant(async (manager) => {
       const newSyllabus = manager.create(Syllabus, syllabus);
-      return await manager.save(newSyllabus);
+      try {
+        return await manager.save(newSyllabus);
+      } catch (error) {
+        // The use case checks for an existing syllabus in a separate
+        // transaction, so two concurrent creates both pass that check and race
+        // here. The partial unique index is what actually enforces uniqueness;
+        // translate the loser's violation into the same 409 the check returns.
+        if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          throw new ConflictException(
+            'Ya existe un sílabo para este curso y ciclo. Por favor edite el existente.',
+          );
+        }
+        throw error;
+      }
     });
   }
 
@@ -88,7 +104,21 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
 
   async updateVisibility(id: string, isActive: boolean): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      await manager.update(Syllabus, id, { isActive });
+      try {
+        await manager.update(Syllabus, id, { isActive });
+      } catch (error) {
+        // UQ_syllabus_active_cycle_course is a partial unique index over the
+        // active rows, so reactivating an archived syllabus collides when
+        // another one is already active for the same course and cycle. That is
+        // a real conflict the caller must resolve, not a server fault: surface
+        // it as 409 instead of letting the driver error bubble up as a 500.
+        if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          throw new ConflictException(
+            'Ya existe un sílabo activo para este curso y ciclo. Archívelo antes de reactivar este.',
+          );
+        }
+        throw error;
+      }
     });
   }
 

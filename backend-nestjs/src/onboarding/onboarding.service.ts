@@ -45,14 +45,14 @@ export class OnboardingService {
    * rows. Step completion is derived from the real tables on every call anyway,
    * so persisting it on read bought nothing and is simply dropped.
    *
-   * Consequence: `onboarding_progress.steps_completed` is now written by no one
-   * and read by no one. It is vestigial, left in place because dropping a column
-   * needs a migration.
+   * The `onboarding_progress.steps_completed` column that used to cache this
+   * became vestigial as a result and was dropped in tenant migration 0004.
    */
   async getProgress(): Promise<OnboardingProgressDto> {
     return this.tenantService.runInTenant(async (manager) => {
-      // Deterministic pick: the table has no unique constraint, so an already
-      // duplicated tenant must at least resolve to the same row every time.
+      // Migration 0004 makes this row a singleton, so LIMIT 1 is now exact
+      // rather than a tie-break. The ORDER BY is retained so a tenant schema
+      // that predates the migration still resolves to the same row every time.
       const dismissalRows = await manager.query(
         `SELECT is_dismissed FROM onboarding_progress ORDER BY created_at ASC, id ASC LIMIT 1`,
       );
@@ -105,43 +105,24 @@ export class OnboardingService {
   /**
    * Atomic get-or-create of the tenant's single progress row.
    *
-   * `onboarding_progress` has no unique constraint to hang an
-   * `ON CONFLICT ... DO UPDATE` on (only `id UUID PRIMARY KEY DEFAULT
-   * gen_random_uuid()`), so exclusion is taken explicitly: a transaction-scoped
-   * advisory lock keyed on the tenant's own schema serialises concurrent
-   * get-or-create for that tenant, and one CTE statement then updates the
-   * existing row or inserts the first one. Two parallel calls can no longer
-   * both observe "no row" and both insert.
+   * This used to take a transaction-scoped advisory lock, because the table had
+   * no unique constraint to hang an `ON CONFLICT` on. That lock was only
+   * cooperative: it held exactly as long as every writer went through this one
+   * method, and nothing structural enforced that.
    *
-   * The previous COUNT-then-INSERT/UPDATE also updated EVERY row (no WHERE);
-   * the UPDATE below is scoped to the single row the CTE selected.
+   * Tenant migration 0004 makes the singleton invariant real — a fixed-true
+   * `singleton` column with a CHECK plus a UNIQUE index — so exclusion is now
+   * the database's job and a single `INSERT ... ON CONFLICT DO UPDATE` is both
+   * atomic and correct against any writer, not just this one. Same pattern as
+   * CatalogRepositoryImpl's upserts.
    */
   private async upsertTourDismissal(isDismissed: boolean): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      // runInTenant runs inside a transaction, so this lock is released on
-      // commit/rollback. current_schema() is the tenant schema (search_path),
-      // which keeps the key distinct per tenant.
       await manager.query(
-        `SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.onboarding_progress'))`,
-      );
-
-      await manager.query(
-        `
-        WITH existing AS (
-          SELECT id FROM onboarding_progress
-          ORDER BY created_at ASC, id ASC
-          LIMIT 1
-        ), updated AS (
-          UPDATE onboarding_progress p
-          SET is_dismissed = $1, updated_at = now()
-          FROM existing e
-          WHERE p.id = e.id
-          RETURNING p.id
-        )
-        INSERT INTO onboarding_progress (steps_completed, is_dismissed)
-        SELECT '[]'::jsonb, $1
-        WHERE NOT EXISTS (SELECT 1 FROM updated)
-        `,
+        `INSERT INTO onboarding_progress (singleton, is_dismissed)
+         VALUES (true, $1)
+         ON CONFLICT (singleton) DO UPDATE
+         SET is_dismissed = EXCLUDED.is_dismissed, updated_at = now()`,
         [isDismissed],
       );
     });

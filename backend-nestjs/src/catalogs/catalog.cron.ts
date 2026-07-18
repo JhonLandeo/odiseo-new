@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
+import { DISTRIBUTED_LOCK } from '../common/locking/distributed-lock.interface';
+import type { DistributedLock } from '../common/locking/distributed-lock.interface';
 
 @Injectable()
 export class CatalogCronService {
@@ -20,20 +22,35 @@ export class CatalogCronService {
   /** Base backoff; attempt N waits N * this, so 1s, 2s. */
   private static readonly BACKOFF_BASE_MS = 1000;
 
+  /**
+   * Comfortably longer than a run (3 attempts plus 3s of backoff) but well
+   * under the hourly interval, so a crashed replica never blocks the next tick.
+   */
+  private static readonly LOCK_TTL_MS = 15 * 60 * 1000;
+
+  private static readonly LOCK_KEY = 'cron:catalogs:sync';
+
   constructor(
     @Inject(ICatalogRepository)
     private readonly catalogRepository: ICatalogRepository,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    @Inject(DISTRIBUTED_LOCK)
+    private readonly lock: DistributedLock,
   ) {}
 
-  /**
-   * NOTE (known gap, intentionally out of scope here): this cron has no
-   * distributed lock, so every replica fires it. It needs the same mechanism as
-   * materials.cron.ts and should land as one change covering both.
-   */
   @Cron(CronExpression.EVERY_HOUR)
   async syncCatalogs() {
+    // Every replica's scheduler fires this. Without the lock the external Core
+    // API is hit N times an hour and N writers race on the same upserts.
+    await this.lock.runExclusively(
+      CatalogCronService.LOCK_KEY,
+      CatalogCronService.LOCK_TTL_MS,
+      () => this.runSync(),
+    );
+  }
+
+  private async runSync(): Promise<void> {
     this.logger.log('Starting sync of catalogs from Core API...');
 
     await this.safely(

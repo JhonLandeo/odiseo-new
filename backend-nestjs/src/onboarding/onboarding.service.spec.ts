@@ -133,16 +133,23 @@ describe('OnboardingService', () => {
   });
 
   // ─────────────────────────────── C1 / C2 ────────────────────────
+  //
+  // These assertions previously pinned the advisory-lock + CTE implementation.
+  // Migration 0004 gives onboarding_progress a real singleton UNIQUE index, so
+  // the same invariants are now asserted against the constraint-backed upsert:
+  // exclusion is structural rather than cooperative, which is strictly
+  // stronger — it holds against writers that never call this method.
   describe('dismissTour / resetTour', () => {
-    it('takes a tenant-scoped advisory lock before the get-or-create', async () => {
+    it('relies on the database constraint, not a cooperative advisory lock', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
       await service.dismissTour();
 
-      const lockSql: string = manager.query.mock.calls[0][0];
-      expect(lockSql).toContain('pg_advisory_xact_lock');
-      expect(lockSql).toContain('current_schema()');
+      const statements: string[] = manager.query.mock.calls.map(
+        (call: any[]) => call[0],
+      );
+      expect(statements.some((sql) => /pg_advisory/i.test(sql))).toBe(false);
     });
 
     it('never issues an UPDATE without a WHERE clause', async () => {
@@ -151,31 +158,46 @@ describe('OnboardingService', () => {
 
       await service.dismissTour();
 
-      const upsertSql: string = manager.query.mock.calls[1][0];
-      expect(upsertSql).toMatch(/UPDATE onboarding_progress p[\s\S]*WHERE p\.id = e\.id/);
+      const statements: string[] = manager.query.mock.calls.map(
+        (call: any[]) => call[0],
+      );
+      // The only UPDATE is ON CONFLICT's, which by definition targets exactly
+      // the single conflicting row — there is no unscoped `UPDATE ... SET`.
+      const bareUpdate = statements.some((sql) =>
+        /\bUPDATE\s+onboarding_progress\b/i.test(sql),
+      );
+      expect(bareUpdate).toBe(false);
+      expect(manager.query.mock.calls[0][0]).toMatch(
+        /ON CONFLICT \(singleton\) DO UPDATE/i,
+      );
     });
 
-    it('updates or inserts in a single statement (no COUNT-then-write race)', async () => {
+    it('updates or inserts in a single statement (no read-then-write race)', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
       await service.resetTour();
 
-      // 1 advisory lock + 1 upsert. No separate COUNT round-trip.
-      expect(manager.query).toHaveBeenCalledTimes(2);
-      const upsertSql: string = manager.query.mock.calls[1][0];
+      // One statement total: no lock round-trip, no COUNT, no SELECT-then-write.
+      expect(manager.query).toHaveBeenCalledTimes(1);
+      const upsertSql: string = manager.query.mock.calls[0][0];
       expect(upsertSql).toContain('INSERT INTO onboarding_progress');
-      expect(upsertSql).toContain('WHERE NOT EXISTS (SELECT 1 FROM updated)');
+      expect(upsertSql).toMatch(/ON CONFLICT \(singleton\) DO UPDATE/i);
     });
 
-    it('scopes the insert-or-update to a single row selected deterministically', async () => {
+    it('conflict-targets the singleton column so at most one row can exist', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
       await service.dismissTour();
 
-      const upsertSql: string = manager.query.mock.calls[1][0];
-      expect(upsertSql).toMatch(/ORDER BY created_at ASC, id ASC[\s\S]*LIMIT 1/);
+      const upsertSql: string = manager.query.mock.calls[0][0];
+      expect(upsertSql).toMatch(
+        /INSERT INTO onboarding_progress \(singleton,/i,
+      );
+      expect(upsertSql).toContain('VALUES (true, $1)');
+      // steps_completed was dropped in migration 0004 — it must not reappear.
+      expect(upsertSql).not.toContain('steps_completed');
     });
 
     it('passes the dismissal flag through and reports success', async () => {
@@ -183,13 +205,13 @@ describe('OnboardingService', () => {
       manager.query.mockResolvedValue([]);
 
       expect(await service.dismissTour()).toEqual({ success: true });
-      expect(manager.query.mock.calls[1][1]).toEqual([true]);
+      expect(manager.query.mock.calls[0][1]).toEqual([true]);
 
       jest.clearAllMocks();
       manager.query.mockResolvedValue([]);
 
       expect(await service.resetTour()).toEqual({ success: true });
-      expect(manager.query.mock.calls[1][1]).toEqual([false]);
+      expect(manager.query.mock.calls[0][1]).toEqual([false]);
     });
   });
 });

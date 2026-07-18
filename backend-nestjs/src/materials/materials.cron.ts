@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
@@ -9,10 +9,20 @@ import { Company } from '../tenants/entities/tenant.entity';
 import { CycleMaterialTemplate } from '../academic-time/entities/cycle-material-template.entity';
 import { Cycle } from '../academic-time/entities/cycle.entity';
 import { Material } from './entities/material.entity';
+import { DISTRIBUTED_LOCK } from '../common/locking/distributed-lock.interface';
+import type { DistributedLock } from '../common/locking/distributed-lock.interface';
 
 @Injectable()
 export class MaterialsCron {
   private readonly logger = new Logger(MaterialsCron.name);
+
+  /**
+   * Generous: this walks every tenant, cycle and week. Still far below the
+   * daily interval, so a replica that dies mid-run cannot block tomorrow.
+   */
+  private static readonly LOCK_TTL_MS = 60 * 60 * 1000;
+
+  private static readonly LOCK_KEY = 'cron:materials:auto-generate';
 
   constructor(
     private readonly generateMaterialUseCase: GenerateMaterialUseCase,
@@ -20,10 +30,24 @@ export class MaterialsCron {
     private readonly cls: ClsService,
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
+    @Inject(DISTRIBUTED_LOCK)
+    private readonly lock: DistributedLock,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleCron() {
+    // MaterialsCron is registered in every process, unlike the queue processor
+    // which PROCESS_ROLE already gates. The existence check below is a plain
+    // read with no unique constraint behind it, so N replicas would each see
+    // "no material yet" and each enqueue a duplicate generation job.
+    await this.lock.runExclusively(
+      MaterialsCron.LOCK_KEY,
+      MaterialsCron.LOCK_TTL_MS,
+      () => this.generateForAllTenants(),
+    );
+  }
+
+  private async generateForAllTenants(): Promise<void> {
     this.logger.log('Running US5: Automatic Material Generation (Cron)');
 
     // Process EVERY active company, not just the first one.

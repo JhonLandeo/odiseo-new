@@ -265,4 +265,127 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       WHERE is_system_default = true;
     `,
   },
+  {
+    // Turns three invariants that were only enforced by application code into
+    // database constraints, and stops one shared-catalogue delete from erasing
+    // authored tenant data.
+    //
+    // Why each uniqueness rule is scoped the way it is:
+    //
+    //  - syllabus (cycle_id, course_id) is PARTIAL on `is_active = true`,
+    //    because that is exactly the predicate the application's own duplicate
+    //    check uses (SyllabusUseCase.create -> findByCourseAndCycle filters
+    //    is_active: true). A full unique index would additionally forbid
+    //    archiving a syllabus and creating a fresh one for the same course —
+    //    a legitimate flow the product supports. The constraint therefore
+    //    mirrors the rule the code already intends, no more.
+    //
+    //  - cycle_weeks (cycle_id, week_number) is PARTIAL on
+    //    `deleted_at IS NULL`, because weeks are SOFT deleted. Shrinking a
+    //    cycle's totalWeeks soft-deletes the trailing weeks; growing it again
+    //    re-inserts those week numbers. A full unique index would collide with
+    //    the tombstones and break that flow outright. Only live weeks must be
+    //    unique.
+    //
+    //  - onboarding_progress is a singleton per tenant schema. Postgres has no
+    //    "at most one row" constraint, so it is expressed as a fixed-true
+    //    column with a CHECK plus a UNIQUE index. That gives the row a stable
+    //    conflict target, which is what lets OnboardingService drop its
+    //    cooperative advisory lock for a real INSERT ... ON CONFLICT.
+    //
+    // Cross-schema FKs: `ON DELETE CASCADE` from public.courses / topics /
+    // subtopics into tenant tables means deleting one row from the SHARED
+    // catalogue silently deletes authored planning data in EVERY tenant. It is
+    // latent only because the catalogue sync upserts and never deletes. These
+    // become RESTRICT so such a delete fails loudly instead. The one deliberate
+    // exception is tenant_topic_visibility: its rows are pure per-topic
+    // override flags with no meaning once the topic is gone, so cascading is
+    // the correct semantics there and it is left alone.
+    id: '0004_tenant_integrity_constraints',
+    up: (schema: string) => `
+      -- ── Uniqueness ────────────────────────────────────────────────────────
+      -- Deliberately NOT prefixed with the schema name, unlike the \`idx_\` names
+      -- in 0001/0002. Indexes already live in the schema's own namespace, and
+      -- "uq_" + a 36-char tenant UUID leaves only ~16 chars before Postgres
+      -- truncates the identifier at 63 — which for a UNIQUE index would risk
+      -- two different constraints colliding into one name. Matches how 0001
+      -- names UQ_syllabus_template_week_topic_subtopic.
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_syllabus_cycle_course_active"
+        ON "${schema}".syllabus (cycle_id, course_id)
+        WHERE is_active = true;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_cycle_weeks_cycle_week_live"
+        ON "${schema}".cycle_weeks (cycle_id, week_number)
+        WHERE deleted_at IS NULL;
+
+      -- Singleton onboarding row. The column is always true, so the unique
+      -- index over it admits exactly one row per schema.
+      ALTER TABLE "${schema}".onboarding_progress
+        ADD COLUMN IF NOT EXISTS singleton BOOLEAN NOT NULL DEFAULT true;
+      ALTER TABLE "${schema}".onboarding_progress
+        DROP CONSTRAINT IF EXISTS chk_onboarding_progress_singleton;
+      ALTER TABLE "${schema}".onboarding_progress
+        ADD CONSTRAINT chk_onboarding_progress_singleton CHECK (singleton);
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_singleton"
+        ON "${schema}".onboarding_progress (singleton);
+
+      -- steps_completed is vestigial: nothing writes it and nothing reads it.
+      -- Step completion is derived from the real tables on every request.
+      ALTER TABLE "${schema}".onboarding_progress
+        DROP COLUMN IF EXISTS steps_completed;
+
+      -- ── Cross-schema FK hardening ─────────────────────────────────────────
+      -- The 0001 FKs were created inline and carry server-generated names, so
+      -- they are located by shape (table + column + referenced table) rather
+      -- than by a name this migration cannot know. Re-running is safe: the
+      -- lookup only matches constraints that are still CASCADE.
+      DO $do$
+      DECLARE
+        target RECORD;
+        constraint_name TEXT;
+      BEGIN
+        FOR target IN
+          SELECT * FROM (VALUES
+            ('syllabus', 'course_id', 'courses'),
+            ('syllabus_distribution', 'topic_id', 'topics'),
+            ('syllabus_distribution', 'subtopic_id', 'subtopics'),
+            ('cycle_material_template_courses', 'course_id', 'courses'),
+            ('material_request_courses', 'course_id', 'courses')
+          ) AS t(table_name, column_name, referenced_table)
+        LOOP
+          SELECT con.conname INTO constraint_name
+          FROM pg_constraint con
+          JOIN pg_class child ON child.oid = con.conrelid
+          JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
+          JOIN pg_class parent ON parent.oid = con.confrelid
+          JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+          WHERE con.contype = 'f'
+            AND con.confdeltype = 'c'  -- only the CASCADE ones still need fixing
+            AND child_ns.nspname = '${schema}'
+            AND child.relname = target.table_name
+            AND parent_ns.nspname = 'public'
+            AND parent.relname = target.referenced_table
+            AND con.conkey = ARRAY[(
+              SELECT attnum FROM pg_attribute
+              WHERE attrelid = child.oid AND attname = target.column_name
+            )]::smallint[]
+          LIMIT 1;
+
+          IF constraint_name IS NOT NULL THEN
+            EXECUTE format(
+              'ALTER TABLE %I.%I DROP CONSTRAINT %I',
+              '${schema}', target.table_name, constraint_name
+            );
+            EXECUTE format(
+              'ALTER TABLE %I.%I ADD CONSTRAINT %I FOREIGN KEY (%I) '
+              'REFERENCES public.%I(id) ON DELETE RESTRICT',
+              '${schema}', target.table_name, constraint_name,
+              target.column_name, target.referenced_table
+            );
+          END IF;
+        END LOOP;
+      END
+      $do$;
+    `,
+  },
 ];

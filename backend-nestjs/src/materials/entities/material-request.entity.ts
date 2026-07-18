@@ -50,13 +50,20 @@ export class MaterialRequest {
   @Column({ name: 'requires_review', default: false })
   requiresReview: boolean;
 
+  /**
+   * Aligned to the physical column, which is `VARCHAR(50) NOT NULL DEFAULT
+   * 'BALOTARIO'` (tenant migration 0001). The entity previously declared this
+   * nullable, which let TypeORM emit an explicit NULL on insert and made
+   * `materialType` read as possibly-null everywhere downstream — neither of
+   * which the database ever permits.
+   */
   @Column({
     name: 'material_type',
     type: 'varchar',
-    nullable: true,
     length: 50,
+    default: 'BALOTARIO',
   })
-  materialType: string | null;
+  materialType: string;
 
   @Column({ name: 'design_template_id', nullable: true, type: 'uuid' })
   designTemplateId: string | null;

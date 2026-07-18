@@ -24,6 +24,7 @@ import { ExpressAdapter } from '@bull-board/express';
 import { GcsModule } from './gcs/gcs.module';
 import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { LockingModule } from './common/locking/locking.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -48,6 +49,9 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
       },
     }),
     ScheduleModule.forRoot(),
+    // Global. Both @Cron jobs below fire in every replica and need the same
+    // cross-replica exclusion, so the lock is provided once here.
+    LockingModule,
     EventEmitterModule.forRoot(),
     ClsModule.forRoot({
       global: true,

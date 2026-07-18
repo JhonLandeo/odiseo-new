@@ -4,11 +4,13 @@ import { HttpService } from '@nestjs/axios';
 import { of, throwError } from 'rxjs';
 import { CatalogCronService } from './catalog.cron';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
+import { DISTRIBUTED_LOCK } from '../common/locking/distributed-lock.interface';
 
 describe('CatalogCronService', () => {
   let service: CatalogCronService;
   let repository: any;
   let httpService: HttpService;
+  let lock: any;
 
   beforeEach(async () => {
     // Backoff is real time; collapse it so the retry tests stay fast.
@@ -32,9 +34,20 @@ describe('CatalogCronService', () => {
       get: jest.fn(),
     };
 
+    // Default: this replica wins the lock, so the existing behavioral tests
+    // still exercise the real sync body.
+    const mockLock = {
+      tryAcquire: jest.fn().mockResolvedValue(true),
+      runExclusively: jest.fn((_key, _ttl, work: () => Promise<any>) => work()),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CatalogCronService,
+        {
+          provide: DISTRIBUTED_LOCK,
+          useValue: mockLock,
+        },
         {
           provide: ICatalogRepository,
           useValue: mockRepository,
@@ -53,6 +66,7 @@ describe('CatalogCronService', () => {
     service = module.get<CatalogCronService>(CatalogCronService);
     repository = module.get<ICatalogRepository>(ICatalogRepository);
     httpService = module.get<HttpService>(HttpService);
+    lock = module.get(DISTRIBUTED_LOCK);
   });
 
   afterEach(() => {
@@ -167,5 +181,38 @@ describe('CatalogCronService', () => {
     // failure — nor throw out of the cron.
     await expect(service.syncCatalogs()).resolves.toBeUndefined();
     expect(repository.recordSyncFailure).not.toHaveBeenCalled();
+  });
+
+  // @Cron fires in every replica; without exclusion the external Core API is
+  // hit N times an hour and N writers race on the same upserts.
+  describe('distributed lock', () => {
+    it('guards the whole run behind a job-specific lock', async () => {
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(of({ data: { courses: [] } } as any));
+
+      await service.syncCatalogs();
+
+      expect(lock.runExclusively).toHaveBeenCalledWith(
+        'cron:catalogs:sync',
+        expect.any(Number),
+        expect.any(Function),
+      );
+      // TTL must outlast a run but expire well inside the hourly interval.
+      const ttl = lock.runExclusively.mock.calls[0][1];
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThan(60 * 60 * 1000);
+    });
+
+    it('does no work at all when another replica holds the lock', async () => {
+      lock.runExclusively.mockResolvedValue(undefined);
+      jest.spyOn(httpService, 'get');
+
+      await expect(service.syncCatalogs()).resolves.toBeUndefined();
+
+      expect(httpService.get).not.toHaveBeenCalled();
+      expect(repository.recordSyncAttempt).not.toHaveBeenCalled();
+      expect(repository.upsertCatalogs).not.toHaveBeenCalled();
+    });
   });
 });
