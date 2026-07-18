@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
   Inject,
 } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -46,10 +47,27 @@ export class AuthService {
     permissions: string[];
     companyId: string;
   } | null> {
-    // Step 1: Resolve company from subdomain
+    // Step 1: Resolve company from subdomain.
+    // findBySubdomain already filters isActive: true, so an inactive company
+    // resolves to null and is rejected as "invalid credentials" — the same
+    // outcome TenantMiddleware produces by querying with isActive: true.
     const company = await this.tenantsService.findBySubdomain(subdomain);
     if (!company) {
       return null;
+    }
+
+    // Login is @Public() and takes the subdomain from the body, so it bypasses
+    // TenantMiddleware entirely. Mirror the middleware's subscription check
+    // here (same exception, same message) or a user of a SUSPENDED company
+    // could still mint a 24h JWT. GRACE_PERIOD stays allowed, exactly as in
+    // the middleware. Checked before credentials on purpose: the subdomain
+    // alone identifies the company, so this reveals nothing about the email or
+    // password — and the middleware already exposes the suspended state on
+    // every other route.
+    if (company.status === 'SUSPENDED') {
+      throw new ForbiddenException(
+        `The company '${subdomain}' is currently suspended. Please contact support.`,
+      );
     }
 
     const schemaName = `tenant_${company.id}`;

@@ -1,4 +1,8 @@
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
@@ -14,6 +18,7 @@ describe('AuthService', () => {
     subdomain: 'colegio',
     commercialName: 'Colegio Innovador',
     isActive: true,
+    status: 'ACTIVE',
   };
 
   const mockUser: Partial<User> = {
@@ -206,6 +211,106 @@ describe('AuthService', () => {
         'tenant_uuid-company-A',
         expect.any(Function),
       );
+    });
+
+    // Login bypasses TenantMiddleware (@Public + subdomain from body), so
+    // validateUser must enforce the same subscription rules the middleware
+    // applies to every other route.
+    describe('company subscription status', () => {
+      function mockTenantWithUser() {
+        mockTenantService.runInSchema.mockImplementation(
+          async (_schema: string, operation: Function) => {
+            const mockManager = {
+              findOne: jest.fn().mockResolvedValue(mockUser),
+              query: jest.fn().mockResolvedValue(mockRoles),
+            };
+            return operation(mockManager);
+          },
+        );
+      }
+
+      it('should reject login for a SUSPENDED company with ForbiddenException even with valid credentials', async () => {
+        mockTenantsService.findBySubdomain.mockResolvedValue({
+          ...mockCompany,
+          status: 'SUSPENDED',
+        });
+        mockTenantWithUser();
+
+        await expect(
+          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should reject a SUSPENDED company with the same message the middleware uses', async () => {
+        mockTenantsService.findBySubdomain.mockResolvedValue({
+          ...mockCompany,
+          status: 'SUSPENDED',
+        });
+
+        await expect(
+          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+        ).rejects.toThrow(
+          "The company 'colegio' is currently suspended. Please contact support.",
+        );
+      });
+
+      it('should reject a SUSPENDED company before touching the tenant schema or credentials', async () => {
+        mockTenantsService.findBySubdomain.mockResolvedValue({
+          ...mockCompany,
+          status: 'SUSPENDED',
+        });
+
+        await expect(
+          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockTenantService.runInSchema).not.toHaveBeenCalled();
+      });
+
+      it('should return null for an inactive company (findBySubdomain filters is_active)', async () => {
+        // TenantsService.findBySubdomain queries with isActive: true, so an
+        // inactive company resolves to null — same filter the middleware uses.
+        mockTenantsService.findBySubdomain.mockResolvedValue(null);
+
+        const result = await authService.validateUser(
+          'admin@colegio.com',
+          'password123',
+          'colegio',
+        );
+
+        expect(result).toBeNull();
+        expect(mockTenantService.runInSchema).not.toHaveBeenCalled();
+      });
+
+      it('should allow login for a GRACE_PERIOD company', async () => {
+        mockTenantsService.findBySubdomain.mockResolvedValue({
+          ...mockCompany,
+          status: 'GRACE_PERIOD',
+        });
+        mockTenantWithUser();
+
+        const result = await authService.validateUser(
+          'admin@colegio.com',
+          'password123',
+          'colegio',
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.user.id).toBe('uuid-user-1');
+      });
+
+      it('should allow login for an ACTIVE company', async () => {
+        mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
+        mockTenantWithUser();
+
+        const result = await authService.validateUser(
+          'admin@colegio.com',
+          'password123',
+          'colegio',
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.companyId).toBe('uuid-company-A');
+      });
     });
   });
 
