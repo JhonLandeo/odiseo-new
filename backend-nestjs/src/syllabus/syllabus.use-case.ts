@@ -61,11 +61,15 @@ export class SyllabusUseCase {
     syllabusId: string,
     questionCount: number,
   ) {
-    await this.syllabusRepo.updateDistributionQuantity(distId, questionCount);
+    await this.syllabusRepo.updateDistributionQuantity(
+      distId,
+      syllabusId,
+      questionCount,
+    );
   }
 
-  async deleteDistribution(distId: string) {
-    await this.syllabusRepo.deleteDistribution(distId);
+  async deleteDistribution(distId: string, syllabusId: string) {
+    await this.syllabusRepo.deleteDistribution(distId, syllabusId);
   }
 
   async getSummary(syllabusId: string, templateId?: string) {

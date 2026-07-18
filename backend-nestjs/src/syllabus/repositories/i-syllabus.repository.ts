@@ -31,8 +31,12 @@ export interface ISyllabusRepository {
   createDistribution(
     distribution: Partial<SyllabusDistribution>,
   ): Promise<SyllabusDistribution>;
-  updateDistributionQuantity(id: string, questionCount: number): Promise<void>;
-  deleteDistribution(id: string): Promise<void>;
+  updateDistributionQuantity(
+    id: string,
+    syllabusId: string,
+    questionCount: number,
+  ): Promise<void>;
+  deleteDistribution(id: string, syllabusId: string): Promise<void>;
   bulkCreateDistributions(
     distributions: Partial<SyllabusDistribution>[],
   ): Promise<SyllabusDistribution[]>;

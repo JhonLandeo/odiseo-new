@@ -1,5 +1,6 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { SyllabusRepositoryImpl } from './syllabus.repository';
+import { SyllabusDistribution } from '../entities/syllabus-distribution.entity';
 import { TenantService } from '../../database/tenant.service';
 
 /**
@@ -146,6 +147,63 @@ describe('SyllabusRepositoryImpl (unique violation handling)', () => {
     it('rethrows the violation when the racing cell can no longer be found', async () => {
       const { repo } = buildRepo(uniqueViolation, { findOneResult: null });
       await expect(repo.createDistribution(cell)).rejects.toBe(uniqueViolation);
+    });
+  });
+
+  /**
+   * Object-level authorization: a distribution mutation must be scoped by both
+   * the distribution id AND its owning syllabus, so an EDIT_SYLLABUS caller
+   * cannot update or delete a distribution belonging to a different syllabus by
+   * passing a mismatched :id. The affected-row count is the race-free check; a
+   * count of 0 means the distribution does not belong to that syllabus.
+   */
+  describe('distribution ownership scoping', () => {
+    const buildScopedRepo = (affected: number) => {
+      const manager = {
+        update: jest.fn(() => Promise.resolve({ affected })),
+        delete: jest.fn(() => Promise.resolve({ affected })),
+      };
+      const tenantService = {
+        runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
+      } as unknown as TenantService;
+      return { repo: new SyllabusRepositoryImpl(tenantService), manager };
+    };
+
+    describe('updateDistributionQuantity', () => {
+      it('scopes the update by both distribution id and syllabusId', async () => {
+        const { repo, manager } = buildScopedRepo(1);
+        await repo.updateDistributionQuantity('dist-1', 'syl-1', 7);
+        expect(manager.update).toHaveBeenCalledWith(
+          SyllabusDistribution,
+          { id: 'dist-1', syllabusId: 'syl-1' },
+          { questionCount: 7 },
+        );
+      });
+
+      it('throws NotFoundException when no row belongs to the syllabus', async () => {
+        const { repo } = buildScopedRepo(0);
+        await expect(
+          repo.updateDistributionQuantity('dist-1', 'other-syl', 7),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+    });
+
+    describe('deleteDistribution', () => {
+      it('scopes the delete by both distribution id and syllabusId', async () => {
+        const { repo, manager } = buildScopedRepo(1);
+        await repo.deleteDistribution('dist-1', 'syl-1');
+        expect(manager.delete).toHaveBeenCalledWith(SyllabusDistribution, {
+          id: 'dist-1',
+          syllabusId: 'syl-1',
+        });
+      });
+
+      it('throws NotFoundException when no row belongs to the syllabus', async () => {
+        const { repo } = buildScopedRepo(0);
+        await expect(
+          repo.deleteDistribution('dist-1', 'other-syl'),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
     });
   });
 });

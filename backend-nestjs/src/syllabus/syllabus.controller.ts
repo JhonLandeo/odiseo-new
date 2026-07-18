@@ -71,7 +71,7 @@ export class SyllabusController {
     @Param('id') syllabusId: string,
     @Param('distId') distId: string,
   ) {
-    await this.useCase.deleteDistribution(distId);
+    await this.useCase.deleteDistribution(distId, syllabusId);
     return { status: 'deleted' };
   }
 

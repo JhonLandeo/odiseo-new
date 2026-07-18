@@ -15,6 +15,7 @@ describe('SyllabusUseCase', () => {
     createSyllabus: jest.fn(),
     findById: jest.fn(),
     findActiveWeeksByCycle: jest.fn(),
+    updateDistributionQuantity: jest.fn(),
     deleteDistribution: jest.fn(),
     findGeneratedWeeks: jest.fn(),
     findTemplatesByCycle: jest.fn(),
@@ -68,6 +69,28 @@ describe('SyllabusUseCase', () => {
         questionCount: 5,
       }),
     );
+  });
+
+  it('forwards both distId and syllabusId when updating a distribution', async () => {
+    // The syllabusId must reach the repository so the mutation is scoped to the
+    // owning syllabus (object-level authorization), not the distribution alone.
+    mockRepo.updateDistributionQuantity.mockResolvedValue(undefined);
+
+    await useCase.updateDistributionQuantity('dist-1', 'syl-1', 9);
+
+    expect(mockRepo.updateDistributionQuantity).toHaveBeenCalledWith(
+      'dist-1',
+      'syl-1',
+      9,
+    );
+  });
+
+  it('forwards both distId and syllabusId when deleting a distribution', async () => {
+    mockRepo.deleteDistribution.mockResolvedValue(undefined);
+
+    await useCase.deleteDistribution('dist-1', 'syl-1');
+
+    expect(mockRepo.deleteDistribution).toHaveBeenCalledWith('dist-1', 'syl-1');
   });
 
   it('should clone syllabus and filter out inactive weeks', async () => {

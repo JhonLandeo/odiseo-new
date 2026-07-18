@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { IsNull } from 'typeorm';
 import {
   ISyllabusRepository,
@@ -159,16 +163,40 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
 
   async updateDistributionQuantity(
     id: string,
+    syllabusId: string,
     questionCount: number,
   ): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      await manager.update(SyllabusDistribution, { id }, { questionCount });
+      // Scope by both the distribution id AND its owning syllabus so a caller
+      // cannot mutate a distribution that belongs to a different syllabus by
+      // passing a mismatched :id path param (object-level authorization). The
+      // affected-row count is the race-free ownership check (single query).
+      const result = await manager.update(
+        SyllabusDistribution,
+        { id, syllabusId },
+        { questionCount },
+      );
+      if (!result.affected) {
+        // NotFound over Forbidden: do not disclose that the distribution
+        // exists under a different syllabus.
+        throw new NotFoundException(
+          'Distribution not found for this syllabus.',
+        );
+      }
     });
   }
 
-  async deleteDistribution(id: string): Promise<void> {
+  async deleteDistribution(id: string, syllabusId: string): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
-      await manager.delete(SyllabusDistribution, { id });
+      const result = await manager.delete(SyllabusDistribution, {
+        id,
+        syllabusId,
+      });
+      if (!result.affected) {
+        throw new NotFoundException(
+          'Distribution not found for this syllabus.',
+        );
+      }
     });
   }
 
