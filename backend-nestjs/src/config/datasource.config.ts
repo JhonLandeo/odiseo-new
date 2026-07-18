@@ -24,8 +24,14 @@ export const dataSourceOptions: DataSourceOptions = {
     join(__dirname, '../catalogs/entities/subtopic.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/catalog-sync-state.entity{.ts,.js}'),
   ],
-  // Directorio para crear migraciones
-  migrations: [join(__dirname, '../database/migrations/*{.ts,.js}')],
+  // Directorio para crear migraciones.
+  //
+  // Matches only files starting with a timestamp, the naming every migration
+  // follows. A bare `*` also picks up anything else left in the directory —
+  // a compiled spec, for instance — and TypeORM then loads and executes it as
+  // a migration, which fails the whole run with an error naming neither the
+  // file nor the reason.
+  migrations: [join(__dirname, '../database/migrations/[0-9]*{.ts,.js}')],
   synchronize: false,
 };
 

@@ -2,6 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { TENANT_MIGRATIONS } from '../tenant-migrations';
 import { TENANT_SUPER_ADMIN_PERMISSIONS } from '../../admin/roles/constants/permissions.constant';
+import { resolveSeedPassword } from '../seed-superadmin-password';
 
 export class SeedSuperAdmin1784166590934 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -65,9 +66,20 @@ export class SeedSuperAdmin1784166590934 implements MigrationInterface {
     );
     const sysRoleId = sysRoleRes[0].id;
 
-    // 6. Insert super admin user
-    const sysEmail = 'superadmin@odiseo.com';
-    const sysPass = 'superadmin123';
+    // 6. Insert super admin user.
+    //
+    // The credentials used to be literals in this file, committed to the
+    // repository, for an account holding every platform permission — and this
+    // migration runs in production exactly as it does locally. They now come
+    // from the environment.
+    //
+    // Production must supply them explicitly: failing the migration is the only
+    // outcome that cannot end with a publicly known password on a live super
+    // admin. Outside production a missing password is generated and printed
+    // once, so local setup stays a single command and still never ships a
+    // shared secret.
+    const sysEmail = process.env.SEED_SUPERADMIN_EMAIL ?? 'superadmin@odiseo.com';
+    const sysPass = resolveSeedPassword();
     const sysPassHash = await bcrypt.hash(sysPass, 10);
     const sysUserInsert = await queryRunner.query(
       `INSERT INTO "${sysSchema}".users (email, password_hash, name, company_id, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id`,
