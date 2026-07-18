@@ -1,5 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { TENANT_MIGRATIONS } from '../tenant-migrations';
+import { TENANT_SUPER_ADMIN_PERMISSIONS } from '../../admin/roles/constants/permissions.constant';
 
 export class SeedSuperAdmin1784166590934 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -21,53 +23,42 @@ export class SeedSuperAdmin1784166590934 implements MigrationInterface {
     // 3. Create Schema
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${sysSchema}"`);
 
-    // 4. Create base tables for system tenant
+    // 4. Provision the schema through the tenant migration runner.
+    //
+    // This used to inline four CREATE TABLE statements, which produced a tenant
+    // with 4 of the 19 tables and no `_tenant_migrations` ledger — so every
+    // business feature failed with "relation does not exist", and later
+    // migrations had no record of what this schema had already applied. The
+    // ordered list in `tenant-migrations/` is the single source of truth for
+    // tenant structure; duplicating a subset of it here guaranteed drift.
+    //
+    // Applied in the ambient migration transaction rather than one transaction
+    // per step (as TenantMigrationService does), so a failure here rolls the
+    // whole seed back instead of leaving a half-provisioned tenant.
     await queryRunner.query(`
-            CREATE TABLE IF NOT EXISTS "${sysSchema}".users (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                email VARCHAR(255) NOT NULL UNIQUE,
-                password_hash VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                company_id UUID NOT NULL,
-                is_active BOOLEAN NOT NULL DEFAULT true,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
-            );
-            CREATE TABLE IF NOT EXISTS "${sysSchema}".roles (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                name VARCHAR(255) UNIQUE NOT NULL,
-                description TEXT,
-                is_system_default BOOLEAN DEFAULT false,
-                permissions JSONB DEFAULT '[]'::jsonb,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-            );
-            CREATE TABLE IF NOT EXISTS "${sysSchema}".role_inheritance (
-                parent_role_id UUID REFERENCES "${sysSchema}".roles(id) ON DELETE RESTRICT,
-                child_role_id UUID REFERENCES "${sysSchema}".roles(id) ON DELETE CASCADE,
-                PRIMARY KEY (parent_role_id, child_role_id)
-            );
-            CREATE TABLE IF NOT EXISTS "${sysSchema}".user_roles (
-                user_id UUID REFERENCES "${sysSchema}".users(id) ON DELETE CASCADE,
-                role_id UUID REFERENCES "${sysSchema}".roles(id) ON DELETE RESTRICT,
-                assigned_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-                PRIMARY KEY (user_id, role_id)
-            );
-        `);
+      CREATE TABLE IF NOT EXISTS "${sysSchema}"._tenant_migrations (
+        id VARCHAR(255) PRIMARY KEY,
+        executed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+      );
+    `);
+    for (const migration of TENANT_MIGRATIONS) {
+      await queryRunner.query(migration.up(sysSchema));
+      await queryRunner.query(
+        `INSERT INTO "${sysSchema}"._tenant_migrations (id) VALUES ($1)`,
+        [migration.id],
+      );
+    }
 
-    // 5. Insert super admin role
-    const superAdminPermsJSON = JSON.stringify([
-      'MANAGE_ROLES',
-      'MANAGE_USERS',
-      'VIEW_SYLLABUS',
-      'EDIT_SYLLABUS',
-      'VIEW_MATERIALS',
-      'EDIT_MATERIALS',
-      'MANAGE_TENANTS',
-    ]);
+    // 5. Insert super admin role.
+    //
+    // Uses the canonical vocabulary rather than a copied literal. The previous
+    // hardcoded list had drifted to 7 of the 15 permissions — missing
+    // VIEW_ACADEMIC_TIME and VIEW_CATALOGS among others — so a freshly seeded
+    // Super Admin was denied the very pages the frontend guards on.
+    const superAdminPermsJSON = JSON.stringify(TENANT_SUPER_ADMIN_PERMISSIONS);
     const sysRoleRes = await queryRunner.query(
       `
-            INSERT INTO "${sysSchema}".roles (name, description, is_system_default, permissions) 
+            INSERT INTO "${sysSchema}".roles (name, description, is_system_default, permissions)
             VALUES ('Super Admin', 'System Owner', true, $1::jsonb) RETURNING id;
         `,
       [superAdminPermsJSON],
