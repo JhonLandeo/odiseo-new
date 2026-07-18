@@ -19,6 +19,8 @@ import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ClsService } from 'nestjs-cls';
 import { PdfDesignService } from './pdf-design.service';
 import { CreatePdfDesignDto } from '../dto/create-pdf-design.dto';
+import { RequirePermissions } from '../../common/guards/permissions.guard';
+import { PERMISSIONS } from '../../admin/roles/constants/permissions.constant';
 
 @ApiTags('PDF Designs')
 @Controller('v1/pdf-designs')
@@ -37,24 +39,28 @@ export class PdfDesignController {
   }
 
   @Get()
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({ summary: 'List all design templates' })
   async findAll() {
     return this.pdfDesignService.findAll(this.getTenantId());
   }
 
   @Get(':id')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({ summary: 'Get design template by id' })
   async findById(@Param('id') id: string) {
     return this.pdfDesignService.findById(id, this.getTenantId());
   }
 
   @Post()
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @ApiOperation({ summary: 'Create design template' })
   async create(@Body() dto: CreatePdfDesignDto) {
     return this.pdfDesignService.create(this.getTenantId(), dto);
   }
 
   @Patch(':id')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @ApiOperation({ summary: 'Update design template' })
   async update(
     @Param('id') id: string,
@@ -66,6 +72,7 @@ export class PdfDesignController {
   }
 
   @Delete(':id')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete design template' })
   async delete(@Param('id') id: string) {
@@ -73,6 +80,7 @@ export class PdfDesignController {
   }
 
   @Post(':id/upload-asset')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload logo, banner, or watermark for design template',
@@ -93,12 +101,14 @@ export class PdfDesignController {
   }
 
   @Post(':id/preview')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({ summary: 'Generate HTML preview of design template' })
   async preview(@Param('id') id: string, @Body() body?: Record<string, any>) {
     return this.pdfDesignService.generatePreview(this.getTenantId(), id, body);
   }
 
   @Delete(':id/asset')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete asset from design template' })
   async deleteAsset(

@@ -30,6 +30,8 @@ import { GetMaterialHistoryUseCase } from './use-cases/get-material-history.use-
 import { GetMaterialMetricsUseCase } from './use-cases/get-material-metrics.use-case';
 import { GetMaterialQuestionsUseCase } from './use-cases/get-material-questions.use-case';
 import { GetQuestionAlternativesDto } from './dto/get-question-alternatives.dto';
+import { RequirePermissions } from '../common/guards/permissions.guard';
+import { PERMISSIONS } from '../admin/roles/constants/permissions.constant';
 
 @ApiTags('Materials')
 @Controller('v1/materials')
@@ -47,6 +49,7 @@ export class MaterialsController {
   ) {}
 
   @Post('generate')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.ACCEPTED) // 202 Accepted
   @ApiOperation({
     summary: 'Solicitar generación asíncrona de balotario/examen',
@@ -92,6 +95,7 @@ export class MaterialsController {
   }
 
   @Get(':id/review')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Obtener reactivos y slots de revisión para curaduría',
   })
@@ -105,6 +109,7 @@ export class MaterialsController {
   }
 
   @Post(':id/draft')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Guardar borrador de la curaduría en tiempo real',
@@ -128,6 +133,7 @@ export class MaterialsController {
   }
 
   @Post(':id/approve')
+  @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
     summary: 'Aprobar curaduría y gatillar compilación física asíncrona',
@@ -152,6 +158,7 @@ export class MaterialsController {
   }
 
   @Get(':id/courses/:courseId/download')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Descargar PDF de un curso directamente (streaming)',
   })
@@ -192,6 +199,7 @@ export class MaterialsController {
   }
 
   @Get(':id/download-merged')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Descargar PDF combinado directamente (streaming)',
   })
@@ -226,6 +234,7 @@ export class MaterialsController {
   }
 
   @Get('dashboard/metrics')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Obtener métricas consolidadas para el dashboard del tenant',
   })
@@ -242,6 +251,7 @@ export class MaterialsController {
   }
 
   @Get('history')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Obtener historial de solicitudes de generación',
   })
@@ -275,6 +285,7 @@ export class MaterialsController {
   }
 
   @Get(':id/attempts')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Obtener el historial de intentos/versiones de un material lógico',
   })
@@ -287,6 +298,7 @@ export class MaterialsController {
   }
 
   @Get('question/:questionId/preview')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @ApiOperation({
     summary: 'Obtener vista previa de una pregunta por su ID para curaduría',
   })
@@ -301,6 +313,7 @@ export class MaterialsController {
   }
 
   @Post('question/alternatives/search')
+  @RequirePermissions(PERMISSIONS.VIEW_MATERIALS)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Obtener alternativas de preguntas para curaduría',
