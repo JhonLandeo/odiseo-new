@@ -8,6 +8,9 @@ const ORDERED_STEPS: OnboardingStep[] = [
   'generate_material',
 ];
 
+const USER_ID = '11111111-1111-1111-1111-111111111111';
+const OTHER_USER_ID = '22222222-2222-2222-2222-222222222222';
+
 function createService() {
   const manager = { query: jest.fn() };
   const tenantService = {
@@ -44,7 +47,7 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       mockProgressQueries(manager, [], NO_STEPS);
 
-      await service.getProgress();
+      await service.getProgress(USER_ID);
 
       const statements: string[] = manager.query.mock.calls.map(
         (call: any[]) => call[0],
@@ -59,7 +62,7 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       mockProgressQueries(manager, [], NO_STEPS);
 
-      await service.getProgress();
+      await service.getProgress(USER_ID);
 
       expect(manager.query).toHaveBeenCalledTimes(2);
     });
@@ -68,7 +71,7 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       mockProgressQueries(manager, [], NO_STEPS);
 
-      await service.getProgress();
+      await service.getProgress(USER_ID);
 
       const existsSql: string = manager.query.mock.calls[1][0];
       expect(existsSql).toContain(
@@ -90,7 +93,7 @@ describe('OnboardingService', () => {
         generate_material: false,
       });
 
-      const result = await service.getProgress();
+      const result = await service.getProgress(USER_ID);
 
       expect(result.stepsCompleted).toEqual([
         'create_cycle',
@@ -105,7 +108,7 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       mockProgressQueries(manager, [], NO_STEPS);
 
-      const result = await service.getProgress();
+      const result = await service.getProgress(USER_ID);
 
       expect(result.isDismissed).toBe(false);
       expect(result.progressPercentage).toBe(0);
@@ -121,7 +124,7 @@ describe('OnboardingService', () => {
         generate_material: true,
       });
 
-      const result = await service.getProgress();
+      const result = await service.getProgress(USER_ID);
 
       expect(result.progressPercentage).toBe(100);
       expect(result.isDismissed).toBe(true);
@@ -163,7 +166,7 @@ describe('OnboardingService', () => {
         const { service, manager } = createService();
         mockProgressQueries(manager, [], flagsFor(completed));
 
-        const result = await service.getProgress();
+        const result = await service.getProgress(USER_ID);
 
         // Percentage.
         expect(result.progressPercentage).toBe(expectedPct);
@@ -179,32 +182,54 @@ describe('OnboardingService', () => {
       },
     );
 
-    // C1 — the read side must pick the same row every time.
-    it('reads the dismissal flag from a deterministically ordered row', async () => {
+    // Dismissal is per-user (migration 0007): the read is scoped to the caller.
+    it('reads the dismissal flag scoped to the calling user', async () => {
       const { service, manager } = createService();
       mockProgressQueries(manager, [{ is_dismissed: false }], NO_STEPS);
 
-      await service.getProgress();
+      await service.getProgress(USER_ID);
 
       const sql: string = manager.query.mock.calls[0][0];
-      expect(sql).toMatch(/ORDER BY created_at ASC, id ASC/);
-      expect(sql).toContain('LIMIT 1');
+      expect(sql).toMatch(/WHERE user_id = \$1/i);
+      expect(manager.query.mock.calls[0][1]).toEqual([USER_ID]);
+      // The old per-tenant singleton read (ORDER BY ... LIMIT 1) is gone.
+      expect(sql).not.toMatch(/LIMIT 1/i);
+    });
+
+    // The derived steps are tenant-level, but dismissal is per-user: two users
+    // of the same tenant resolve independent dismissal state from the same
+    // schema. The DB is what keys the row by user_id; here we prove the service
+    // simply surfaces whatever that per-user read returns.
+    it('resolves dismissal independently for two different users', async () => {
+      const dismissedUser = createService();
+      mockProgressQueries(dismissedUser.manager, [{ is_dismissed: true }], NO_STEPS);
+      const dismissedResult = await dismissedUser.service.getProgress(USER_ID);
+
+      const freshUser = createService();
+      // No row for this user → tour still visible.
+      mockProgressQueries(freshUser.manager, [], NO_STEPS);
+      const freshResult = await freshUser.service.getProgress(OTHER_USER_ID);
+
+      expect(dismissedResult.isDismissed).toBe(true);
+      expect(freshResult.isDismissed).toBe(false);
+      expect(dismissedUser.manager.query.mock.calls[0][1]).toEqual([USER_ID]);
+      expect(freshUser.manager.query.mock.calls[0][1]).toEqual([OTHER_USER_ID]);
     });
   });
 
   // ─────────────────────────────── C1 / C2 ────────────────────────
   //
-  // These assertions previously pinned the advisory-lock + CTE implementation.
-  // Migration 0004 gives onboarding_progress a real singleton UNIQUE index, so
-  // the same invariants are now asserted against the constraint-backed upsert:
-  // exclusion is structural rather than cooperative, which is strictly
-  // stronger — it holds against writers that never call this method.
+  // These assertions previously pinned the advisory-lock + CTE implementation,
+  // then the per-tenant singleton. Migration 0007 keys the row on user_id with
+  // a UNIQUE index, so the same invariants are asserted against the per-user
+  // constraint-backed upsert: exclusion is structural (per user), which is
+  // strictly stronger than a cooperative lock.
   describe('dismissTour / resetTour', () => {
     it('relies on the database constraint, not a cooperative advisory lock', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
-      await service.dismissTour();
+      await service.dismissTour(USER_ID);
 
       const statements: string[] = manager.query.mock.calls.map(
         (call: any[]) => call[0],
@@ -216,7 +241,7 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
-      await service.dismissTour();
+      await service.dismissTour(USER_ID);
 
       const statements: string[] = manager.query.mock.calls.map(
         (call: any[]) => call[0],
@@ -228,7 +253,7 @@ describe('OnboardingService', () => {
       );
       expect(bareUpdate).toBe(false);
       expect(manager.query.mock.calls[0][0]).toMatch(
-        /ON CONFLICT \(singleton\) DO UPDATE/i,
+        /ON CONFLICT \(user_id\) DO UPDATE/i,
       );
     });
 
@@ -236,42 +261,44 @@ describe('OnboardingService', () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
-      await service.resetTour();
+      await service.resetTour(USER_ID);
 
       // One statement total: no lock round-trip, no COUNT, no SELECT-then-write.
       expect(manager.query).toHaveBeenCalledTimes(1);
       const upsertSql: string = manager.query.mock.calls[0][0];
       expect(upsertSql).toContain('INSERT INTO onboarding_progress');
-      expect(upsertSql).toMatch(/ON CONFLICT \(singleton\) DO UPDATE/i);
+      expect(upsertSql).toMatch(/ON CONFLICT \(user_id\) DO UPDATE/i);
     });
 
-    it('conflict-targets the singleton column so at most one row can exist', async () => {
+    it('conflict-targets user_id so at most one row can exist per user', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
-      await service.dismissTour();
+      await service.dismissTour(USER_ID);
 
       const upsertSql: string = manager.query.mock.calls[0][0];
       expect(upsertSql).toMatch(
-        /INSERT INTO onboarding_progress \(singleton,/i,
+        /INSERT INTO onboarding_progress \(user_id,/i,
       );
-      expect(upsertSql).toContain('VALUES (true, $1)');
+      expect(upsertSql).toContain('VALUES ($1, $2)');
+      // The per-tenant singleton column was dropped in migration 0007.
+      expect(upsertSql).not.toContain('singleton');
       // steps_completed was dropped in migration 0004 — it must not reappear.
       expect(upsertSql).not.toContain('steps_completed');
     });
 
-    it('passes the dismissal flag through and reports success', async () => {
+    it('passes the calling user id and dismissal flag through and reports success', async () => {
       const { service, manager } = createService();
       manager.query.mockResolvedValue([]);
 
-      expect(await service.dismissTour()).toEqual({ success: true });
-      expect(manager.query.mock.calls[0][1]).toEqual([true]);
+      expect(await service.dismissTour(USER_ID)).toEqual({ success: true });
+      expect(manager.query.mock.calls[0][1]).toEqual([USER_ID, true]);
 
       jest.clearAllMocks();
       manager.query.mockResolvedValue([]);
 
-      expect(await service.resetTour()).toEqual({ success: true });
-      expect(manager.query.mock.calls[0][1]).toEqual([false]);
+      expect(await service.resetTour(USER_ID)).toEqual({ success: true });
+      expect(manager.query.mock.calls[0][1]).toEqual([USER_ID, false]);
     });
   });
 });

@@ -2,14 +2,16 @@
 
 This document defines the REST endpoints for reading onboarding state and dismissing/resetting the onboarding tour for the active tenant.
 
-> The tour state is a single tenant-scoped flag (a singleton row); it is not
-> per-user. Step completion is not persisted — it is derived from the real
-> tenant tables on every request.
+> The tour dismissal flag is PER-USER: each user keeps the tour until they
+> dismiss it themselves (the row is keyed on `user_id`). The user is taken from
+> the authenticated session (JWT). Step completion, by contrast, is not
+> persisted and is TENANT-level — it is derived from the real tenant tables on
+> every request, so it is identical for every user of the tenant.
 
 ---
 
 ## 1. Get Onboarding Progress
-Retrieve the current onboarding status and derived step completion for the active tenant.
+Retrieve the calling user's dismissal state and the tenant's derived step completion.
 
 * **URL**: `/api/v1/onboarding/progress`
 * **Method**: `GET`
@@ -56,7 +58,7 @@ Retrieve the current onboarding status and derived step completion for the activ
 ---
 
 ## 2. Dismiss Onboarding Tour
-Dismisses the onboarding tour for the tenant (sets the singleton flag to dismissed).
+Dismisses the onboarding tour for the calling user only (sets their `is_dismissed` flag).
 
 * **URL**: `/api/v1/onboarding/dismiss`
 * **Method**: `PATCH`
@@ -77,7 +79,7 @@ Dismisses the onboarding tour for the tenant (sets the singleton flag to dismiss
 ---
 
 ## 3. Reset Onboarding Tour
-Re-enables the onboarding tour for the tenant (clears the dismissed flag).
+Re-enables the onboarding tour for the calling user only (clears their dismissed flag).
 
 * **URL**: `/api/v1/onboarding/reset`
 * **Method**: `PATCH`

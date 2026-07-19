@@ -47,16 +47,21 @@ export class OnboardingService {
    *
    * The `onboarding_progress.steps_completed` column that used to cache this
    * became vestigial as a result and was dropped in tenant migration 0004.
+   *
+   * Note on scope: only `is_dismissed` is per-user (migration 0007 keys the row
+   * on `user_id`). The four derived steps below stay TENANT-level — they are
+   * EXISTS checks over the tenant's own tables and reflect the institution's
+   * setup, identical for every user of the tenant.
    */
-  async getProgress(): Promise<OnboardingProgressDto> {
+  async getProgress(userId: string): Promise<OnboardingProgressDto> {
     return this.tenantService.runInTenant(async (manager) => {
-      // Migration 0004 makes this row a singleton, so LIMIT 1 is now exact
-      // rather than a tie-break. The ORDER BY is retained so a tenant schema
-      // that predates the migration still resolves to the same row every time.
+      // Per-user dismissal (migration 0007). An absent row means "not
+      // dismissed", so this user still sees the tour — no write needed to say
+      // that.
       const dismissalRows = await manager.query(
-        `SELECT is_dismissed FROM onboarding_progress ORDER BY created_at ASC, id ASC LIMIT 1`,
+        `SELECT is_dismissed FROM onboarding_progress WHERE user_id = $1`,
+        [userId],
       );
-      // Absent row simply means "not dismissed" — no write needed to say that.
       const isDismissed: boolean = dismissalRows[0]?.is_dismissed ?? false;
 
       // One round-trip for all four checks. They were four sequential
@@ -92,38 +97,36 @@ export class OnboardingService {
     });
   }
 
-  async dismissTour(): Promise<{ success: boolean }> {
-    await this.upsertTourDismissal(true);
+  async dismissTour(userId: string): Promise<{ success: boolean }> {
+    await this.upsertTourDismissal(userId, true);
     return { success: true };
   }
 
-  async resetTour(): Promise<{ success: boolean }> {
-    await this.upsertTourDismissal(false);
+  async resetTour(userId: string): Promise<{ success: boolean }> {
+    await this.upsertTourDismissal(userId, false);
     return { success: true };
   }
 
   /**
-   * Atomic get-or-create of the tenant's single progress row.
+   * Atomic get-or-create of the caller's own dismissal row.
    *
-   * This used to take a transaction-scoped advisory lock, because the table had
-   * no unique constraint to hang an `ON CONFLICT` on. That lock was only
-   * cooperative: it held exactly as long as every writer went through this one
-   * method, and nothing structural enforced that.
-   *
-   * Tenant migration 0004 makes the singleton invariant real — a fixed-true
-   * `singleton` column with a CHECK plus a UNIQUE index — so exclusion is now
-   * the database's job and a single `INSERT ... ON CONFLICT DO UPDATE` is both
-   * atomic and correct against any writer, not just this one. Same pattern as
-   * CatalogRepositoryImpl's upserts.
+   * Dismissal is per-user (migration 0007): the row is keyed on `user_id` with
+   * a UNIQUE index, which is the conflict target for this single
+   * `INSERT ... ON CONFLICT (user_id) DO UPDATE`. That makes the upsert atomic
+   * and correct against any writer without a cooperative advisory lock. Same
+   * pattern as CatalogRepositoryImpl's upserts.
    */
-  private async upsertTourDismissal(isDismissed: boolean): Promise<void> {
+  private async upsertTourDismissal(
+    userId: string,
+    isDismissed: boolean,
+  ): Promise<void> {
     await this.tenantService.runInTenant(async (manager) => {
       await manager.query(
-        `INSERT INTO onboarding_progress (singleton, is_dismissed)
-         VALUES (true, $1)
-         ON CONFLICT (singleton) DO UPDATE
+        `INSERT INTO onboarding_progress (user_id, is_dismissed)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE
          SET is_dismissed = EXCLUDED.is_dismissed, updated_at = now()`,
-        [isDismissed],
+        [userId, isDismissed],
       );
     });
   }

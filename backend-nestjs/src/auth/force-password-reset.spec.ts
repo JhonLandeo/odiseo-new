@@ -36,10 +36,8 @@ describe('AC-016 force password reset — wiring', () => {
 
   // Bug 1 / Bug 2: two application-only invariants become DB constraints.
   describe('tenant migration 0006 — materials & default-design uniqueness', () => {
-    it('appends 0006 as the last migration without reordering 0005', () => {
+    it('appends 0006 directly after 0005 without reordering', () => {
       const ids = TENANT_MIGRATIONS.map((m) => m.id);
-      const last = ids[ids.length - 1];
-      expect(last).toBe('0006_material_and_default_design_uniqueness');
       // Strictly after 0005 — append-only, no reordering.
       expect(ids.indexOf('0006_material_and_default_design_uniqueness')).toBe(
         ids.indexOf('0005_users_force_password_reset') + 1,
@@ -111,6 +109,69 @@ describe('AC-016 force password reset — wiring', () => {
       expect(deletePos).toBeGreaterThanOrEqual(0);
       expect(indexPos).toBeGreaterThanOrEqual(0);
       expect(deletePos).toBeLessThan(indexPos);
+    });
+  });
+
+  // Onboarding dismissal moves from a per-tenant singleton (0004) to per-user
+  // (0007). 0007 must be the last migration, drop the singleton machinery, and
+  // key the row on user_id.
+  describe('tenant migration 0007 — onboarding dismissal per user', () => {
+    const migration = () =>
+      TENANT_MIGRATIONS.find(
+        (m) => m.id === '0007_onboarding_progress_per_user',
+      );
+
+    it('appends 0007 as the last migration, directly after 0006', () => {
+      const ids = TENANT_MIGRATIONS.map((m) => m.id);
+      expect(ids[ids.length - 1]).toBe('0007_onboarding_progress_per_user');
+      expect(ids.indexOf('0007_onboarding_progress_per_user')).toBe(
+        ids.indexOf('0006_material_and_default_design_uniqueness') + 1,
+      );
+    });
+
+    it('drops the singleton machinery introduced in 0004', () => {
+      const sql = migration()!.up('tenant_x');
+      expect(sql).toMatch(
+        /DROP INDEX IF EXISTS "tenant_x"\."uq_onboarding_progress_singleton"/i,
+      );
+      expect(sql).toMatch(
+        /DROP CONSTRAINT IF EXISTS chk_onboarding_progress_singleton/i,
+      );
+      expect(sql).toMatch(/DROP COLUMN IF EXISTS singleton/i);
+    });
+
+    it('resets the old unattributed rows before adding the NOT NULL user_id column', () => {
+      const sql = migration()!.up('tenant_x');
+      const deletePos = sql.search(
+        /DELETE FROM "tenant_x"\.onboarding_progress/i,
+      );
+      const addColumnPos = sql.search(
+        /ADD COLUMN IF NOT EXISTS user_id UUID NOT NULL/i,
+      );
+      expect(deletePos).toBeGreaterThanOrEqual(0);
+      expect(addColumnPos).toBeGreaterThanOrEqual(0);
+      // The table must be emptied first, or a NOT NULL column would reject the
+      // pre-existing unattributed rows.
+      expect(deletePos).toBeLessThan(addColumnPos);
+    });
+
+    it('adds the per-user unique index and a cascading FK to tenant users', () => {
+      const sql = migration()!.up('tenant_x');
+      expect(sql).toMatch(
+        /CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_user"\s*ON "tenant_x"\.onboarding_progress \(user_id\)/i,
+      );
+      expect(sql).toMatch(
+        /FOREIGN KEY \(user_id\) REFERENCES "tenant_x"\.users\(id\) ON DELETE CASCADE/i,
+      );
+    });
+
+    it('is idempotent and re-runnable (guarded add/drop everywhere)', () => {
+      const sql = migration()!.up('tenant_x');
+      expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS user_id/i);
+      expect(sql).toMatch(/DROP CONSTRAINT IF EXISTS fk_onboarding_progress_user/i);
+      expect(sql).toMatch(
+        /CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_user"/i,
+      );
     });
   });
 

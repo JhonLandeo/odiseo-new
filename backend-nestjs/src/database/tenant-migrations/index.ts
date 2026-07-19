@@ -451,4 +451,57 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         WHERE is_default = true;
     `,
   },
+  {
+    // Onboarding tour dismissal becomes PER-USER instead of a per-tenant
+    // singleton. Product decision: each user sees the tour until THEY dismiss
+    // it, rather than one user's dismissal hiding it for the whole institution.
+    //
+    // Only the `is_dismissed` flag becomes per-user. Step completion stays
+    // tenant-level: it is still derived from the tenant tables on every request
+    // (see OnboardingService), because it reflects the INSTITUTION's setup and
+    // is identical for every user of the tenant.
+    //
+    // The existing rows are per-tenant dismissal flags with no user attribution,
+    // so there is no correct user to backfill them onto. With no production data
+    // they are simply deleted; a user just sees the tour once more. Because the
+    // runner records a migration only after its transaction commits, this DELETE
+    // executes exactly once per schema — it never wipes real per-user rows.
+    //
+    // FK to "${schema}".users(id) ON DELETE CASCADE is safe and desirable:
+    // onboarding always runs in tenant context (runInTenant), and JwtAuthGuard
+    // rejects any request whose token companyId does not match the resolved
+    // tenant, so the caller's req.user.sub is always a user of THIS schema.
+    // Cascade drops a user's dismissal row when the user is deleted.
+    id: '0007_onboarding_progress_per_user',
+    up: (schema: string) => `
+      -- Reset the per-tenant dismissal flags: they carry no user attribution and
+      -- cannot be mapped onto a specific user. Runs once per schema.
+      DELETE FROM "${schema}".onboarding_progress;
+
+      -- Drop the singleton machinery introduced in 0004.
+      DROP INDEX IF EXISTS "${schema}"."uq_onboarding_progress_singleton";
+      ALTER TABLE "${schema}".onboarding_progress
+        DROP CONSTRAINT IF EXISTS chk_onboarding_progress_singleton;
+      ALTER TABLE "${schema}".onboarding_progress
+        DROP COLUMN IF EXISTS singleton;
+
+      -- One dismissal row per user. The table was emptied above, so adding a
+      -- NOT NULL column violates nothing.
+      ALTER TABLE "${schema}".onboarding_progress
+        ADD COLUMN IF NOT EXISTS user_id UUID NOT NULL;
+
+      -- FK is safe: see the migration's rationale comment. Located by a fixed
+      -- name so re-running finds and reuses it.
+      ALTER TABLE "${schema}".onboarding_progress
+        DROP CONSTRAINT IF EXISTS fk_onboarding_progress_user;
+      ALTER TABLE "${schema}".onboarding_progress
+        ADD CONSTRAINT fk_onboarding_progress_user
+        FOREIGN KEY (user_id) REFERENCES "${schema}".users(id) ON DELETE CASCADE;
+
+      -- At most one dismissal row per user, and the conflict target for the
+      -- service's INSERT ... ON CONFLICT (user_id) upsert.
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_user"
+        ON "${schema}".onboarding_progress (user_id);
+    `,
+  },
 ];
