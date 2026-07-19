@@ -4,6 +4,7 @@ import {
   findEffectivePermissionsForRoleIds,
   flattenPermissions,
   findDependentRoleHolderIds,
+  roleSetInheritsRole,
 } from './flattened-permissions.query';
 
 /**
@@ -45,6 +46,17 @@ function makeManager(graph: {
 
   return {
     query: jest.fn(async (sql: string, params: any[]) => {
+      // Cycle guard: same child -> parent closure seeded from the proposed
+      // parents, but projected as membership of the target role ($2).
+      if (sql.includes('effective_roles') && sql.includes('$2::uuid')) {
+        const reachable = expand(
+          params[0] ?? [],
+          (id) => edges.filter((e) => e.child === id).map((e) => e.parent),
+          { max: 1000 },
+        );
+        return reachable.has(params[1]) ? [{ found: 1 }] : [];
+      }
+
       // Role-set seed: the recursive term is identical (child -> parent), but
       // the anchor is an explicit array of role ids (unnest), not user_roles.
       if (sql.includes('effective_roles') && sql.includes('unnest(')) {
@@ -299,6 +311,40 @@ describe('role hierarchy SQL', () => {
 
       expect(permissions.sort()).toEqual(['PA', 'PB', 'SHARED']);
       expect(permissions.filter((p) => p === 'SHARED')).toHaveLength(1);
+    });
+  });
+
+  describe('roleSetInheritsRole (write-time cycle guard)', () => {
+    // Attaching parents P to role R cycles exactly when R is already in the
+    // ancestor closure of P; the seeds themselves are part of that closure.
+    const chain = [
+      { parent: 'a', child: 'b' },
+      { parent: 'b', child: 'c' },
+    ];
+
+    it('finds the target one hop up from a proposed parent', async () => {
+      const manager = makeManager({ inheritance: chain });
+      expect(await roleSetInheritsRole(manager, ['b'], 'a')).toBe(true);
+    });
+
+    it('finds the target transitively, several hops up', async () => {
+      const manager = makeManager({ inheritance: chain });
+      expect(await roleSetInheritsRole(manager, ['c'], 'a')).toBe(true);
+    });
+
+    it('does not flag a diamond: shared ancestor, no cycle', async () => {
+      const manager = makeManager({
+        inheritance: [
+          { parent: 'a', child: 'b' },
+          { parent: 'a', child: 'c' },
+        ],
+      });
+      expect(await roleSetInheritsRole(manager, ['b', 'c'], 'd')).toBe(false);
+    });
+
+    it('flags a self-reference: the seeds are in their own closure', async () => {
+      const manager = makeManager({});
+      expect(await roleSetInheritsRole(manager, ['a'], 'a')).toBe(true);
     });
   });
 

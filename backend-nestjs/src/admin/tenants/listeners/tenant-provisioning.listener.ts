@@ -59,7 +59,10 @@ export class TenantProvisioningListener {
       );
 
       this.logger.log(`Tenant ${event.schemaName} successfully provisioned.`);
-      // Optionally update company status here if you add an 'isActive' or 'isProvisioned' column
+      // This is the ONLY place a company becomes serviceable: it is created
+      // with isActive: false, and findBySubdomain (TenantMiddleware) filters
+      // on isActive, so requests cannot resolve to the tenant until its
+      // schema exists and is seeded. Activation must stay AFTER both steps.
       await this.companyRepository.update(event.companyId, { isActive: true });
       await this.invalidateCompanyLookup(event.companyId);
     } catch (error) {

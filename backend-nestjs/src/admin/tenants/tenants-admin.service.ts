@@ -14,9 +14,16 @@ import { TenantProvisioningEvent } from './events/tenant-provisioning.event';
 import { TenantService } from '../../database/tenant.service';
 import { TenantsService } from '../../tenants/tenants.service';
 import { AuthService } from '../../auth/auth.service';
+import { assertValidSchema } from '../../database/schema-name.util';
+import { mapWithConcurrency } from '../../common/utils/map-with-concurrency.util';
 
 // Name of the tenant's system-default admin role (matches the provisioning seed).
 const SUPER_ADMIN_ROLE_NAME = 'Super Administrador';
+
+// Upper bound on simultaneous per-tenant-schema queries. The pool holds 20
+// connections shared with request traffic; fanning out one query per tenant
+// with Promise.all would let a platform listing starve everything else.
+const SCHEMA_FANOUT_CONCURRENCY = 4;
 
 @Injectable()
 export class TenantsAdminService {
@@ -36,30 +43,48 @@ export class TenantsAdminService {
       relations: ['subscriptionPlan'],
     });
 
-    const result = await Promise.all(
-      companies.map(async (company) => {
+    // Bounded fan-out, one worker pool for every tenant schema: see
+    // SCHEMA_FANOUT_CONCURRENCY. A single tenant whose schema is broken must
+    // not blank out the listing for every other tenant, so per-tenant query
+    // failures degrade to hasActiveSuperadmin: false with a warning.
+    const result = await mapWithConcurrency(
+      companies,
+      SCHEMA_FANOUT_CONCURRENCY,
+      async (company) => {
+        const schemaName = `tenant_${company.id}`;
+        // The schema name is interpolated into SQL below and identifiers
+        // cannot be parameterized; the allowlist must run BEFORE any SQL is
+        // built, and outside the tolerance catch — a name that fails it is
+        // corrupt or hostile data, never a provisioning hiccup to skip past.
+        assertValidSchema(schemaName);
+
         let hasActiveSuperadmin = false;
         try {
-          const schemaName = `tenant_${company.id}`;
           const res = await this.companyRepository.manager.query(`
-            SELECT 1 
+            SELECT 1
             FROM "${schemaName}".users u
             JOIN "${schemaName}".user_roles ur ON u.id = ur.user_id
             JOIN "${schemaName}".roles r ON ur.role_id = r.id
-            WHERE r.name = 'Super Administrador' 
-              AND u.is_active = true 
+            WHERE r.name = 'Super Administrador'
+              AND u.is_active = true
             LIMIT 1
           `);
           hasActiveSuperadmin = res.length > 0;
         } catch (e) {
-          // Schema or table might not exist yet
+          // Schema or table might not exist yet (mid-provisioning / failed
+          // provisioning); report the tenant anyway.
+          this.logger.warn(
+            `Schema ${schemaName} not available while listing tenants: ${
+              e instanceof Error ? e.message : 'unknown error'
+            }`,
+          );
         }
 
         return {
           ...company,
           hasActiveSuperadmin,
         };
-      }),
+      },
     );
 
     return result;
@@ -84,20 +109,41 @@ export class TenantsAdminService {
       );
     }
 
-    // Create the company entity first (so we have its ID for the tenant schema tables)
+    // Create the company entity first (so we have its ID for the tenant schema tables).
+    //
+    // isActive starts FALSE: provisioning is asynchronous, and
+    // TenantsService.findBySubdomain — which feeds TenantMiddleware — filters
+    // on isActive, so an active row would resolve tenant requests to a schema
+    // that does not exist yet. The provisioning listener flips isActive on
+    // only after the schema is created and seeded (and suspends on failure),
+    // so the company becomes serviceable exactly when its schema does.
     const company = this.companyRepository.create({
       commercialName: data.name,
       subdomain: data.subdomain,
       subscriptionPlanId: data.subscription_plan_id,
       status: 'ACTIVE',
-      isActive: true,
+      isActive: false,
       contactEmail: data.contactEmail,
       phone: data.phone,
       address: data.address,
       taxId: data.taxId,
       logoUrl: data.logoUrl,
     });
-    const savedCompany = await this.companyRepository.save(company);
+
+    let savedCompany: Company;
+    try {
+      savedCompany = await this.companyRepository.save(company);
+    } catch (error) {
+      // The upfront findOne cannot see a concurrent insert; the UNIQUE
+      // constraint on subdomain is the race-safe check. Map its violation to
+      // the same 409 instead of surfacing a raw driver error as a 500.
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException(
+          `Tenant con subdominio ${data.subdomain} ya existe.`,
+        );
+      }
+      throw error;
+    }
 
     // Emit the provisioning event to handle schema creation asynchronously
     const schemaName = `tenant_${savedCompany.id}`;
@@ -109,6 +155,18 @@ export class TenantsAdminService {
     return savedCompany;
   }
 
+  // Postgres unique_violation. TypeORM surfaces the driver error either
+  // directly or wrapped in QueryFailedError with the code on `driverError`.
+  private isUniqueViolation(error: unknown): boolean {
+    const candidate = error as {
+      code?: string;
+      driverError?: { code?: string };
+    };
+    return (
+      candidate?.code === '23505' || candidate?.driverError?.code === '23505'
+    );
+  }
+
   async updateStatus(
     id: string,
     status: 'ACTIVE' | 'SUSPENDED' | 'GRACE_PERIOD',
@@ -117,6 +175,26 @@ export class TenantsAdminService {
     const company = await this.companyRepository.findOne({ where: { id } });
     if (!company) {
       throw new NotFoundException('Tenant no encontrado');
+    }
+
+    // isActive is the serviceability gate findBySubdomain filters on, and this
+    // endpoint is the only recovery path for a tenant that never got activated
+    // (failed provisioning, or a crash before the listener's activation
+    // write). Reactivate only if the schema really exists; otherwise refuse —
+    // a 200 would leave the company ACTIVE on paper but unresolvable forever.
+    if (status === 'ACTIVE' && !company.isActive) {
+      const schemaName = `tenant_${company.id}`;
+      assertValidSchema(schemaName);
+      const schemas = await this.companyRepository.manager.query(
+        `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
+        [schemaName],
+      );
+      if (schemas.length === 0) {
+        throw new ConflictException(
+          `El esquema del tenant ${company.subdomain} nunca fue aprovisionado; se requiere re-aprovisionarlo antes de activarlo.`,
+        );
+      }
+      company.isActive = true;
     }
 
     company.status = status;
@@ -241,10 +319,22 @@ export class TenantsAdminService {
     // TypeORM's Postgres driver returns `[rows, affectedRowCount]` for UPDATE
     // and DELETE commands — NOT the row array. Checking `result.length` here
     // would always see 2 and never fire, reporting success for a reset that
-    // touched nothing. Only the affected count proves the write happened.
-    const affectedRows = Array.isArray(result.updateResult)
-      ? (result.updateResult[1] as number)
-      : 0;
+    // touched nothing. Only the affected count proves the write happened, so
+    // any other shape is a driver-contract change and must fail loudly rather
+    // than be misread as "0 rows" (a masked success) or "success" (a masked
+    // no-op).
+    if (
+      !Array.isArray(result.updateResult) ||
+      result.updateResult.length !== 2 ||
+      typeof result.updateResult[1] !== 'number'
+    ) {
+      throw new Error(
+        `Unexpected UPDATE result shape from the Postgres driver: expected [rows, affectedRowCount], got ${JSON.stringify(
+          result.updateResult,
+        )}`,
+      );
+    }
+    const [, affectedRows] = result.updateResult as [unknown, number];
     if (!affectedRows) {
       throw new NotFoundException(
         'Administrador principal no encontrado en el esquema del cliente.',

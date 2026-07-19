@@ -19,6 +19,7 @@ import { JwtAuthGuard } from './auth.guard';
 import { Public } from '../common/decorators/public.decorator';
 import { AuthenticatedOnly } from '../common/decorators/authenticated-only.decorator';
 import { AllowDuringPasswordReset } from '../common/decorators/allow-password-reset.decorator';
+import { jwtExpirationToMs } from './jwt-expiration.util';
 
 @Controller('v1/auth')
 export class AuthController {
@@ -61,7 +62,10 @@ export class AuthController {
       sameSite: 'strict',
       domain: process.env.COOKIE_DOMAIN || undefined, // Soporte para multi-tenant (ej. '.odiseo.com')
       path: '/',
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      // Token lifetime follows JWT_EXPIRATION (see jwtModuleOptionsFactory);
+      // the cookie must follow the same value, or it either outlives the
+      // token (dead session cookie) or expires under a still-valid token.
+      maxAge: jwtExpirationToMs(process.env.JWT_EXPIRATION),
     });
 
     return {

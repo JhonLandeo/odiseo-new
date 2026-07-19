@@ -10,8 +10,12 @@ const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 function createService(company: any = { id: TENANT_ID }) {
   const mockManager = { query: jest.fn() };
   const companyRepository = {
+    find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(company),
-    save: jest.fn((entity: any) => Promise.resolve(entity)),
+    create: jest.fn((data: any) => ({ ...data })),
+    save: jest.fn((entity: any) =>
+      Promise.resolve({ id: TENANT_ID, ...entity }),
+    ),
     manager: mockManager,
   };
   const eventEmitter = { emit: jest.fn() };
@@ -37,6 +41,7 @@ function createService(company: any = { id: TENANT_ID }) {
     service,
     mockManager,
     companyRepository,
+    eventEmitter,
     tenantService,
     tenantsService,
     authService,
@@ -182,6 +187,21 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
       expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
     });
 
+    // A driver returning anything but [rows, affectedCount] is a contract
+    // change; misreading it as "0 rows" would report a completed reset as
+    // "admin not found" (or worse, the inverse). Fail loudly instead.
+    it('fails loudly on an unexpected UPDATE result shape', async () => {
+      const { service, mockManager, authService } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([{ id: 'user-1' }])
+        .mockResolvedValueOnce([{ id: 'user-1' }] as any);
+
+      await expect(
+        service.resetAdminCredentials(TENANT_ID, 'new@test.com'),
+      ).rejects.toThrow(/Unexpected UPDATE result shape/);
+      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+    });
+
     // The reset raises force_password_reset and rotates the credentials, both
     // served from the cached auth state; the committed write must drop it.
     it('invalidates the cached auth state of the reset administrator', async () => {
@@ -241,6 +261,7 @@ describe('TenantsAdminService company lookup cache invalidation', () => {
       id: TENANT_ID,
       subdomain: 'colegio',
       status: 'SUSPENDED',
+      isActive: true,
     });
 
     await service.updateStatus(TENANT_ID, 'ACTIVE');
@@ -270,5 +291,253 @@ describe('TenantsAdminService company lookup cache invalidation', () => {
       NotFoundException,
     );
     expect(tenantsService.invalidateSubdomainCache).not.toHaveBeenCalled();
+  });
+});
+
+// A tenant left with isActive: false is unresolvable by TenantMiddleware;
+// PATCH status ACTIVE must either really reactivate or refuse — never 200
+// while the tenant stays dead.
+describe('TenantsAdminService.updateStatus reactivation guard', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  const deactivated = () =>
+    createService({
+      id: TENANT_ID,
+      subdomain: 'colegio',
+      status: 'SUSPENDED',
+      isActive: false,
+    });
+
+  it('reactivates a deactivated tenant whose schema exists', async () => {
+    const { service, mockManager, tenantsService } = deactivated();
+    mockManager.query.mockResolvedValue([{ 1: 1 }]);
+
+    const saved = await service.updateStatus(TENANT_ID, 'ACTIVE');
+
+    expect(mockManager.query).toHaveBeenCalledWith(
+      expect.stringContaining('information_schema.schemata'),
+      [`tenant_${TENANT_ID}`],
+    );
+    expect(saved.isActive).toBe(true);
+    expect(tenantsService.invalidateSubdomainCache).toHaveBeenCalledWith(
+      'colegio',
+    );
+  });
+
+  it('refuses to activate a tenant whose schema was never provisioned', async () => {
+    const { service, mockManager, companyRepository } = deactivated();
+    mockManager.query.mockResolvedValue([]);
+
+    await expect(service.updateStatus(TENANT_ID, 'ACTIVE')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('does not probe the schema when the tenant is already active', async () => {
+    const { service, mockManager } = createService({
+      id: TENANT_ID,
+      subdomain: 'colegio',
+      status: 'GRACE_PERIOD',
+      isActive: true,
+    });
+
+    await service.updateStatus(TENANT_ID, 'ACTIVE');
+
+    expect(mockManager.query).not.toHaveBeenCalled();
+  });
+
+  it('never touches isActive nor probes the schema on a suspension', async () => {
+    const { service, mockManager, companyRepository } = deactivated();
+
+    await service.updateStatus(TENANT_ID, 'SUSPENDED');
+
+    expect(mockManager.query).not.toHaveBeenCalled();
+    expect(companyRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: false, status: 'SUSPENDED' }),
+    );
+  });
+});
+
+describe('TenantsAdminService.findAll', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  function withCompanies(
+    ids: string[],
+    queryImpl: (sql: string) => Promise<any>,
+  ) {
+    const created = createService();
+    created.companyRepository.find.mockResolvedValue(
+      ids.map((id) => ({ id, subdomain: `sub-${id}` })),
+    );
+    created.mockManager.query.mockImplementation(queryImpl);
+    return created;
+  }
+
+  it('flags tenants with an active Super Administrator', async () => {
+    const { service } = withCompanies([TENANT_ID], async () => [{ 1: 1 }]);
+
+    const result = await service.findAll();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].hasActiveSuperadmin).toBe(true);
+  });
+
+  // The schema name is interpolated into SQL, and identifiers cannot be
+  // parameterized: the allowlist is the only barrier. A company id that fails
+  // it is corrupt or hostile data — the request must die BEFORE any SQL is
+  // built, not degrade into a skipped tenant.
+  it('rejects a hostile schema string without issuing any tenant query', async () => {
+    const hostile = '00000000"; DROP SCHEMA public CASCADE; --';
+    const { service, mockManager } = withCompanies([hostile], async () => []);
+
+    await expect(service.findAll()).rejects.toThrow(
+      /Invalid tenant schema identifier/,
+    );
+    expect(mockManager.query).not.toHaveBeenCalled();
+  });
+
+  it('skips a tenant whose schema query fails and still returns the rest', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service } = withCompanies(
+      ['ok-1', 'broken', 'ok-2'],
+      async (sql) => {
+        if (sql.includes('tenant_broken')) {
+          throw new Error('schema "tenant_broken" does not exist');
+        }
+        return [{ 1: 1 }];
+      },
+    );
+
+    const result = await service.findAll();
+
+    expect(result).toHaveLength(3);
+    expect(result.map((r: any) => r.hasActiveSuperadmin)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('tenant_broken not available'),
+    );
+    warn.mockRestore();
+  });
+
+  it('bounds the number of schemas queried concurrently', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const ids = Array.from({ length: 12 }, (_, i) => `c${i}`);
+    const { service } = withCompanies(ids, async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return [];
+    });
+
+    await service.findAll();
+
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+describe('TenantsAdminService.create', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  const input = {
+    name: 'Colegio',
+    subdomain: 'colegio',
+    subscription_plan_id: 'plan-1',
+  };
+
+  function uniqueViolation(): Error {
+    const error = new Error(
+      'duplicate key value violates unique constraint',
+    ) as Error & { code?: string };
+    error.code = '23505';
+    return error;
+  }
+
+  it('rejects a duplicate subdomain upfront with a 409', async () => {
+    const { service, companyRepository } = createService({
+      id: 'existing',
+      subdomain: 'colegio',
+    });
+
+    await expect(service.create(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  // The upfront findOne cannot see a concurrent insert: two simultaneous
+  // creates both pass it, and the loser hits the UNIQUE constraint. That race
+  // must surface as the same 409, not a raw 23505 turned 500.
+  it('maps a unique-violation race on save to the same 409', async () => {
+    const { service, companyRepository } = createService(null);
+    companyRepository.save.mockRejectedValue(uniqueViolation());
+
+    await expect(service.create(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('maps a wrapped driver unique violation (QueryFailedError shape) too', async () => {
+    const { service, companyRepository } = createService(null);
+    const wrapped = new Error('query failed') as Error & {
+      driverError?: { code: string };
+    };
+    wrapped.driverError = { code: '23505' };
+    companyRepository.save.mockRejectedValue(wrapped);
+
+    await expect(service.create(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('rethrows non-unique-violation save failures untouched', async () => {
+    const { service, companyRepository } = createService(null);
+    companyRepository.save.mockRejectedValue(new Error('connection reset'));
+
+    await expect(service.create(input)).rejects.toThrow('connection reset');
+  });
+
+  // Provisioning is asynchronous and findBySubdomain (TenantMiddleware)
+  // filters on isActive: an active row here would route requests to a schema
+  // that does not exist yet. The provisioning listener owns activation.
+  it('creates the company non-serviceable until provisioning completes', async () => {
+    const { service, companyRepository } = createService(null);
+
+    await service.create(input);
+
+    expect(companyRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: false, status: 'ACTIVE' }),
+    );
+  });
+
+  it('emits the provisioning event for the saved company schema', async () => {
+    const { service, eventEmitter } = createService(null);
+
+    const saved = await service.create(input);
+
+    expect(saved.id).toBe(TENANT_ID);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'tenant.provisioning.started',
+      expect.objectContaining({
+        schemaName: `tenant_${TENANT_ID}`,
+        companyId: TENANT_ID,
+      }),
+    );
+  });
+
+  it('does not emit a provisioning event when the insert fails', async () => {
+    const { service, companyRepository, eventEmitter } = createService(null);
+    companyRepository.save.mockRejectedValue(uniqueViolation());
+
+    await expect(service.create(input)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });
