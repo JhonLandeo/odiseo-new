@@ -9,8 +9,10 @@ import { User } from './entities/user.entity';
 import { TenantsModule } from '../tenants/tenants.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ThrottlerModule } from '@nestjs/throttler';
+import Redis from 'ioredis';
 import Keyv from 'keyv';
 import KeyvRedis from '@keyv/redis';
+import { RedisThrottlerStorage } from './redis-throttler-storage';
 
 // Global so JwtAuthGuard/AuthService resolve from the root injector: both are
 // registered as APP_GUARD in AppModule and must be constructible for every
@@ -36,7 +38,40 @@ import KeyvRedis from '@keyv/redis';
       },
     }),
     // Rate limiting for auth endpoints (brute-force protection on /auth/login).
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
+    // Backed by the shared Redis so the limit is GLOBAL across every replica:
+    // the default in-memory storage counts per process, letting N replicas each
+    // grant the 5/min login allowance (N×5/min total) and weakening brute-force
+    // protection under horizontal scaling. Same ttl/limit as before — only the
+    // storage backend changed.
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const host = config.get<string>('REDIS_HOST') || 'localhost';
+        const port = parseInt(config.get<string>('REDIS_PORT') || '6379', 10);
+        const redis = new Redis({
+          host,
+          port,
+          // Fail fast instead of queuing: a Redis outage should degrade to
+          // "allow" (see RedisThrottlerStorage) rather than hang the login
+          // request waiting on the offline command queue.
+          enableOfflineQueue: false,
+          maxRetriesPerRequest: 1,
+          // Keep reconnecting so throttling resumes automatically once Redis
+          // comes back.
+          retryStrategy: (times) => Math.min(times * 200, 2000),
+        });
+        // ioredis emits 'error' on every failed (re)connect; without a listener
+        // that would crash the process. RedisThrottlerStorage already logs and
+        // fails open on the actual command, so this handler just prevents the
+        // crash.
+        redis.on('error', () => undefined);
+        return {
+          throttlers: [{ ttl: 60_000, limit: 10 }],
+          storage: new RedisThrottlerStorage(redis),
+        };
+      },
+    }),
     TypeOrmModule.forFeature([User]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
