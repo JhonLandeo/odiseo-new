@@ -2,6 +2,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { User } from './entities/user.entity';
@@ -494,6 +495,149 @@ describe('AuthService.getUserPermissions with role inheritance', () => {
       'CACHED',
     ]);
     expect(manager.query).not.toHaveBeenCalled();
+  });
+});
+
+// ─── P0: the per-request permission cache must not hang the authenticated API ──
+// getUserAuthState runs inside JwtAuthGuard on every authenticated request, over
+// a Redis client with no command timeout. A hung or broken cache must degrade to
+// a DB-computed lookup, never hang and never turn into a 401.
+describe('AuthService bounded permission cache', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+  const CACHE_KEY = `auth:permissions:${COMPANY_ID}:${USER_ID}`;
+
+  function build(
+    cacheOverrides: Partial<{
+      get: jest.Mock;
+      set: jest.Mock;
+      del: jest.Mock;
+    }> = {},
+  ) {
+    // The DB path resolves one flattened-permission row and a live user, so a
+    // fall-through produces a recognizable, non-empty state.
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ permissions: ['FROM_DB'] }]),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: USER_ID, forcePasswordReset: false }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+      ...cacheOverrides,
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, manager, tenantService, cacheManager };
+  }
+
+  it('serves a cache hit without touching the database', async () => {
+    const { service, manager } = build({
+      get: jest
+        .fn()
+        .mockResolvedValue({ permissions: ['CACHED'], forcePasswordReset: true }),
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state).toEqual({ permissions: ['CACHED'], forcePasswordReset: true });
+    expect(manager.query).not.toHaveBeenCalled();
+  });
+
+  it('computes from the database and caches the result on a miss', async () => {
+    const { service, manager, cacheManager } = build();
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state).toEqual({
+      permissions: ['FROM_DB'],
+      forcePasswordReset: false,
+    });
+    expect(manager.query).toHaveBeenCalled();
+    expect(cacheManager.set).toHaveBeenCalledWith(CACHE_KEY, state, 60 * 1000);
+  });
+
+  it('degrades to the database when the cache read rejects', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service, manager } = build({
+      get: jest.fn().mockRejectedValue(new Error('Redis connection refused')),
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state.permissions).toEqual(['FROM_DB']);
+    expect(manager.query).toHaveBeenCalled();
+    // One warn per bypass so a Redis problem is visible without being deafening.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain(USER_ID);
+    warn.mockRestore();
+  });
+
+  it('still returns the DB-computed value when the cache write fails', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service } = build({
+      set: jest.fn().mockRejectedValue(new Error('write timed out')),
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state).toEqual({
+      permissions: ['FROM_DB'],
+      forcePasswordReset: false,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  // The core P0 case: a cache read that NEVER settles (a hung Redis) must trip
+  // the timer and fall through to the DB — not hang, not throw a 401.
+  describe('when the cache read hangs', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('times out and degrades to the database instead of hanging', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service, manager } = build({
+        get: jest.fn().mockReturnValue(new Promise<never>(() => {})),
+      });
+
+      const pending = service.getUserAuthState(USER_ID, COMPANY_ID);
+      // Default bound is 1000ms; advancing past it rejects the read.
+      await jest.advanceTimersByTimeAsync(1000);
+      const state = await pending;
+
+      expect(state.permissions).toEqual(['FROM_DB']);
+      expect(manager.query).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('timed out');
+      warn.mockRestore();
+    });
+
+    it('leaves no pending timer behind on the fast path', async () => {
+      const { service } = build({
+        get: jest.fn().mockResolvedValue({
+          permissions: ['CACHED'],
+          forcePasswordReset: false,
+        }),
+      });
+
+      await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+      // The race timer must be cleared once the read settles, or every request
+      // would leak a handle onto the event loop.
+      expect(jest.getTimerCount()).toBe(0);
+    });
   });
 });
 

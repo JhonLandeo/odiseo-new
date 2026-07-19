@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Inject,
+  Logger,
 } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
@@ -20,6 +21,25 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
+  /**
+   * Upper bound on each permission-cache round-trip (read and write).
+   *
+   * The cache is a Keyv/KeyvRedis client with no command timeout, and
+   * getUserAuthState runs inside JwtAuthGuard on EVERY authenticated request. A
+   * hung Redis (not one that refuses — one that accepts the socket and never
+   * answers) would otherwise hang the whole authenticated API. This is a
+   * per-request hot path, so the bound is small; Postgres is the source of
+   * truth, so tripping it degrades to an uncached DB lookup, never a failure.
+   * Configurable so an operator can widen it for a slow-but-alive cache without
+   * a redeploy.
+   */
+  private static readonly CACHE_TIMEOUT_MS = ((): number => {
+    const parsed = Number(process.env.AUTH_STATE_CACHE_TIMEOUT_MS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000;
+  })();
+
   constructor(
     private readonly tenantService: TenantService,
     private readonly tenantsService: TenantsService,
@@ -188,10 +208,35 @@ export class AuthService {
     companyId: string,
   ): Promise<{ permissions: string[]; forcePasswordReset: boolean }> {
     const cacheKey = `auth:permissions:${companyId}:${userId}`;
-    const cached = await this.cacheManager.get<{
-      permissions: string[];
-      forcePasswordReset: boolean;
-    }>(cacheKey);
+
+    // The cache read is bounded and best-effort: on timeout or any cache error
+    // we treat it as a MISS and fall through to the Postgres computation below.
+    // The cache is only an optimization — Postgres is the source of truth — so a
+    // hung or broken Redis must degrade this hot path to a slower DB-computed
+    // lookup, keeping the authenticated API up rather than hanging it.
+    let cached:
+      | { permissions: string[]; forcePasswordReset: boolean }
+      | null
+      | undefined;
+    try {
+      cached = await this.withCacheTimeout(
+        () =>
+          this.cacheManager.get<{
+            permissions: string[];
+            forcePasswordReset: boolean;
+          }>(cacheKey),
+        'permission cache read',
+      );
+    } catch (error) {
+      // One warn per bypass: enough to surface a Redis problem, not so much that
+      // a sustained outage drowns the logs. Ids only, never the cached value.
+      this.logger.warn(
+        `Permission cache read bypassed for user ${userId} in company ${companyId}, computing from database: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      cached = undefined;
+    }
     if (cached) return cached;
 
     const schemaName = `tenant_${companyId}`;
@@ -218,8 +263,53 @@ export class AuthService {
     // changes normally propagate on the next request. The short TTL is the
     // backstop for anything that bypasses those paths (direct SQL, a failed
     // cache delete): worst case, stale permissions live at most 60s.
-    await this.cacheManager.set(cacheKey, state, 60 * 1000);
+    //
+    // Best-effort and bounded, like the read: a slow or broken Redis write must
+    // never hang or fail a request that already has its answer from Postgres.
+    // The next request simply misses the cache and recomputes.
+    try {
+      await this.withCacheTimeout(
+        () => this.cacheManager.set(cacheKey, state, 60 * 1000),
+        'permission cache write',
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Permission cache write bypassed for user ${userId} in company ${companyId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
     return state;
+  }
+
+  /**
+   * Races a cache operation against a timer so a hung Redis client cannot stall
+   * the caller. Rejects on timeout; the callers above catch that and any cache
+   * error and fall back to Postgres. The timer is always cleared in the finally,
+   * so a settled operation never leaves a pending handle on the event loop.
+   */
+  private async withCacheTimeout<T>(
+    operation: () => Promise<T>,
+    label: string,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${label} timed out after ${AuthService.CACHE_TIMEOUT_MS}ms`,
+            ),
+          ),
+        AuthService.CACHE_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      return await Promise.race([operation(), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
