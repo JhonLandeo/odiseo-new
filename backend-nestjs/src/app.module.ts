@@ -25,11 +25,13 @@ import { GcsModule } from './gcs/gcs.module';
 import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { LockingModule } from './common/locking/locking.module';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { PasswordResetGuard } from './common/guards/password-reset.guard';
 import { QueueDashboardAuthMiddleware } from './common/middleware/queue-dashboard-auth.middleware';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -73,6 +75,7 @@ import { QueueDashboardAuthMiddleware } from './common/middleware/queue-dashboar
     MaterialsModule,
     QuestionBankModule,
     OnboardingModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
@@ -92,6 +95,12 @@ import { QueueDashboardAuthMiddleware } from './common/middleware/queue-dashboar
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PasswordResetGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // Global error normalization. Registered as an APP_FILTER (not via
+    // useGlobalFilters in main.ts) so it participates in the DI container and
+    // wraps the guard chain above: the guards' HttpExceptions pass through
+    // untouched, while unexpected errors are logged and redacted to a stable
+    // 500 instead of leaking internals.
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
 export class AppModule implements NestModule {

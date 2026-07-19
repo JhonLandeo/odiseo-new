@@ -51,6 +51,13 @@ export class TenantMiddleware implements NestMiddleware {
     '/v1/admin/permissions',
     // Bull board UI, outside the versioned API entirely.
     '/queues',
+    // Liveness/readiness probes. They must answer before any tenant session
+    // exists (an orchestrator probes with no subdomain), and the readiness
+    // check does its own dependency pings — it never touches a tenant schema.
+    // Both prefix variants are listed because middleware may see the path with
+    // or without the global 'api' prefix depending on how it is mounted.
+    '/api/health',
+    '/health',
   ];
 
   constructor(
