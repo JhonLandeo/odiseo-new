@@ -245,6 +245,48 @@ describe('HandleMaterialWebhookUseCase', () => {
     });
   });
 
+  describe('material.course.generated event timing', () => {
+    it('emits only AFTER the tenant transaction has fully resolved, not from inside it', async () => {
+      const { useCase, manager, eventEmitter } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute({ job_id: 'c1', status: 'completed' } as any);
+
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'material.course.generated',
+        { cycleId: 'cycle-1', courseId: 'course-x', weekNumber: 4 },
+      );
+
+      // Every manager operation runs INSIDE runInTenant's callback, so if the
+      // emit truly fires after that transaction settles, every recorded
+      // manager call must have an earlier global invocation order than the
+      // single emit call. Before the fix, emit ran synchronously partway
+      // through the callback -- ahead of the later roll-up manager calls --
+      // and this assertion catches that regression directly.
+      const emitOrder = eventEmitter.emit.mock.invocationCallOrder[0];
+      const managerCallOrders = [
+        ...manager.findOne.mock.invocationCallOrder,
+        ...manager.find.mock.invocationCallOrder,
+        ...manager.update.mock.invocationCallOrder,
+      ];
+      expect(managerCallOrders.length).toBeGreaterThan(0);
+      expect(Math.max(...managerCallOrders)).toBeLessThan(emitOrder);
+    });
+
+    it('does not emit when the callback never reaches the success-terminal branch', async () => {
+      const { useCase, eventEmitter } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute({ job_id: 'c1', status: 'failed' } as any);
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('atomic anti-repetition ledger', () => {
     const usages: QuestionUsageRecord[] = [
       {

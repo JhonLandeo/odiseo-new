@@ -91,7 +91,9 @@ describe('SyllabusRepositoryImpl (unique violation handling)', () => {
 
     it('archiving never conflicts', async () => {
       const { repo, manager } = buildRepo();
-      await expect(repo.updateVisibility('s-1', false)).resolves.toBeUndefined();
+      await expect(
+        repo.updateVisibility('s-1', false),
+      ).resolves.toBeUndefined();
       expect(manager.update).toHaveBeenCalled();
     });
   });
@@ -147,6 +149,116 @@ describe('SyllabusRepositoryImpl (unique violation handling)', () => {
     it('rethrows the violation when the racing cell can no longer be found', async () => {
       const { repo } = buildRepo(uniqueViolation, { findOneResult: null });
       await expect(repo.createDistribution(cell)).rejects.toBe(uniqueViolation);
+    });
+  });
+
+  /**
+   * Regression test for the NULL-safe fix (tenant migration
+   * 0011_syllabus_distribution_null_safe_unique). Postgres treats
+   * NULL <> NULL for uniqueness, so the OLD plain-column
+   * UQ_syllabus_template_week_topic_subtopic never raised 23505 for two
+   * distributions sharing (syllabusId, weekNumber, topicId, subtopicId) with
+   * BOTH templateId null -- the createDistribution catch-and-overwrite LWW
+   * path below was silently never reached, and duplicate cells accumulated.
+   *
+   * There is no live Postgres in this test suite, so the fake manager models
+   * the fixed database precisely: `save` treats
+   * (syllabusId, templateId ?? sentinel, weekNumber, topicId, subtopicId) as
+   * the real-world NULL-safe conflict target (the COALESCE expression index)
+   * and raises the same 23505 the driver would once the index exists.
+   */
+  describe('createDistribution — NULL-safe LWW regression (both cells templateId: null)', () => {
+    const NULL_SENTINEL = '00000000-0000-0000-0000-000000000000';
+
+    const buildNullSafeRepo = () => {
+      const rows: Array<Record<string, unknown>> = [];
+      let nextId = 1;
+
+      const conflictKey = (r: Record<string, unknown>) =>
+        [
+          r.syllabusId,
+          (r.templateId as string | null) ?? NULL_SENTINEL,
+          r.weekNumber,
+          r.topicId,
+          r.subtopicId,
+        ].join('|');
+
+      const manager = {
+        create: jest.fn((_entity, data) => ({ ...data })),
+        save: jest.fn((entity: Record<string, unknown>) => {
+          // An update to an already-persisted row (the LWW overwrite path)
+          // carries an id; just persist the mutation.
+          if (entity.id) {
+            const idx = rows.findIndex((r) => r.id === entity.id);
+            if (idx >= 0) rows[idx] = entity;
+            return Promise.resolve(entity);
+          }
+          // A fresh INSERT: the fixed expression index rejects a second row
+          // whose (syllabusId, COALESCE(templateId, sentinel), weekNumber,
+          // topicId, subtopicId) tuple already exists.
+          const conflict = rows.some(
+            (r) => conflictKey(r) === conflictKey(entity),
+          );
+          if (conflict) {
+            throw Object.assign(new Error('duplicate key'), {
+              code: UNIQUE_VIOLATION,
+            });
+          }
+          const saved = { ...entity, id: `dist-${nextId++}` };
+          rows.push(saved);
+          return Promise.resolve(saved);
+        }),
+        findOne: jest.fn(
+          (_entity, { where }: { where: Record<string, unknown> }) => {
+            const wantsNullTemplate =
+              where.templateId !== null &&
+              typeof where.templateId === 'object' &&
+              (where.templateId as { type?: string })?.type === 'isNull';
+            const found = rows.find(
+              (r) =>
+                r.syllabusId === where.syllabusId &&
+                r.weekNumber === where.weekNumber &&
+                r.topicId === where.topicId &&
+                r.subtopicId === where.subtopicId &&
+                (wantsNullTemplate
+                  ? r.templateId == null
+                  : r.templateId === where.templateId),
+            );
+            return Promise.resolve(found ?? null);
+          },
+        ),
+      };
+      const tenantService = {
+        runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
+      } as unknown as TenantService;
+      return { repo: new SyllabusRepositoryImpl(tenantService), rows };
+    };
+
+    it('overwrites the existing row instead of creating a duplicate when templateId is null for both inserts', async () => {
+      const { repo, rows } = buildNullSafeRepo();
+      const baseCell = {
+        syllabusId: 'sy-1',
+        templateId: null,
+        weekNumber: 3,
+        topicId: '10',
+        subtopicId: '20',
+      };
+
+      const first = await repo.createDistribution({
+        ...baseCell,
+        questionCount: 5,
+      });
+      const second = await repo.createDistribution({
+        ...baseCell,
+        questionCount: 9,
+      });
+
+      // Exactly one row survives (LWW), not two duplicates.
+      expect(rows).toHaveLength(1);
+      expect(second).toEqual(
+        expect.objectContaining({ id: first.id, questionCount: 9 }),
+      );
+      expect(rows[0].questionCount).toBe(9);
     });
   });
 

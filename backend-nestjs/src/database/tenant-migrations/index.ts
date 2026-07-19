@@ -592,4 +592,56 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
     `,
   },
+  {
+    // UQ_syllabus_template_week_topic_subtopic (0001) is a plain-column
+    // UNIQUE(syllabus_id, template_id, week_number, topic_id, subtopic_id).
+    // Postgres treats NULL as distinct from NULL for uniqueness, so two rows
+    // sharing the same (syllabus_id, week_number, topic_id, subtopic_id) with
+    // BOTH template_id IS NULL never collide -- the INSERT never raises
+    // 23505, so SyllabusRepositoryImpl.createDistribution's catch-and-
+    // overwrite Last-Write-Wins logic is silently never triggered for that
+    // case and duplicate cells accumulate instead of the intended overwrite.
+    //
+    // Fixed with a NULL-safe expression index over
+    // COALESCE(template_id, <sentinel>) in place of the raw column.
+    // Expression indexes work on any Postgres version this repo targets
+    // (unlike `UNIQUE NULLS NOT DISTINCT`, which needs PG15+). The sentinel
+    // is the nil UUID -- it can never collide with a real
+    // cycle_material_templates.id (a v4/gen_random_uuid() primary key never
+    // generates the all-zero UUID).
+    //
+    // Rows that already violate the NULL-safe key are collapsed FIRST,
+    // keeping the earliest by (created_at ASC, id ASC) -- the 0004/0009 dedup
+    // precedent -- because a failing CREATE UNIQUE INDEX would roll back the
+    // whole migration and brick provisioning.
+    id: '0011_syllabus_distribution_null_safe_unique',
+    up: (schema: string) => `
+      DELETE FROM "${schema}".syllabus_distribution
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (
+          syllabus_id,
+          COALESCE(template_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          week_number, topic_id, subtopic_id
+        ) id
+        FROM "${schema}".syllabus_distribution
+        ORDER BY
+          syllabus_id,
+          COALESCE(template_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          week_number, topic_id, subtopic_id,
+          created_at ASC, id ASC
+      );
+
+      -- Unquoted in the original CREATE TABLE, so Postgres folded the name to
+      -- lowercase; matched here unquoted for the same fold.
+      ALTER TABLE "${schema}".syllabus_distribution
+        DROP CONSTRAINT IF EXISTS uq_syllabus_template_week_topic_subtopic;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_syllabus_distribution_template_week_topic_subtopic"
+        ON "${schema}".syllabus_distribution (
+          syllabus_id,
+          COALESCE(template_id, '00000000-0000-0000-0000-000000000000'::uuid),
+          week_number, topic_id, subtopic_id
+        );
+    `,
+  },
 ];

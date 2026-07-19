@@ -115,3 +115,30 @@ describe('CatalogRepositoryImpl.upsertCatalogs', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 });
+
+describe('CatalogRepositoryImpl.courseExists', () => {
+  const buildRepo = (rows: unknown[]) => {
+    const manager = { query: jest.fn().mockResolvedValue(rows) };
+    const tenantService = {
+      runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
+    } as any;
+    return {
+      repo: new CatalogRepositoryImpl(tenantService, {} as any),
+      manager,
+    };
+  };
+
+  it('returns true when the course exists in the shared catalog', async () => {
+    const { repo, manager } = buildRepo([{ '?column?': 1 }]);
+    await expect(repo.courseExists('123')).resolves.toBe(true);
+    expect(manager.query).toHaveBeenCalledWith(
+      `SELECT 1 FROM public.courses WHERE id = $1`,
+      ['123'],
+    );
+  });
+
+  it('returns false for a nonexistent course id', async () => {
+    const { repo } = buildRepo([]);
+    await expect(repo.courseExists('missing')).resolves.toBe(false);
+  });
+});

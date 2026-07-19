@@ -109,11 +109,8 @@ describe('tenant migration 0010 — material_request_course PDF billing metrics'
       (m) => m.id === '0010_material_request_course_pdf_metrics',
     );
 
-  it('appends 0010 as the last migration, directly after 0009', () => {
+  it('places 0010 directly after 0009', () => {
     const ids = TENANT_MIGRATIONS.map((m) => m.id);
-    expect(ids[ids.length - 1]).toBe(
-      '0010_material_request_course_pdf_metrics',
-    );
     expect(ids.indexOf('0010_material_request_course_pdf_metrics')).toBe(
       ids.indexOf('0009_material_question_usage_natural_key') + 1,
     );
@@ -128,5 +125,70 @@ describe('tenant migration 0010 — material_request_course PDF billing metrics'
     // terminal states must be able to leave them NULL.
     expect(sql).not.toMatch(/page_count INTEGER NOT NULL/);
     expect(sql).not.toMatch(/file_size_bytes BIGINT NOT NULL/);
+  });
+});
+
+// 0011 replaces the plain-column UQ_syllabus_template_week_topic_subtopic
+// (0001) with a NULL-safe expression index: NULL <> NULL in Postgres, so two
+// rows sharing (syllabus_id, week_number, topic_id, subtopic_id) with BOTH
+// template_id IS NULL never collided under the old constraint, silently
+// breaking the module's Last-Write-Wins guarantee.
+describe('tenant migration 0011 — syllabus_distribution NULL-safe unique index', () => {
+  const migration = () =>
+    TENANT_MIGRATIONS.find(
+      (m) => m.id === '0011_syllabus_distribution_null_safe_unique',
+    );
+  const SENTINEL = '00000000-0000-0000-0000-000000000000';
+
+  it('appends 0011 as the last migration, directly after 0010', () => {
+    const ids = TENANT_MIGRATIONS.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe(
+      '0011_syllabus_distribution_null_safe_unique',
+    );
+    expect(ids.indexOf('0011_syllabus_distribution_null_safe_unique')).toBe(
+      ids.indexOf('0010_material_request_course_pdf_metrics') + 1,
+    );
+  });
+
+  it('dedups existing rows BEFORE dropping the old constraint or creating the new index, keeping the earliest', () => {
+    const sql = migration()!.up('tenant_x');
+    const deleteAt = sql.indexOf(
+      'DELETE FROM "tenant_x".syllabus_distribution',
+    );
+    const dropAt = sql.indexOf('DROP CONSTRAINT IF EXISTS');
+    const createAt = sql.indexOf('CREATE UNIQUE INDEX');
+    expect(deleteAt).toBeGreaterThanOrEqual(0);
+    expect(dropAt).toBeGreaterThan(deleteAt);
+    expect(createAt).toBeGreaterThan(dropAt);
+    // Earliest-first tiebreak, matching the 0004/0009 dedup precedent.
+    expect(sql).toMatch(/created_at ASC,\s*id ASC/);
+    expect(sql).toMatch(
+      /DISTINCT ON \(\s*syllabus_id,\s*COALESCE\(template_id, '00000000-0000-0000-0000-000000000000'::uuid\),\s*week_number, topic_id, subtopic_id\s*\)/,
+    );
+  });
+
+  it('drops the old plain-column constraint by its (lowercase-folded) unquoted name', () => {
+    const sql = migration()!.up('tenant_x');
+    expect(sql).toMatch(
+      /ALTER TABLE "tenant_x"\.syllabus_distribution\s+DROP CONSTRAINT IF EXISTS uq_syllabus_template_week_topic_subtopic;/,
+    );
+  });
+
+  it('creates a NULL-safe unique index over COALESCE(template_id, sentinel) idempotently', () => {
+    const sql = migration()!.up('tenant_x');
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS "uq_syllabus_distribution_template_week_topic_subtopic"\s+ON "tenant_x"\.syllabus_distribution \(\s*syllabus_id,\s*COALESCE\(template_id, '00000000-0000-0000-0000-000000000000'::uuid\),\s*week_number, topic_id, subtopic_id\s*\)/,
+    );
+    // Sentinel must be a well-formed nil UUID, never a real template id.
+    expect(sql).toContain(SENTINEL);
+  });
+
+  it('keeps the new index name unique and within the 63-char identifier limit', () => {
+    const sql = migration()!.up('tenant_x');
+    const names = [
+      ...sql.matchAll(/CREATE UNIQUE INDEX IF NOT EXISTS "([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(names).toHaveLength(1);
+    expect(names[0].length).toBeLessThanOrEqual(63);
   });
 });

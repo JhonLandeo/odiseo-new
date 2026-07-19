@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SyllabusUseCase } from './syllabus.use-case';
 import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TenantService } from '../database/tenant.service';
 import { AcademicTimeUseCase } from '../academic-time/academic-time.use-case';
+import { ICatalogRepository } from '../catalogs/repositories/i-catalog.repository';
 
 describe('SyllabusUseCase', () => {
   let useCase: SyllabusUseCase;
@@ -32,6 +33,10 @@ describe('SyllabusUseCase', () => {
     getActiveWeekNumbers: jest.fn(),
   };
 
+  const mockCatalogRepo = {
+    courseExists: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -45,11 +50,15 @@ describe('SyllabusUseCase', () => {
           },
         },
         { provide: AcademicTimeUseCase, useValue: mockAcademicTime },
+        { provide: ICatalogRepository, useValue: mockCatalogRepo },
       ],
     }).compile();
 
     useCase = module.get<SyllabusUseCase>(SyllabusUseCase);
     jest.clearAllMocks();
+    // Default: the referenced course is visible. Individual tests override
+    // this to exercise the rejection path.
+    mockCatalogRepo.courseExists.mockResolvedValue(true);
   });
 
   it('should create distribution successfully with question count', async () => {
@@ -369,6 +378,85 @@ describe('SyllabusUseCase', () => {
     );
   });
 
+  describe('FR-007 weekly question-count limit on the clone path', () => {
+    it('rejects a clone that would push a week over the 100 limit', async () => {
+      mockRepo.findById.mockResolvedValue({
+        id: 'target-syl',
+        cycleId: 'cycle-target',
+      });
+      mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1]);
+
+      // Two source distributions land in the same week and jointly exceed
+      // the limit (60 + 50 = 110), even though the target syllabus itself
+      // starts empty after clearExistingDistributions.
+      mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
+        if (id === 'source-syl') {
+          return Promise.resolve([
+            {
+              id: 'd-1',
+              weekNumber: 1,
+              topicId: 't1',
+              subtopicId: 's1',
+              questionCount: 60,
+            },
+            {
+              id: 'd-2',
+              weekNumber: 1,
+              topicId: 't2',
+              subtopicId: 's2',
+              questionCount: 50,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+
+      await expect(
+        useCase.cloneSyllabus('target-syl', 'source-syl'),
+      ).rejects.toThrow(BadRequestException);
+
+      // Rejected BEFORE inserting anything for this batch.
+      expect(mockRepo.bulkCreateDistributions).not.toHaveBeenCalled();
+    });
+
+    it('allows a clone that stays within the 100 limit per week (no regression)', async () => {
+      mockRepo.findById.mockResolvedValue({
+        id: 'target-syl',
+        cycleId: 'cycle-target',
+      });
+      mockAcademicTime.getActiveWeekNumbers.mockResolvedValue([1, 2]);
+
+      mockRepo.getSummaryBySyllabus.mockImplementation((id) => {
+        if (id === 'source-syl') {
+          return Promise.resolve([
+            {
+              id: 'd-1',
+              weekNumber: 1,
+              topicId: 't1',
+              subtopicId: 's1',
+              questionCount: 60,
+            },
+            {
+              id: 'd-2',
+              weekNumber: 2,
+              topicId: 't2',
+              subtopicId: 's2',
+              questionCount: 40,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      mockRepo.findGeneratedWeeks.mockResolvedValue([]);
+
+      await useCase.cloneSyllabus('target-syl', 'source-syl');
+
+      expect(mockRepo.bulkCreateDistributions).toHaveBeenCalledTimes(1);
+      const bulkArgs = mockRepo.bulkCreateDistributions.mock.calls[0][0];
+      expect(bulkArgs).toHaveLength(2);
+    });
+  });
+
   it('should clone syllabus successfully if target cycle has no templates at all, setting mapped templates to null', async () => {
     mockRepo.findById.mockImplementation((id) => {
       if (id === 'target-syl') {
@@ -423,5 +511,41 @@ describe('SyllabusUseCase', () => {
       'target-syl',
       expect.any(String),
     );
+  });
+
+  describe('create — course visibility validation', () => {
+    it('rejects creation cleanly (404) for a hidden/nonexistent course instead of surfacing a raw FK error', async () => {
+      mockCatalogRepo.courseExists.mockResolvedValue(false);
+
+      await expect(
+        useCase.create({ courseId: 'ghost-course', cycleId: 'cycle-1' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(mockCatalogRepo.courseExists).toHaveBeenCalledWith('ghost-course');
+      // Never reaches the duplicate check or the insert for an invisible course.
+      expect(mockRepo.findByCourseAndCycle).not.toHaveBeenCalled();
+      expect(mockRepo.createSyllabus).not.toHaveBeenCalled();
+    });
+
+    it('creates the syllabus unchanged for a visible course', async () => {
+      mockCatalogRepo.courseExists.mockResolvedValue(true);
+      mockRepo.findByCourseAndCycle.mockResolvedValue(null);
+      mockRepo.createSyllabus.mockResolvedValue({
+        id: 'new-syl',
+        courseId: 'course-1',
+        cycleId: 'cycle-1',
+      });
+
+      const result = await useCase.create({
+        courseId: 'course-1',
+        cycleId: 'cycle-1',
+      });
+
+      expect(result.id).toBe('new-syl');
+      expect(mockCatalogRepo.courseExists).toHaveBeenCalledWith('course-1');
+      expect(mockRepo.createSyllabus).toHaveBeenCalledWith(
+        expect.objectContaining({ courseId: 'course-1', cycleId: 'cycle-1' }),
+      );
+    });
   });
 });

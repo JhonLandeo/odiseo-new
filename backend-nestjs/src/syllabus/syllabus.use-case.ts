@@ -3,9 +3,11 @@ import {
   Inject,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { I_SYLLABUS_REPOSITORY } from './repositories/i-syllabus.repository';
 import type { ISyllabusRepository } from './repositories/i-syllabus.repository';
+import { ICatalogRepository } from '../catalogs/repositories/i-catalog.repository';
 import { CreateSyllabusDto } from './dto/create-syllabus.dto';
 import { CreateDistributionDto } from './dto/create-distribution.dto';
 import { TenantService } from '../database/tenant.service';
@@ -28,9 +30,25 @@ export class SyllabusUseCase {
     private readonly syllabusRepo: ISyllabusRepository,
     private readonly tenantService: TenantService,
     private readonly academicTimeUseCase: AcademicTimeUseCase,
+    @Inject(ICatalogRepository)
+    private readonly catalogRepository: ICatalogRepository,
   ) {}
 
   async create(dto: CreateSyllabusDto) {
+    // Reject a course the tenant cannot see BEFORE touching the syllabus
+    // table: without this check, an unknown/removed course id trips the
+    // syllabus.course_id -> public.courses FK deep inside the insert and
+    // surfaces as a raw 500 instead of a clean 404. Same "check before write"
+    // precedent as CatalogUseCase.updateTopicVisibility.
+    const courseVisible = await this.catalogRepository.courseExists(
+      dto.courseId,
+    );
+    if (!courseVisible) {
+      throw new NotFoundException(
+        `El curso ${dto.courseId} no existe o no está disponible.`,
+      );
+    }
+
     const existing = await this.syllabusRepo.findByCourseAndCycle(
       dto.courseId,
       dto.cycleId,
@@ -288,8 +306,48 @@ export class SyllabusUseCase {
       });
     }
 
+    // FR-007 applies to the clone path too: clearExistingDistributions (above,
+    // same transaction) already wiped every prior row for this syllabus, so
+    // the target is guaranteed empty here -- the sum to validate is exactly
+    // the batch about to be inserted, with no pre-existing rows to add in.
+    this.assertCloneWeeklyLimits(distributionsToCreate);
+
     if (distributionsToCreate.length > 0) {
       await this.syllabusRepo.bulkCreateDistributions(distributionsToCreate);
+    }
+  }
+
+  /**
+   * FR-007 (max WEEKLY_QUESTION_LIMIT questions per syllabus/week, summed
+   * across templates) on the clone/bulk path. addDistribution/
+   * updateDistributionQuantity enforce it via a DB SUM (sumWeekQuestionCount)
+   * because they check one already-persisted week against one incoming cell;
+   * a clone has no persisted rows to sum against (the target was just
+   * cleared) and inserts many cells across many weeks at once, so this sums
+   * the in-memory batch instead of reusing the DB-query helper. Throws BEFORE
+   * any insert runs, naming every offending week, rather than inserting the
+   * whole batch and letting a later single-cell edit discover the overage.
+   */
+  private assertCloneWeeklyLimits(
+    distributionsToCreate: { weekNumber: number; questionCount: number }[],
+  ) {
+    const weekSums = new Map<number, number>();
+    for (const dist of distributionsToCreate) {
+      weekSums.set(
+        dist.weekNumber,
+        (weekSums.get(dist.weekNumber) || 0) + dist.questionCount,
+      );
+    }
+
+    const offendingWeeks = [...weekSums.entries()]
+      .filter(([, sum]) => sum > WEEKLY_QUESTION_LIMIT)
+      .map(([weekNumber]) => weekNumber)
+      .sort((a, b) => a - b);
+
+    if (offendingWeeks.length > 0) {
+      throw new BadRequestException(
+        `La clonación superaría el límite de ${WEEKLY_QUESTION_LIMIT} preguntas en la(s) semana(s): ${offendingWeeks.join(', ')}.`,
+      );
     }
   }
 

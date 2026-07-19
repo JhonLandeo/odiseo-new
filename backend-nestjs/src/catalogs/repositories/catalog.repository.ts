@@ -97,6 +97,16 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
     });
   }
 
+  async courseExists(courseId: string): Promise<boolean> {
+    return this.tenantService.runInTenant(async (manager) => {
+      const rows = await manager.query(
+        `SELECT 1 FROM public.courses WHERE id = $1`,
+        [courseId],
+      );
+      return rows.length > 0;
+    });
+  }
+
   async updateTopicLocalVisibility(
     topicId: string,
     isActive: boolean,

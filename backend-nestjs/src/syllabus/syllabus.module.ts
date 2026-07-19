@@ -9,6 +9,7 @@ import { SyllabusUseCase } from './syllabus.use-case';
 import { MaterialGeneratedListener } from './listeners/material-generated.listener';
 import { AcademicTimeModule } from '../academic-time/academic-time.module';
 import { AuthModule } from '../auth/auth.module';
+import { CatalogsModule } from '../catalogs/catalogs.module';
 
 @Module({
   imports: [
@@ -16,6 +17,9 @@ import { AuthModule } from '../auth/auth.module';
     AcademicTimeModule,
     // Required so JwtAuthGuard (and PermissionsGuard) can resolve AuthService.
     AuthModule,
+    // ICatalogRepository.courseExists: syllabus creation validates the
+    // referenced course before insert (see SyllabusUseCase.create).
+    CatalogsModule,
   ],
   controllers: [SyllabusController],
   providers: [

@@ -98,6 +98,12 @@ export class HandleMaterialWebhookUseCase {
     // Reject an out-of-contract status before opening a transaction.
     const incomingStatus = this.mapStatus(statusData.status);
 
+    // Set inside the transaction, ONLY on the success-terminal branch that
+    // used to emit directly; read and emitted after the transaction commits
+    // (see the emit call at the end of this method for why).
+    let materialGeneratedEvent:
+      { cycleId: string; courseId: string; weekNumber: number } | undefined;
+
     await this.tenantService.runInTenant(async (manager) => {
       // Find course request by ID
       const courseReq = await manager.findOne(MaterialRequestCourse, {
@@ -271,11 +277,14 @@ export class HandleMaterialWebhookUseCase {
         (incomingStatus === CourseMaterialStatus.COMPLETED ||
           incomingStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS)
       ) {
-        this.eventEmitter.emit('material.course.generated', {
+        // Captured here, EMITTED after the transaction resolves (see below).
+        // The exact condition for whether the event fires is unchanged; only
+        // the moment the actual .emit() call executes moves.
+        materialGeneratedEvent = {
           cycleId: requestParent.cycleId,
           courseId: courseReq.courseId,
           weekNumber: requestParent.weekNumber,
-        });
+        };
       }
 
       // Check if all courses in the parent MaterialRequest are complete. This
@@ -374,5 +383,21 @@ export class HandleMaterialWebhookUseCase {
         }
       }
     });
+
+    // Emitted only AFTER the transaction above has committed, mirroring the
+    // "queue jobs after the transaction, not inside it" pattern used
+    // elsewhere (generate-material.use-case, approve-material-review.use-
+    // case). EventEmitter2's `.emit()` invokes `{ async: true }` listeners
+    // without awaiting them, and this method used to call it from inside
+    // runInTenant -- MaterialGeneratedListener opens its own runInTenant in
+    // reaction, which could silently reuse this webhook's still-open
+    // transaction via CLS reentrancy depending on microtask timing. Firing
+    // after `runInTenant` resolves removes that ambiguity entirely.
+    if (materialGeneratedEvent) {
+      this.eventEmitter.emit(
+        'material.course.generated',
+        materialGeneratedEvent,
+      );
+    }
   }
 }

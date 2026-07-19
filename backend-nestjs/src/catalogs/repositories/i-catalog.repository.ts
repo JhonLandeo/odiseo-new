@@ -27,6 +27,15 @@ export interface ICatalogRepository {
   findCourseIdByTopicId(topicId: string): Promise<string | null>;
 
   /**
+   * Whether `courseId` exists in the shared course catalog. Courses carry no
+   * per-tenant hide flag (unlike topics, which have tenant_topic_visibility),
+   * so "visible to the tenant" reduces to "present in public.courses". Used
+   * to reject a bad/removed course id BEFORE a write that references it,
+   * instead of letting the FK violation reach the client as a raw 500.
+   */
+  courseExists(courseId: string): Promise<boolean>;
+
+  /**
    * Realiza un bulk upsert de courses, topics y subtopics en el esquema public.
    *
    * Recibe `unknown` a propósito: el payload viene de un sistema externo y la

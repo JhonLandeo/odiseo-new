@@ -63,5 +63,8 @@ const providers: any[] = [
   ],
   controllers: [CatalogsController],
   providers,
+  // ICatalogRepository is consumed outside this module (SyllabusUseCase
+  // validates course visibility before creating a syllabus).
+  exports: [ICatalogRepository],
 })
 export class CatalogsModule {}

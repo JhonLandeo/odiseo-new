@@ -6,19 +6,22 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
-  Unique,
   Check,
 } from 'typeorm';
 import { Syllabus } from './syllabus.entity';
 
+// NOTE: the real uniqueness constraint for one distribution cell no longer
+// lives here as a @Unique decorator. Postgres treats NULL as distinct from
+// NULL for uniqueness purposes, so a plain-column UNIQUE(syllabus_id,
+// template_id, week_number, topic_id, subtopic_id) never fires for two rows
+// that both have template_id IS NULL -- silently breaking the module's LWW
+// guarantee (see SyllabusRepositoryImpl.createDistribution). @Unique cannot
+// express a NULL-safe COALESCE expression, so the constraint is instead a
+// UNIQUE INDEX over (syllabus_id, COALESCE(template_id, sentinel), ...) in
+// tenant migration 0011_syllabus_distribution_null_safe_unique. This entity
+// is descriptive only (tenant DDL is never driven by `synchronize`); the
+// migration is the authoritative source of the real constraint.
 @Entity('syllabus_distribution')
-@Unique('UQ_syllabus_template_week_topic_subtopic', [
-  'syllabusId',
-  'templateId',
-  'weekNumber',
-  'topicId',
-  'subtopicId',
-])
 @Check(`"question_count" > 0`)
 export class SyllabusDistribution {
   @PrimaryGeneratedColumn('uuid')
