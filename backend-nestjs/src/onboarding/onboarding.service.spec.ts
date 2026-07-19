@@ -300,5 +300,29 @@ describe('OnboardingService', () => {
       expect(await service.resetTour(USER_ID)).toEqual({ success: true });
       expect(manager.query.mock.calls[0][1]).toEqual([USER_ID, false]);
     });
+
+    // Regression: a still-valid JWT for a since-deleted user (JwtAuthGuard
+    // deliberately doesn't re-check account existence) used to surface the
+    // FK violation as a raw 500 instead of a benign no-op.
+    it('treats a foreign-key violation (deleted user, stale token) as a no-op, not an error', async () => {
+      const { service, manager } = createService();
+      manager.query.mockRejectedValue({ code: '23503' });
+
+      await expect(service.dismissTour(USER_ID)).resolves.toEqual({
+        success: true,
+      });
+      await expect(service.resetTour(USER_ID)).resolves.toEqual({
+        success: true,
+      });
+    });
+
+    it('still propagates a DB error that is not a foreign-key violation', async () => {
+      const { service, manager } = createService();
+      manager.query.mockRejectedValue({ code: '08006' });
+
+      await expect(service.dismissTour(USER_ID)).rejects.toEqual({
+        code: '08006',
+      });
+    });
   });
 });

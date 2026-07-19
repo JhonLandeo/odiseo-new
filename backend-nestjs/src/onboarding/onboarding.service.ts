@@ -120,14 +120,31 @@ export class OnboardingService {
     userId: string,
     isDismissed: boolean,
   ): Promise<void> {
-    await this.tenantService.runInTenant(async (manager) => {
-      await manager.query(
-        `INSERT INTO onboarding_progress (user_id, is_dismissed)
-         VALUES ($1, $2)
-         ON CONFLICT (user_id) DO UPDATE
-         SET is_dismissed = EXCLUDED.is_dismissed, updated_at = now()`,
-        [userId, isDismissed],
-      );
-    });
+    try {
+      await this.tenantService.runInTenant(async (manager) => {
+        await manager.query(
+          `INSERT INTO onboarding_progress (user_id, is_dismissed)
+           VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE
+           SET is_dismissed = EXCLUDED.is_dismissed, updated_at = now()`,
+          [userId, isDismissed],
+        );
+      });
+    } catch (error) {
+      // The FK (user_id -> users.id ON DELETE CASCADE) rejects a userId that
+      // no longer exists. JwtAuthGuard deliberately doesn't re-validate the
+      // account behind a still-valid token exists (auth.service.ts, "the
+      // token outlived the account. Deny nothing") — this is that same edge
+      // case reaching a write instead of a read. There is nothing left to
+      // dismiss for an account that's gone, so treat it as a benign no-op
+      // rather than surfacing a 500/409 the caller can't act on.
+      if ((error as { code?: string }).code === '23503') {
+        this.logger.warn(
+          `Ignored onboarding dismissal for userId ${userId}: account no longer exists`,
+        );
+        return;
+      }
+      throw error;
+    }
   }
 }
