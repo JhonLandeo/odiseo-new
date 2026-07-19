@@ -16,6 +16,7 @@ import { MaterialDownloadsUseCase } from '../use-cases/material-downloads.use-ca
 import {
   HandleMaterialWebhookUseCase,
   QuestionUsageRecord,
+  PdfArtifactMeta,
 } from '../use-cases/handle-material-webhook.use-case';
 import { ClsService } from 'nestjs-cls';
 import { CourseMaterialStatus } from '../entities/material-request-course.entity';
@@ -258,6 +259,35 @@ export class PdfGenerationProcessor extends WorkerHost {
   }
 
   /**
+   * Billing artifact metadata (spec 008 FR-007) for the STUDENT PDF Buffer —
+   * the primary artifact; keys/solutions page counts are out of scope. Reads
+   * straight off the Buffer already in memory (no S3 re-read, no separate
+   * scan): `buffer.length` for the byte size, and `pdf-lib` for the real page
+   * count.
+   *
+   * Page-count extraction is best-effort: a corrupt/unparseable buffer must
+   * NOT fail an otherwise-successful course generation over a billing
+   * side-metric. On failure this logs a warning and omits pageCount, so the
+   * webhook use case leaves the column NULL (the collector cron's
+   * COALESCE(SUM(page_count), 0) already treats that as 0).
+   */
+  private async extractPdfArtifactMeta(
+    pdfBuffer: Buffer,
+    logContext: string,
+  ): Promise<PdfArtifactMeta> {
+    const fileSizeBytes = pdfBuffer.length;
+    try {
+      const doc = await PDFDocument.load(pdfBuffer);
+      return { pageCount: doc.getPageCount(), fileSizeBytes };
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not extract page count for ${logContext}: ${err.message}`,
+      );
+      return { fileSizeBytes };
+    }
+  }
+
+  /**
    * The anti-repetition ledger rows for one generated course, in PDF order.
    * They travel WITH the completion callback so the webhook use case commits
    * the course's terminal status and its ledger in one tenant transaction.
@@ -426,6 +456,10 @@ export class PdfGenerationProcessor extends WorkerHost {
                 : CourseMaterialStatus.COMPLETED;
 
             if (dist.course_request_id) {
+              const artifactMeta = await this.extractPdfArtifactMeta(
+                pdfBuffer,
+                `course ${courseId} of request ${material_request_id}`,
+              );
               await this.handleMaterialWebhookUseCase.execute(
                 {
                   job_id: dist.course_request_id,
@@ -446,6 +480,7 @@ export class PdfGenerationProcessor extends WorkerHost {
                   cycle_id,
                   replacedQuestionIds,
                 ),
+                artifactMeta,
               );
             }
 
@@ -565,6 +600,10 @@ export class PdfGenerationProcessor extends WorkerHost {
               : CourseMaterialStatus.COMPLETED;
 
           if (dist.course_request_id) {
+            const artifactMeta = await this.extractPdfArtifactMeta(
+              pdfBuffer,
+              `course ${courseId} of request ${material_request_id}`,
+            );
             await this.handleMaterialWebhookUseCase.execute(
               {
                 job_id: dist.course_request_id,
@@ -583,6 +622,7 @@ export class PdfGenerationProcessor extends WorkerHost {
                 cycle_id,
                 replacedQuestionIds,
               ),
+              artifactMeta,
             );
           }
 

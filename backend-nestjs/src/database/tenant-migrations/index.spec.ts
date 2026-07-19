@@ -59,11 +59,8 @@ describe('tenant migration 0009 — material_question_usage natural key', () => 
       (m) => m.id === '0009_material_question_usage_natural_key',
     );
 
-  it('appends 0009 as the last migration, directly after 0008', () => {
+  it('keeps 0009 directly after 0008', () => {
     const ids = TENANT_MIGRATIONS.map((m) => m.id);
-    expect(ids[ids.length - 1]).toBe(
-      '0009_material_question_usage_natural_key',
-    );
     expect(ids.indexOf('0009_material_question_usage_natural_key')).toBe(
       ids.indexOf('0008_fk_join_indexes') + 1,
     );
@@ -99,5 +96,37 @@ describe('tenant migration 0009 — material_question_usage natural key', () => 
     expect(names).toHaveLength(1);
     expect(names[0]).not.toContain('tenant_x');
     expect(names[0].length).toBeLessThanOrEqual(63);
+  });
+});
+
+// 0010 adds the billing pipeline's two source columns (spec 008 FR-007):
+// page_count and file_size_bytes on material_request_courses, populated
+// atomically by the completion webhook straight off the in-memory PDF
+// Buffer at generation time.
+describe('tenant migration 0010 — material_request_course PDF billing metrics', () => {
+  const migration = () =>
+    TENANT_MIGRATIONS.find(
+      (m) => m.id === '0010_material_request_course_pdf_metrics',
+    );
+
+  it('appends 0010 as the last migration, directly after 0009', () => {
+    const ids = TENANT_MIGRATIONS.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe(
+      '0010_material_request_course_pdf_metrics',
+    );
+    expect(ids.indexOf('0010_material_request_course_pdf_metrics')).toBe(
+      ids.indexOf('0009_material_question_usage_natural_key') + 1,
+    );
+  });
+
+  it('adds both nullable columns idempotently via ADD COLUMN IF NOT EXISTS', () => {
+    const sql = migration()!.up('tenant_x');
+    expect(sql).toMatch(/ALTER TABLE "tenant_x"\.material_request_courses/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS page_count INTEGER/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT/);
+    // Neither column declares NOT NULL: pre-existing rows and non-success
+    // terminal states must be able to leave them NULL.
+    expect(sql).not.toMatch(/page_count INTEGER NOT NULL/);
+    expect(sql).not.toMatch(/file_size_bytes BIGINT NOT NULL/);
   });
 });

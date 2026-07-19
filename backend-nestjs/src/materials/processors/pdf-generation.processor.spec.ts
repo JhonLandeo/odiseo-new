@@ -81,7 +81,7 @@ describe('PdfGenerationProcessor generate (single course)', () => {
    * atomically with the completion status — instead of writing them in its
    * own separate transaction, and must flag the replaced question.
    */
-  function singleCourseHarness() {
+  function singleCourseHarness(overrides: { pdfBuffer?: Buffer } = {}) {
     const reviewQuestions = [
       {
         questionId: 'q1',
@@ -122,7 +122,9 @@ describe('PdfGenerationProcessor generate (single course)', () => {
       ]),
     };
     const pdfGeneratorService = {
-      generatePdf: jest.fn().mockResolvedValue(Buffer.from('pdf')),
+      generatePdf: jest
+        .fn()
+        .mockResolvedValue(overrides.pdfBuffer ?? Buffer.from('pdf')),
     };
     const s3Service = {
       uploadBuffer: jest.fn().mockResolvedValue('https://cdn/material.pdf'),
@@ -205,6 +207,40 @@ describe('PdfGenerationProcessor generate (single course)', () => {
     // the cycle); a third call was the old separate ledger-write transaction,
     // which now belongs to the webhook use case's own transaction.
     expect(tenantService.runInSchema).toHaveBeenCalledTimes(2);
+  });
+
+  describe('billing artifact metadata (spec 008 FR-007)', () => {
+    it('threads the real page count and byte size of the student PDF into the webhook call', async () => {
+      const pdf = await makePdfBuffer(); // pdf-lib default: 1 page
+      const { processor, handleMaterialWebhookUseCase } = singleCourseHarness({
+        pdfBuffer: pdf,
+      });
+
+      await processor.process(generateJob());
+
+      expect(handleMaterialWebhookUseCase.execute).toHaveBeenCalledTimes(1);
+      const [, , artifactMeta] =
+        handleMaterialWebhookUseCase.execute.mock.calls[0];
+      expect(artifactMeta).toEqual({
+        pageCount: 1,
+        fileSizeBytes: pdf.length,
+      });
+    });
+
+    it('degrades to file size only (no pageCount) when the buffer cannot be parsed as a PDF, without failing the job', async () => {
+      // Default harness buffer (Buffer.from('pdf')) is not a real PDF —
+      // pdf-lib cannot parse it. Extraction must degrade, not throw.
+      const { processor, handleMaterialWebhookUseCase } = singleCourseHarness();
+
+      await expect(processor.process(generateJob())).resolves.toBeDefined();
+
+      const [, , artifactMeta] =
+        handleMaterialWebhookUseCase.execute.mock.calls[0];
+      expect(artifactMeta).toEqual({
+        fileSizeBytes: Buffer.from('pdf').length,
+      });
+      expect(artifactMeta.pageCount).toBeUndefined();
+    });
   });
 });
 

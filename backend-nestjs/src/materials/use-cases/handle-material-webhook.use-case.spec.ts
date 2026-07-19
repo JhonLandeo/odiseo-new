@@ -360,6 +360,53 @@ describe('HandleMaterialWebhookUseCase', () => {
     });
   });
 
+  describe('billing artifact metadata (page count / file size)', () => {
+    it('persists pageCount and fileSizeBytes on the SAME update as the terminal status', async () => {
+      const { useCase, manager, state } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute(
+        { job_id: 'c1', status: 'completed' } as any,
+        undefined,
+        { pageCount: 7, fileSizeBytes: 123456 },
+      );
+
+      expect(manager.update).toHaveBeenCalledWith(
+        MaterialRequestCourse,
+        'c1',
+        expect.objectContaining({
+          status: CourseMaterialStatus.COMPLETED,
+          pageCount: 7,
+          fileSizeBytes: 123456,
+        }),
+      );
+      expect((state.courses.get('c1')! as any).pageCount).toBe(7);
+      expect((state.courses.get('c1')! as any).fileSizeBytes).toBe(123456);
+      // No extra transaction/savepoint: manager.update was called exactly
+      // once for the course (the same call that sets status/downloadUrl).
+      expect(
+        manager.update.mock.calls.filter(
+          ([entity]: any[]) => entity === MaterialRequestCourse,
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('omits both columns (leaves them untouched) when no artifactMeta is given', async () => {
+      const { useCase, manager } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute({ job_id: 'c1', status: 'failed' } as any);
+
+      const [, , patch] = manager.update.mock.calls[0];
+      expect(patch.pageCount).toBeUndefined();
+      expect(patch.fileSizeBytes).toBeUndefined();
+    });
+  });
+
   describe('input validation', () => {
     it('rejects an unknown status instead of silently marking the course FAILED', async () => {
       const { useCase, tenantService, state } = buildHarness(

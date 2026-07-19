@@ -52,6 +52,25 @@ export class MaterialRequestCourse {
   @Column({ type: 'jsonb', nullable: true })
   warnings: any;
 
+  // Billing pipeline (spec 008 FR-007): recorded atomically with the
+  // completion webhook, straight off the in-memory PDF Buffer at generation
+  // time (see PdfGenerationProcessor). NULL for rows generated before tenant
+  // migration 0010 and for non-success terminal states — the monthly
+  // collector cron treats NULL as 0 via COALESCE.
+  @Column({ name: 'page_count', type: 'int', nullable: true })
+  pageCount: number | null;
+
+  @Column({ name: 'file_size_bytes', type: 'bigint', nullable: true })
+  fileSizeBytes: number | null;
+
+  // Set in the SAME atomic update as pageCount/fileSizeBytes, when the course
+  // reaches a success-terminal state. `createdAt` is request-submission time,
+  // not generation-completion time, and the monthly billing collector scopes
+  // `pdf_pages_generated` by completion month — using `createdAt` there would
+  // silently drop a course whose generation crosses a month boundary.
+  @Column({ name: 'completed_at', type: 'timestamp', nullable: true })
+  completedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -31,6 +31,18 @@ export interface QuestionUsageRecord {
   wasReplacement: boolean;
 }
 
+/**
+ * Billing artifact metadata for the STUDENT PDF of one course, captured by
+ * the processor right after it renders the Buffer and before upload — the
+ * cheapest correct source of truth (no S3 re-read, no separate scan). Threads
+ * alongside `questionUsages` into the same atomic `runInTenant` transaction
+ * that commits the course's terminal status (spec 008 FR-007).
+ */
+export interface PdfArtifactMeta {
+  pageCount?: number;
+  fileSizeBytes?: number;
+}
+
 @Injectable()
 export class HandleMaterialWebhookUseCase {
   private readonly logger = new Logger(HandleMaterialWebhookUseCase.name);
@@ -74,6 +86,7 @@ export class HandleMaterialWebhookUseCase {
   async execute(
     statusData: WebhookStatusRequestDto,
     questionUsages?: QuestionUsageRecord[],
+    artifactMeta?: PdfArtifactMeta,
   ): Promise<void> {
     if (!statusData.job_id || !statusData.status) {
       throw new BadRequestException('job_id and status are required');
@@ -134,6 +147,10 @@ export class HandleMaterialWebhookUseCase {
         return;
       }
 
+      const isSuccessTerminal =
+        incomingStatus === CourseMaterialStatus.COMPLETED ||
+        incomingStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS;
+
       // Update course request
       await manager.update(MaterialRequestCourse, courseReq.id, {
         status: incomingStatus,
@@ -143,6 +160,18 @@ export class HandleMaterialWebhookUseCase {
         warnings: (statusData.error_message
           ? { error: statusData.error_message }
           : null) as any,
+        // Billing artifact metadata (spec 008 FR-007): simple column writes on
+        // the SAME update as the terminal status, in the SAME transaction —
+        // no new savepoint needed. `undefined` is omitted from the SET clause
+        // by TypeORM, so a failed/empty_bank callback (no artifactMeta) or a
+        // page-count extraction failure leaves these columns untouched/NULL.
+        pageCount: artifactMeta?.pageCount ?? undefined,
+        fileSizeBytes: artifactMeta?.fileSizeBytes ?? undefined,
+        // The monthly billing collector scopes `pdf_pages_generated` by THIS
+        // column, not `createdAt` (request-submission time) — a course
+        // created near a month boundary whose generation finishes in the
+        // following month must land in the completion month's bucket.
+        completedAt: isSuccessTerminal ? new Date() : undefined,
       });
 
       this.logger.log(

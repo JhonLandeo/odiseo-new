@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
+import { ConsumptionMetricsCron } from './consumption-metrics.cron';
 import { ConsumptionMetric } from './entities/consumption-metric.entity';
 
 import { AuthModule } from '../../auth/auth.module';
@@ -12,6 +13,6 @@ import { AuthModule } from '../../auth/auth.module';
     forwardRef(() => AuthModule),
   ],
   controllers: [DashboardController],
-  providers: [DashboardService],
+  providers: [DashboardService, ConsumptionMetricsCron],
 })
 export class DashboardModule {}
