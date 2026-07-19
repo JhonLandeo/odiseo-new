@@ -4,6 +4,7 @@ import {
   HealthIndicatorResult,
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import { HealthController } from './health.controller';
 import { RedisHealthIndicator } from './redis-health.indicator';
 
@@ -44,6 +45,10 @@ describe('HealthController', () => {
         { provide: HealthCheckService, useValue: { check: runChecks } },
         { provide: TypeOrmHealthIndicator, useValue: db },
         { provide: RedisHealthIndicator, useValue: redis },
+        {
+          provide: getDataSourceToken('questionsConnection'),
+          useValue: { options: { type: 'postgres' } },
+        },
       ],
     }).compile();
 
@@ -61,23 +66,31 @@ describe('HealthController', () => {
   });
 
   describe('readiness', () => {
-    it('reports up when both the database and Redis are reachable', async () => {
-      db.pingCheck.mockResolvedValue({ database: { status: 'up' } });
+    beforeEach(() => {
+      db.pingCheck.mockImplementation(async (key: string) => ({
+        [key]: { status: 'up' },
+      }));
       redis.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
+    });
 
+    it('reports up when the database, questions database, and Redis are all reachable', async () => {
       const result = await controller.readiness();
 
       expect(db.pingCheck).toHaveBeenCalledWith('database');
+      expect(db.pingCheck).toHaveBeenCalledWith(
+        'questionsDatabase',
+        expect.objectContaining({ timeout: expect.any(Number) }),
+      );
       expect(redis.isHealthy).toHaveBeenCalledWith('redis');
       expect(result.status).toBe('ok');
       expect(result.details).toEqual({
         database: { status: 'up' },
+        questionsDatabase: { status: 'up' },
         redis: { status: 'up' },
       });
     });
 
-    it('reports error when a dependency is down', async () => {
-      db.pingCheck.mockResolvedValue({ database: { status: 'up' } });
+    it('reports error when Redis is down', async () => {
       redis.isHealthy.mockResolvedValue({
         redis: { status: 'down', message: 'unreachable' },
       });
@@ -89,6 +102,32 @@ describe('HealthController', () => {
         status: 'down',
         message: 'unreachable',
       });
+    });
+
+    it('reports error when the questions database ping fails or times out', async () => {
+      db.pingCheck.mockImplementation(async (key: string) => {
+        if (key === 'questionsDatabase') {
+          return {
+            questionsDatabase: {
+              status: 'down',
+              message: 'timeout of 2000ms exceeded',
+            },
+          };
+        }
+        return { [key]: { status: 'up' } };
+      });
+
+      const result = await controller.readiness();
+
+      expect(result.status).toBe('error');
+      expect(result.details.questionsDatabase).toEqual({
+        status: 'down',
+        message: 'timeout of 2000ms exceeded',
+      });
+      // The default database and Redis are unaffected by the failing
+      // questions-database check — readiness reports each independently.
+      expect(result.details.database).toEqual({ status: 'up' });
+      expect(result.details.redis).toEqual({ status: 'up' });
     });
   });
 });

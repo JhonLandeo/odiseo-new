@@ -5,7 +5,11 @@
  */
 export const DEFAULT_JWT_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 
-const EXPIRATION_PATTERN =
+// Exported so env.validation.ts can reject a malformed JWT_EXPIRATION at boot
+// time using the exact same grammar this file parses with — jsonwebtoken (via
+// the `ms` package) only rejects a bad string at SIGN time, so without this
+// shared pattern a typo boots cleanly and then 500s on every login.
+export const EXPIRATION_PATTERN =
   /^(\d+(?:\.\d+)?)\s*(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i;
 
 const UNIT_MS: Record<string, number> = {

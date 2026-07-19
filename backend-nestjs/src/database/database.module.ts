@@ -15,10 +15,17 @@ import { Alternative } from '../question-bank/entities/alternative.entity';
  * across the API, cron and worker processes, with no timeout to recover a
  * connection pinned by a slow query.
  *
- * Pool sizing: DB_POOL_MAX bounds the connections a SINGLE process opens. The
- * real ceiling is Postgres `max_connections` (default 100). Keep
- * `DB_POOL_MAX * (number of running processes/replicas)` comfortably under it,
- * leaving headroom for migrations, psql sessions and superuser slots.
+ * Pool sizing: DB_POOL_MAX bounds the connections a SINGLE TypeORM root opens,
+ * not a single process. This module registers TWO roots per process — the
+ * default connection and `questionsConnection` below — and both derive their
+ * pool `max` from the same DB_POOL_MAX. They also share DB_HOST/DB_PORT (only
+ * the database name differs: DB_NAME vs DB_QUESTIONS_BASE), so they are
+ * guaranteed to hit the SAME Postgres server. The real per-process ceiling is
+ * therefore `2 * DB_POOL_MAX`, not DB_POOL_MAX. The real ceiling on that
+ * server is Postgres `max_connections` (default 100). Keep
+ * `2 * DB_POOL_MAX * (number of running processes/replicas)` comfortably
+ * under it, leaving headroom for migrations, psql sessions and superuser
+ * slots.
  *
  * `statement_timeout` is a per-connection Postgres setting that aborts ANY
  * single query running longer than the limit. It applies to every query on the

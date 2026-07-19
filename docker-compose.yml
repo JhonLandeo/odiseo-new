@@ -15,24 +15,41 @@ services:
       - "./localstack-init:/etc/localstack/init/ready.d"
 
   worker:
+    # Real worker entrypoint: backend-nestjs/src/worker.main.ts, a NestJS
+    # application context (no HTTP server) that processes the BullMQ
+    # `materials-queue` job queue — see
+    # backend-nestjs/src/materials/materials.module.ts. This previously built
+    # `./worker-fastapi`, a Python/FastAPI + AWS SQS worker that does not exist
+    # anywhere in this repo; this codebase queues with BullMQ/Redis, not SQS.
+    #
+    # No Dockerfile exists yet for backend-nestjs (none anywhere in this repo —
+    # CI only runs `npm run build`, never a container build; see
+    # .github/workflows/ci.yml). This block documents the correct context,
+    # command, and environment for when one is added. `docker compose build`
+    # will fail until a Dockerfile exists; `docker compose config` (schema
+    # validation only) still passes.
     build:
-      context: ./worker-fastapi
+      context: ./backend-nestjs
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    command: ["node", "dist/worker.main"]
     environment:
-      - AWS_SQS_QUEUE_URL=http://localstack:4566/000000000000/odiseo-materials-queue
-      - AWS_SQS_ENDPOINT=http://localstack:4566
-      - AWS_S3_ENDPOINT=http://localstack:4566
-      - AWS_REGION=us-east-1
-      - AWS_S3_BUCKET_NAME=odiseo-materials
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - B2B_WEBHOOK_URL=http://host.docker.internal:3000/v1/materials/webhook/status
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - NODE_ENV=${NODE_ENV:-development}
+      # Keeps the PDF-generation processor OUT of any API replica (see
+      # materials.module.ts) and, since env.validation.ts, is required
+      # whenever NODE_ENV=production.
+      - PROCESS_ROLE=worker
+      - JWT_SECRET=${JWT_SECRET}
+      - DB_HOST=${DB_HOST:-localhost}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-odiseo}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASS=${DB_PASS:-postgres}
+      # The same Redis this compose already runs, not the removed SQS/LocalStack
+      # queue wiring.
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
-      - localstack
+      - redis
 
   redis:
     image: redis:7.2-alpine

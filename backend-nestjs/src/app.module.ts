@@ -58,8 +58,10 @@ import { HealthModule } from './health/health.module';
       },
     }),
     ScheduleModule.forRoot(),
-    // Global. Both @Cron jobs below fire in every replica and need the same
-    // cross-replica exclusion, so the lock is provided once here.
+    // Global. The @Cron jobs live in their own feature modules (catalog.cron.ts,
+    // materials.cron.ts, consumption-metrics.cron.ts, topic-id-space.cron.ts,
+    // not here), but each fires in every replica and needs the same
+    // cross-replica exclusion, so the lock is provided once at the root.
     LockingModule,
     EventEmitterModule.forRoot(),
     ClsModule.forRoot({

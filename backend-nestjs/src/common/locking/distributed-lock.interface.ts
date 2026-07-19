@@ -2,10 +2,12 @@
  * Cross-replica mutual exclusion for scheduled work.
  *
  * `@Cron` fires in EVERY replica, so any job with side effects runs N times per
- * schedule. The jobs this guards (catalogue sync, automatic material
- * generation) are idempotent enough that a skipped run is strictly cheaper than
- * N concurrent runs — so this is a "first one wins, the rest step aside" lock,
- * not a queue. Callers never wait for the lock.
+ * schedule. The jobs this guards (catalogue sync, topic-ID-space allocation,
+ * automatic material generation, consumption-metrics roll-ups — each living in
+ * its own feature module, not centralized here) are idempotent enough that a
+ * skipped run is strictly cheaper than N concurrent runs — so this is a "first
+ * one wins, the rest step aside" lock, not a queue. Callers never wait for the
+ * lock.
  */
 export const DISTRIBUTED_LOCK = Symbol('DISTRIBUTED_LOCK');
 

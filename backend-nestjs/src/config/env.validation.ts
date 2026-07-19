@@ -1,4 +1,5 @@
 import * as Joi from 'joi';
+import { EXPIRATION_PATTERN } from '../auth/jwt-expiration.util';
 
 /**
  * Fail-fast environment contract.
@@ -50,8 +51,12 @@ export const envValidationSchema = Joi.object({
   COOKIE_DOMAIN: requiredInProduction(Joi.string()),
   WORKER_WEBHOOK_SECRET: requiredInProduction(Joi.string()),
 
-  // Optional — sensible defaults live in the consuming services.
-  JWT_EXPIRATION: Joi.string().optional(),
+  // Optional — sensible defaults live in the consuming services. Format is
+  // constrained to the same EXPIRATION_PATTERN jwt-expiration.util.ts parses
+  // with: jsonwebtoken only validates this at SIGN time (via the `ms`
+  // package), so an unvalidated typo would boot cleanly and then 500 on every
+  // login instead of failing fast at startup.
+  JWT_EXPIRATION: Joi.string().pattern(EXPIRATION_PATTERN).optional(),
   AUTH_STATE_CACHE_TIMEOUT_MS: Joi.number().integer().positive().optional(),
   COMPANY_LOOKUP_CACHE_TTL_MS: Joi.number().integer().positive().optional(),
   COMPANY_LOOKUP_CACHE_TIMEOUT_MS: Joi.number().integer().positive().optional(),
@@ -59,7 +64,13 @@ export const envValidationSchema = Joi.object({
   GCS_SIGNED_URL_TIMEOUT_MS: Joi.number().integer().positive().default(5000),
   DB_QUESTIONS_BASE: Joi.string().optional(),
   DB_QUESTIONS_NAME: Joi.string().optional(),
-  PROCESS_ROLE: Joi.string().valid('api', 'worker').optional(),
+  // Required in production: an unset value defaults to registering the
+  // PDF-generation processor (heavy headless-browser work) inside whatever
+  // process boots, silently defeating the API/worker compute-isolation
+  // invariant (see materials.module.ts) if an operator forgets to set it on
+  // an API replica. Left optional outside production so local dev/tests keep
+  // today's "both roles in one process" default.
+  PROCESS_ROLE: requiredInProduction(Joi.string().valid('api', 'worker')),
 }).unknown(true);
 
 /**
