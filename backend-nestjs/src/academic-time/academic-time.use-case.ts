@@ -14,6 +14,7 @@ import {
 import { UpdateCycleMaterialTemplateDto } from './dtos/update-material-template.dto';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { TenantService } from '../database/tenant.service';
 
 dayjs.extend(utc);
 
@@ -22,6 +23,7 @@ export class AcademicTimeUseCase {
   constructor(
     @Inject(IAcademicTimeRepository)
     private readonly repository: IAcademicTimeRepository,
+    private readonly tenantService: TenantService,
   ) {}
 
   async getCycles(limit?: number, offset?: number, search?: string) {
@@ -74,6 +76,30 @@ export class AcademicTimeUseCase {
   }
 
   async updateCycle(
+    id: string,
+    dto: {
+      name?: string;
+      year?: number;
+      startDate?: string;
+      daysPerWeek?: number;
+      totalWeeks?: number;
+    },
+  ) {
+    const { name, year, startDate, daysPerWeek, totalWeeks } = dto;
+
+    // The syllabus-relations check and the week regrow it gates must observe
+    // one consistent snapshot: without this outer transaction, a syllabus
+    // could start referencing the cycle between the check below and the
+    // updateCycle write, letting a dates/week change slip through a guard
+    // that had already passed. TenantService.runInTenant reuses the ambient
+    // tx_manager for every repository call nested inside (same schema), so
+    // this collapses the whole check-then-act sequence into one transaction.
+    return this.tenantService.runInTenant(() =>
+      this.updateCycleInTenant(id, dto),
+    );
+  }
+
+  private async updateCycleInTenant(
     id: string,
     dto: {
       name?: string;
@@ -177,30 +203,39 @@ export class AcademicTimeUseCase {
   }
 
   async deleteCycle(id: string) {
-    // FR-005 / US3.5: a cycle may be soft-deleted ONLY when it has NO related
-    // records; otherwise it must be deactivated, not deleted. The old guard
-    // only looked at ACTIVE syllabuses, so a cycle carrying material templates,
-    // generated materials, material requests, or an INACTIVE syllabus could be
-    // tombstoned — its cycle_id FKs are ON DELETE CASCADE, but soft-delete is an
-    // UPDATE that never fires them, leaving those rows orphaned by soft-delete.
-    // getCycleUsage counts every dependent kind (syllabuses regardless of
-    // is_active), subsuming the previous active-syllabus check.
-    const usage = await this.repository.getCycleUsage(id);
-    const dependants = [
-      { count: usage.templates, label: 'material templates' },
-      { count: usage.syllabus, label: 'syllabus' },
-      { count: usage.materials, label: 'generated materials' },
-      { count: usage.materialRequests, label: 'material requests' },
-    ].filter((d) => d.count > 0);
+    // The usage check and the delete it gates must observe one consistent
+    // snapshot: a separate transaction per repository call would leave a
+    // window where a dependant is created between getCycleUsage and
+    // softDeleteCycle. runInTenant collapses both nested repository calls
+    // into the single outer transaction (ambient tx_manager reuse).
+    return this.tenantService.runInTenant(async () => {
+      // FR-005 / US3.5: a cycle may be soft-deleted ONLY when it has NO related
+      // records; otherwise it must be deactivated, not deleted. The old guard
+      // only looked at ACTIVE syllabuses, so a cycle carrying material templates,
+      // generated materials, material requests, or an INACTIVE syllabus could be
+      // tombstoned — its cycle_id FKs are ON DELETE CASCADE, but soft-delete is an
+      // UPDATE that never fires them, leaving those rows orphaned by soft-delete.
+      // getCycleUsage counts every dependent kind (syllabuses regardless of
+      // is_active), subsuming the previous active-syllabus check.
+      const usage = await this.repository.getCycleUsage(id);
+      const dependants = [
+        { count: usage.templates, label: 'material templates' },
+        { count: usage.syllabus, label: 'syllabus' },
+        { count: usage.materials, label: 'generated materials' },
+        { count: usage.materialRequests, label: 'material requests' },
+      ].filter((d) => d.count > 0);
 
-    if (dependants.length > 0) {
-      const detail = dependants.map((d) => `${d.count} ${d.label}`).join(', ');
-      throw new ConflictException(
-        `Cannot delete cycle because it has related records (${detail}). Please deactivate it instead.`,
-      );
-    }
+      if (dependants.length > 0) {
+        const detail = dependants
+          .map((d) => `${d.count} ${d.label}`)
+          .join(', ');
+        throw new ConflictException(
+          `Cannot delete cycle because it has related records (${detail}). Please deactivate it instead.`,
+        );
+      }
 
-    await this.repository.softDeleteCycle(id);
+      await this.repository.softDeleteCycle(id);
+    });
   }
 
   // --- Material Templates ---
@@ -260,41 +295,55 @@ export class AcademicTimeUseCase {
   }
 
   async deleteTemplate(cycleId: string, templateId: string) {
-    // Object-level authorization (IDOR guard) FIRST — before the usage check.
-    // If the :cycleId does not own this template, refuse with a plain NotFound
-    // and never reach getTemplateUsage: that keeps a wrong cycle from learning
-    // (via a Conflict "in use by …" message) that the template exists or is
-    // referenced under another cycle. Running before the delete also guarantees
-    // the template's course rows are never removed for a non-owned template.
-    const owned = await this.repository.getTemplateInCycle(templateId, cycleId);
-    if (!owned) {
-      throw new NotFoundException('Template not found for this cycle.');
-    }
-
-    // Same guard shape as deleteCycle. The template's FKs are SET NULL or
-    // CASCADE, so the database happily deletes a template still in use — which
-    // leaves GenerateMaterialUseCase failing with "El perfil seleccionado no
-    // existe" forever and breaks the syllabus clone's template mapping. Refuse
-    // instead, naming what depends on it so the operator can act.
-    const usage = await this.repository.getTemplateUsage(templateId);
-    const dependants = [
-      { count: usage.syllabus, label: 'syllabus' },
-      { count: usage.syllabusDistribution, label: 'syllabus distributions' },
-      { count: usage.materialRequests, label: 'material requests' },
-      { count: usage.materials, label: 'generated materials' },
-    ].filter((d) => d.count > 0);
-
-    if (dependants.length > 0) {
-      const detail = dependants
-        .map((d) => `${d.count} ${d.label}`)
-        .join(', ');
-      throw new ConflictException(
-        `Cannot delete this material template because it is used by ${detail}. Remove or reassign them first.`,
+    // The ownership check, the usage check, and the delete must all observe
+    // ONE consistent snapshot. Each repository call used to open its own
+    // transaction, leaving a window where a syllabus could start referencing
+    // this template AFTER getTemplateUsage reported zero usage but BEFORE the
+    // delete — the FK is ON DELETE SET NULL, so that syllabus's template_id
+    // would silently go null with no error and no warning. runInTenant
+    // collapses the three nested repository calls below into the single outer
+    // transaction (TenantService reuses the ambient tx_manager for a matching
+    // schema), closing that window.
+    return this.tenantService.runInTenant(async () => {
+      // Object-level authorization (IDOR guard) FIRST — before the usage check.
+      // If the :cycleId does not own this template, refuse with a plain NotFound
+      // and never reach getTemplateUsage: that keeps a wrong cycle from learning
+      // (via a Conflict "in use by …" message) that the template exists or is
+      // referenced under another cycle. Running before the delete also guarantees
+      // the template's course rows are never removed for a non-owned template.
+      const owned = await this.repository.getTemplateInCycle(
+        templateId,
+        cycleId,
       );
-    }
+      if (!owned) {
+        throw new NotFoundException('Template not found for this cycle.');
+      }
 
-    await this.repository.deleteTemplate(templateId);
-    return { success: true };
+      // Same guard shape as deleteCycle. The template's FKs are SET NULL or
+      // CASCADE, so the database happily deletes a template still in use — which
+      // leaves GenerateMaterialUseCase failing with "El perfil seleccionado no
+      // existe" forever and breaks the syllabus clone's template mapping. Refuse
+      // instead, naming what depends on it so the operator can act.
+      const usage = await this.repository.getTemplateUsage(templateId);
+      const dependants = [
+        { count: usage.syllabus, label: 'syllabus' },
+        { count: usage.syllabusDistribution, label: 'syllabus distributions' },
+        { count: usage.materialRequests, label: 'material requests' },
+        { count: usage.materials, label: 'generated materials' },
+      ].filter((d) => d.count > 0);
+
+      if (dependants.length > 0) {
+        const detail = dependants
+          .map((d) => `${d.count} ${d.label}`)
+          .join(', ');
+        throw new ConflictException(
+          `Cannot delete this material template because it is used by ${detail}. Remove or reassign them first.`,
+        );
+      }
+
+      await this.repository.deleteTemplate(templateId);
+      return { success: true };
+    });
   }
 
   private validateAndMapCourses(courses?: CreateTemplateCourseDto[]) {

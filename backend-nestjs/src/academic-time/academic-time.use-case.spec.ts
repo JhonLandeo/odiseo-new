@@ -22,6 +22,7 @@ const NO_CYCLE_USAGE = {
 describe('AcademicTimeUseCase', () => {
   let useCase: AcademicTimeUseCase;
   let mockRepo: any;
+  let mockTenantService: any;
 
   beforeEach(() => {
     mockRepo = {
@@ -40,7 +41,13 @@ describe('AcademicTimeUseCase', () => {
       getTemplateUsage: jest.fn().mockResolvedValue(NO_TEMPLATE_USAGE),
       deleteTemplate: jest.fn().mockResolvedValue(undefined),
     };
-    useCase = new AcademicTimeUseCase(mockRepo);
+    // Mirrors the ambient tx_manager reuse of the real TenantService: every
+    // repository call nested inside this callback observes the same "one
+    // transaction" the real reentrancy mechanism provides.
+    mockTenantService = {
+      runInTenant: jest.fn((op: () => Promise<any>) => op()),
+    };
+    useCase = new AcademicTimeUseCase(mockRepo, mockTenantService);
   });
 
   describe('createCycle', () => {
@@ -120,6 +127,25 @@ describe('AcademicTimeUseCase', () => {
         useCase.updateCycle('c1', { totalWeeks: 5 }),
       ).rejects.toThrow(ConflictException);
       expect(mockRepo.updateCycle).not.toHaveBeenCalled();
+    });
+
+    // TOCTOU: the syllabus-relations check (getCycleWithSyllabus) and the
+    // week regrow it gates (getWeeksByCycle + updateCycle) must observe one
+    // consistent snapshot.
+    it('collapses the syllabus-relations check and the regrow into a single transaction', async () => {
+      mockRepo.getCycleWithSyllabus.mockResolvedValue({
+        id: 'c1',
+        name: 'Ciclo A',
+        startDate: '2026-01-05',
+        daysPerWeek: 5,
+        totalWeeks: 2,
+        hasSyllabus: false,
+      });
+      mockRepo.getWeeksByCycle.mockResolvedValue([]);
+
+      await useCase.updateCycle('c1', { totalWeeks: 3 });
+
+      expect(mockTenantService.runInTenant).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -256,6 +282,14 @@ describe('AcademicTimeUseCase', () => {
       await expect(useCase.deleteCycle('c1')).rejects.toThrow();
       expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
     });
+
+    // TOCTOU: getCycleUsage (check) and softDeleteCycle (act) must run inside
+    // ONE transaction, not two independent ones with a window between them.
+    it('collapses the usage check and the delete into a single transaction', async () => {
+      await useCase.deleteCycle('c1');
+
+      expect(mockTenantService.runInTenant).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ─────────── IDOR: object-level authorization on templates ───────
@@ -263,7 +297,9 @@ describe('AcademicTimeUseCase', () => {
     it('updates a template that belongs to the cycle', async () => {
       mockRepo.getTemplateInCycle.mockResolvedValue({ id: 't1' });
 
-      const res = await useCase.updateTemplate('c1', 't1', { name: 'New name' });
+      const res = await useCase.updateTemplate('c1', 't1', {
+        name: 'New name',
+      });
 
       expect(mockRepo.getTemplateInCycle).toHaveBeenCalledWith('t1', 'c1');
       expect(mockRepo.updateTemplate).toHaveBeenCalledWith('t1', {
@@ -309,9 +345,9 @@ describe('AcademicTimeUseCase', () => {
     it('refuses (NotFound) a template of a different cycle before the usage check, deleting nothing', async () => {
       mockRepo.getTemplateInCycle.mockResolvedValue(null);
 
-      await expect(
-        useCase.deleteTemplate('other-cycle', 't1'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(useCase.deleteTemplate('other-cycle', 't1')).rejects.toThrow(
+        NotFoundException,
+      );
 
       // Ownership is checked BEFORE usage, so neither the usage lookup nor the
       // delete (which would remove the template's course rows) is reached.
@@ -362,6 +398,32 @@ describe('AcademicTimeUseCase', () => {
       await expect(useCase.deleteTemplate('c1', 't1')).rejects.toThrow();
       expect(mockRepo.deleteTemplate).not.toHaveBeenCalled();
     });
+
+    // TOCTOU: getTemplateInCycle (IDOR check), getTemplateUsage (usage check)
+    // and deleteTemplate (act) must all observe ONE consistent snapshot.
+    // Before this fix, each repository call opened its own transaction, so a
+    // syllabus could start referencing the template between the usage check
+    // and the delete — the FK is ON DELETE SET NULL, so that reference would
+    // silently go null instead of blocking the delete. Asserting
+    // runInTenant is invoked exactly once at the use-case boundary proves the
+    // whole check-then-act sequence now shares the single outer transaction
+    // (TenantService reuses the ambient tx_manager for nested calls of the
+    // same schema — see tenant.service.spec.ts "ambient transaction reuse").
+    it('collapses the ownership check, usage check, and delete into a single transaction', async () => {
+      await useCase.deleteTemplate('c1', 't1');
+
+      expect(mockTenantService.runInTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('still collapses into a single transaction when the ownership check refuses the delete', async () => {
+      mockRepo.getTemplateInCycle.mockResolvedValue(null);
+
+      await expect(useCase.deleteTemplate('other-cycle', 't1')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      expect(mockTenantService.runInTenant).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ─────────────────────────────── B3: 404 not 500 ────────────────
@@ -369,16 +431,19 @@ describe('AcademicTimeUseCase', () => {
     it('updateCycle throws NotFoundException', async () => {
       mockRepo.getCycleWithSyllabus.mockResolvedValue(null);
 
-      await expect(useCase.updateCycle('missing', { name: 'x' })).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        useCase.updateCycle('missing', { name: 'x' }),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('createTemplate throws NotFoundException', async () => {
       mockRepo.getCycleWithSyllabus.mockResolvedValue(null);
 
       await expect(
-        useCase.createTemplate('missing', { name: 't', scope: 'CURRENT_WEEK' } as any),
+        useCase.createTemplate('missing', {
+          name: 't',
+          scope: 'CURRENT_WEEK',
+        } as any),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Syllabus } from './entities/syllabus.entity';
 import { SyllabusDistribution } from './entities/syllabus-distribution.entity';
@@ -14,7 +14,9 @@ import { CatalogsModule } from '../catalogs/catalogs.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Syllabus, SyllabusDistribution]),
-    AcademicTimeModule,
+    // AcademicTimeModule imports SyllabusModule back (ISyllabusRepository for
+    // cycle-deactivation), so this side needs forwardRef too.
+    forwardRef(() => AcademicTimeModule),
     // Required so JwtAuthGuard (and PermissionsGuard) can resolve AuthService.
     AuthModule,
     // ICatalogRepository.courseExists: syllabus creation validates the

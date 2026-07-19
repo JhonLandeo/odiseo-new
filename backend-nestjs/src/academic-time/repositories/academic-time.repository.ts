@@ -1,9 +1,10 @@
 import {
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { IsNull, ILike } from 'typeorm';
+import { EntityManager, IsNull, ILike } from 'typeorm';
 import {
   IAcademicTimeRepository,
   TemplateUsage,
@@ -14,12 +15,47 @@ import { CycleWeek } from '../entities/cycle-week.entity';
 import { CycleMaterialTemplate } from '../entities/cycle-material-template.entity';
 import { CycleMaterialTemplateCourse } from '../entities/cycle-material-template-course.entity';
 import { TenantService } from '../../database/tenant.service';
+import { I_SYLLABUS_REPOSITORY } from '../../syllabus/repositories/i-syllabus.repository';
+import type { ISyllabusRepository } from '../../syllabus/repositories/i-syllabus.repository';
+
+/** Postgres `unique_violation`. Raised by `uq_cycle_weeks_cycle_week_live`. */
+const UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
   private readonly logger = new Logger(AcademicTimeRepositoryImpl.name);
 
-  constructor(private readonly tenantService: TenantService) {}
+  constructor(
+    private readonly tenantService: TenantService,
+    @Inject(I_SYLLABUS_REPOSITORY)
+    private readonly syllabusRepository: ISyllabusRepository,
+  ) {}
+
+  /**
+   * Persists `weeks` one row at a time and swallows a unique violation on
+   * `uq_cycle_weeks_cycle_week_live` (cycle_id, week_number WHERE
+   * deleted_at IS NULL). A week's dates are DERIVED from the cycle's config
+   * (name/year aside, see AcademicTimeUseCase.createCycle/updateCycle), so two
+   * concurrent creates/regrows computing the same week_number always produce
+   * the SAME start/end dates as whichever write wins the race — skipping the
+   * loser is correct, not lossy. Row-at-a-time (not a single bulk save) is
+   * required so ONE colliding week never fails every other week in the batch.
+   */
+  private async saveWeeksSafely(
+    manager: EntityManager,
+    weeks: CycleWeek[],
+  ): Promise<void> {
+    for (const week of weeks) {
+      try {
+        await manager.save(CycleWeek, week);
+      } catch (error) {
+        if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
 
   async getCycles(
     limit: number = 20,
@@ -69,7 +105,7 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
       await manager.save(cycle);
 
       const cycleWeeks = weeks.map((w: any) => manager.create(CycleWeek, w));
-      await manager.save(cycleWeeks);
+      await this.saveWeeksSafely(manager, cycleWeeks);
     });
   }
 
@@ -100,7 +136,7 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
 
         // Save new weeks (upsert)
         const cycleWeeks = weeks.map((w: any) => manager.create(CycleWeek, w));
-        await manager.save(CycleWeek, cycleWeeks);
+        await this.saveWeeksSafely(manager, cycleWeeks);
       }
     });
   }
@@ -109,12 +145,14 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
     await this.tenantService.runInTenant(async (manager) => {
       await manager.update(Cycle, id, { isActive });
       if (!isActive) {
-        // If a cycle is archived, all its associated syllabuses should also be archived
-        // to prevent active syllabuses from belonging to inactive cycles.
-        await manager.query(
-          `UPDATE "syllabus" SET is_active = false WHERE cycle_id = $1`,
-          [id],
-        );
+        // Archiving a cycle must also archive its syllabuses, through
+        // Syllabus's own module boundary rather than a raw cross-schema write
+        // against a table this module does not own. deactivateByCycleId
+        // re-enters this SAME transaction: TenantService.runInTenant reuses
+        // the ambient tx_manager whenever the requested schema matches, so
+        // the syllabus archive stays atomic with the cycle's own isActive
+        // flip above.
+        await this.syllabusRepository.deactivateByCycleId(id);
       }
     });
   }

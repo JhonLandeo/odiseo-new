@@ -27,6 +27,13 @@ export interface ISyllabusRepository {
   findByCycleWithProgress(cycleId: string): Promise<SyllabusWithProgress[]>;
   setTemplate(syllabusId: string, templateId: string): Promise<void>;
   updateVisibility(id: string, isActive: boolean): Promise<void>;
+  /**
+   * Archives every syllabus belonging to `cycleId`. The module boundary
+   * AcademicTimeUseCase deactivates a cycle through, instead of a raw
+   * cross-schema UPDATE against this table — keeps the write inside
+   * Syllabus's own invariants (and any future auditing hook it grows).
+   */
+  deactivateByCycleId(cycleId: string): Promise<void>;
 
   createDistribution(
     distribution: Partial<SyllabusDistribution>,

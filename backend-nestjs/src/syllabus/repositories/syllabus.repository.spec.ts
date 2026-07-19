@@ -98,6 +98,22 @@ describe('SyllabusRepositoryImpl (unique violation handling)', () => {
     });
   });
 
+  // ── Cross-module boundary: AcademicTimeRepositoryImpl archives a cycle's
+  // syllabuses through this method instead of a raw cross-schema UPDATE ────
+  describe('deactivateByCycleId', () => {
+    it('deactivates every syllabus for the cycle', async () => {
+      const { repo, manager } = buildRepo();
+
+      await repo.deactivateByCycleId('c-1');
+
+      expect(manager.update).toHaveBeenCalledWith(
+        expect.anything(),
+        { cycleId: 'c-1' },
+        { isActive: false },
+      );
+    });
+  });
+
   describe('createDistribution', () => {
     const cell = {
       syllabusId: 'sy-1',

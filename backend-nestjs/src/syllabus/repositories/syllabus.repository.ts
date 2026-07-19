@@ -127,6 +127,12 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
+  async deactivateByCycleId(cycleId: string): Promise<void> {
+    await this.tenantService.runInTenant(async (manager) => {
+      await manager.update(Syllabus, { cycleId }, { isActive: false });
+    });
+  }
+
   async createDistribution(
     distribution: Partial<SyllabusDistribution>,
   ): Promise<SyllabusDistribution> {
