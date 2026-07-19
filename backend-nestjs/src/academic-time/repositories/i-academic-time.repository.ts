@@ -51,6 +51,18 @@ export interface IAcademicTimeRepository {
 
   getTemplatesByCycle(cycleId: string): Promise<any[]>;
   createTemplate(data: any): Promise<void>;
+  /**
+   * The template's id if it belongs to `cycleId`, otherwise null. This is the
+   * object-level authorization (IDOR) guard: a template is scoped to its owning
+   * cycle before any update/delete so a mismatched `:cycleId` path param can
+   * never reach another cycle's template. `cycle_id` is immutable (no endpoint
+   * mutates it), so the result cannot go stale between this check and the
+   * follow-up mutation.
+   */
+  getTemplateInCycle(
+    templateId: string,
+    cycleId: string,
+  ): Promise<{ id: string } | null>;
   updateTemplate(templateId: string, data: any): Promise<void>;
   getTemplateUsage(templateId: string): Promise<TemplateUsage>;
   deleteTemplate(templateId: string): Promise<void>;

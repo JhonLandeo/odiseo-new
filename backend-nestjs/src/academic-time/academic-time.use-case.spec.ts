@@ -33,6 +33,10 @@ describe('AcademicTimeUseCase', () => {
       getWeeksByCycle: jest.fn(),
       softDeleteCycle: jest.fn().mockResolvedValue(undefined),
       createTemplate: jest.fn().mockResolvedValue(undefined),
+      // Ownership guard resolves to an owned template by default; individual
+      // IDOR tests override it with null to simulate a foreign template.
+      getTemplateInCycle: jest.fn().mockResolvedValue({ id: 't1' }),
+      updateTemplate: jest.fn().mockResolvedValue(undefined),
       getTemplateUsage: jest.fn().mockResolvedValue(NO_TEMPLATE_USAGE),
       deleteTemplate: jest.fn().mockResolvedValue(undefined),
     };
@@ -254,13 +258,65 @@ describe('AcademicTimeUseCase', () => {
     });
   });
 
+  // ─────────── IDOR: object-level authorization on templates ───────
+  describe('updateTemplate (template must belong to the cycle)', () => {
+    it('updates a template that belongs to the cycle', async () => {
+      mockRepo.getTemplateInCycle.mockResolvedValue({ id: 't1' });
+
+      const res = await useCase.updateTemplate('c1', 't1', { name: 'New name' });
+
+      expect(mockRepo.getTemplateInCycle).toHaveBeenCalledWith('t1', 'c1');
+      expect(mockRepo.updateTemplate).toHaveBeenCalledWith('t1', {
+        name: 'New name',
+      });
+      expect(res).toEqual({ success: true });
+    });
+
+    it('refuses (NotFound) and never touches rows when the template belongs to a different cycle', async () => {
+      // A MANAGE_ACADEMIC_TIME user passes a :cycleId that does not own t1.
+      mockRepo.getTemplateInCycle.mockResolvedValue(null);
+
+      await expect(
+        useCase.updateTemplate('other-cycle', 't1', {
+          name: 'Hijack',
+          courses: [
+            {
+              courseId: '1',
+              questionsQuantity: 5,
+              easyCount: 5,
+              mediumCount: 0,
+              hardCount: 0,
+            },
+          ],
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+
+      // The mutation (and therefore the course delete/re-insert) is never reached.
+      expect(mockRepo.updateTemplate).not.toHaveBeenCalled();
+    });
+  });
+
   // ─────────────────────────────── B1: deleteTemplate ─────────────
   describe('deleteTemplate', () => {
     it('deletes a template nothing depends on', async () => {
       await useCase.deleteTemplate('c1', 't1');
 
+      expect(mockRepo.getTemplateInCycle).toHaveBeenCalledWith('t1', 'c1');
       expect(mockRepo.getTemplateUsage).toHaveBeenCalledWith('t1');
       expect(mockRepo.deleteTemplate).toHaveBeenCalledWith('t1');
+    });
+
+    it('refuses (NotFound) a template of a different cycle before the usage check, deleting nothing', async () => {
+      mockRepo.getTemplateInCycle.mockResolvedValue(null);
+
+      await expect(
+        useCase.deleteTemplate('other-cycle', 't1'),
+      ).rejects.toThrow(NotFoundException);
+
+      // Ownership is checked BEFORE usage, so neither the usage lookup nor the
+      // delete (which would remove the template's course rows) is reached.
+      expect(mockRepo.getTemplateUsage).not.toHaveBeenCalled();
+      expect(mockRepo.deleteTemplate).not.toHaveBeenCalled();
     });
 
     it('blocks deletion when syllabus distributions still reference it', async () => {

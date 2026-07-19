@@ -93,6 +93,31 @@ describe('AcademicTimeRepositoryImpl', () => {
     });
   });
 
+  // ── IDOR: template ownership scoped by cycle ──────────────────────
+  describe('getTemplateInCycle', () => {
+    it('returns the template id when it belongs to the cycle', async () => {
+      const { repository, manager } = createRepository();
+      manager.findOne.mockResolvedValue({ id: 't1' });
+
+      const result = await repository.getTemplateInCycle('t1', 'c1');
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ where: { id: 't1', cycleId: 'c1' } }),
+      );
+      expect(result).toEqual({ id: 't1' });
+    });
+
+    it('returns null when the template belongs to a different cycle', async () => {
+      const { repository, manager } = createRepository();
+      manager.findOne.mockResolvedValue(null);
+
+      const result = await repository.getTemplateInCycle('t1', 'other-cycle');
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe('getCycleUsage', () => {
     it('collapses every dependent-record count into one query', async () => {
       const { repository, manager } = createRepository();

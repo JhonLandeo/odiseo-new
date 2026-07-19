@@ -222,6 +222,21 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
     });
   }
 
+  async getTemplateInCycle(
+    templateId: string,
+    cycleId: string,
+  ): Promise<{ id: string } | null> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // Object-level authorization guard. Scoping by { id, cycleId } yields the
+      // row only when the template actually belongs to that cycle; a foreign
+      // template returns null so the caller can refuse without disclosing it.
+      return manager.findOne(CycleMaterialTemplate, {
+        where: { id: templateId, cycleId },
+        select: { id: true },
+      });
+    });
+  }
+
   async createTemplate(data: any): Promise<void> {
     return this.tenantService.runInTenant(async (manager) => {
       const { courses, ...templateData } = data;

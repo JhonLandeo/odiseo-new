@@ -235,7 +235,16 @@ export class AcademicTimeUseCase {
     templateId: string,
     dto: UpdateCycleMaterialTemplateDto,
   ) {
-    // Note: In a real scenario, we might verify template belongs to cycleId
+    // Object-level authorization (IDOR guard): the template must belong to the
+    // cycle named in the URL BEFORE we mutate it or bulk-replace its courses.
+    // A mismatched :cycleId gets a plain NotFound (never a hint the template
+    // lives under another cycle), and — because this runs before any write —
+    // a foreign template's row and its course rows are provably never touched.
+    const owned = await this.repository.getTemplateInCycle(templateId, cycleId);
+    if (!owned) {
+      throw new NotFoundException('Template not found for this cycle.');
+    }
+
     const templateData: any = {};
     if (dto.name !== undefined) templateData.name = dto.name;
     if (dto.scope !== undefined) templateData.scope = dto.scope;
@@ -251,6 +260,17 @@ export class AcademicTimeUseCase {
   }
 
   async deleteTemplate(cycleId: string, templateId: string) {
+    // Object-level authorization (IDOR guard) FIRST — before the usage check.
+    // If the :cycleId does not own this template, refuse with a plain NotFound
+    // and never reach getTemplateUsage: that keeps a wrong cycle from learning
+    // (via a Conflict "in use by …" message) that the template exists or is
+    // referenced under another cycle. Running before the delete also guarantees
+    // the template's course rows are never removed for a non-owned template.
+    const owned = await this.repository.getTemplateInCycle(templateId, cycleId);
+    if (!owned) {
+      throw new NotFoundException('Template not found for this cycle.');
+    }
+
     // Same guard shape as deleteCycle. The template's FKs are SET NULL or
     // CASCADE, so the database happily deletes a template still in use — which
     // leaves GenerateMaterialUseCase failing with "El perfil seleccionado no
