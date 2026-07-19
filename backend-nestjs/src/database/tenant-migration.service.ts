@@ -4,6 +4,19 @@ import { assertValidSchema } from './schema-name.util';
 import { TENANT_MIGRATIONS } from './tenant-migrations';
 
 /**
+ * Outcome of fanning the tenant migrations out across every provisioned tenant.
+ * `failures` carries the schema + error message for each tenant that threw, so
+ * the operator (and the CLI's exit code) can act on a partial failure.
+ */
+export interface TenantMigrationSummary {
+  total: number;
+  migrated: number;
+  skipped: number;
+  failed: number;
+  failures: Array<{ schemaName: string; error: string }>;
+}
+
+/**
  * Applies the ordered tenant DDL migrations to a single tenant schema.
  *
  * Each schema tracks its applied migrations in a local `_tenant_migrations`
@@ -64,6 +77,109 @@ export class TenantMigrationService {
       }
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  /**
+   * Fans the pending tenant migrations out across EVERY already-provisioned
+   * tenant schema — the piece that keeps existing tenants in lock-step with the
+   * `TENANT_MIGRATIONS` source of truth after a new migration is appended.
+   *
+   * Deliberately operator-run (a CLI on deploy), NOT an on-boot hook: doing this
+   * on startup would block the process coming up and race across API/worker
+   * replicas all trying to migrate the same schemas at once. It mirrors the
+   * discipline of the main-DB `migration:run`.
+   *
+   * Resilient by construction: a schema that does not exist (a company whose
+   * provisioning failed) is SKIPPED with a warning, and a failure on one tenant
+   * is logged and counted but never aborts the run — the remaining tenants are
+   * still migrated. The returned summary reports migrated / skipped / failed.
+   */
+  async runMigrationsForAllTenants(): Promise<TenantMigrationSummary> {
+    const companies: Array<{ id: string }> = await this.dataSource.query(
+      `SELECT id FROM public.companies`,
+    );
+
+    const summary: TenantMigrationSummary = {
+      total: companies.length,
+      migrated: 0,
+      skipped: 0,
+      failed: 0,
+      failures: [],
+    };
+
+    for (const company of companies) {
+      const schemaName = `tenant_${company.id}`;
+
+      try {
+        if (!(await this.schemaExists(schemaName))) {
+          this.logger.warn(
+            `Skipping "${schemaName}": schema does not exist (provisioning may have failed)`,
+          );
+          summary.skipped += 1;
+          continue;
+        }
+
+        // Serialize concurrent fan-out runs on the same schema with a
+        // session-level advisory lock. A second run (a racing deploy) blocks
+        // here until the first releases, rather than both racing the same DDL.
+        await this.withSchemaLock(schemaName, () =>
+          this.runMigrations(schemaName),
+        );
+        summary.migrated += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed to migrate tenant schema "${schemaName}": ${message}`,
+        );
+        summary.failed += 1;
+        summary.failures.push({ schemaName, error: message });
+      }
+    }
+
+    this.logger.log(
+      `Tenant migration fan-out finished: ${summary.migrated} migrated, ` +
+        `${summary.skipped} skipped, ${summary.failed} failed ` +
+        `(of ${summary.total} tenant(s))`,
+    );
+
+    return summary;
+  }
+
+  /** Whether a Postgres schema physically exists. */
+  private async schemaExists(schemaName: string): Promise<boolean> {
+    const rows: unknown[] = await this.dataSource.query(
+      `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
+      [schemaName],
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * Runs `fn` while holding a session-level Postgres advisory lock keyed on the
+   * schema name, so two concurrent fan-outs cannot apply DDL to the same schema
+   * at once. The lock is held on its own connection (separate from the one
+   * `runMigrations` uses) and always released.
+   */
+  private async withSchemaLock<T>(
+    schemaName: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
+    try {
+      await lockRunner.query(`SELECT pg_advisory_lock(hashtext($1))`, [
+        schemaName,
+      ]);
+      return await fn();
+    } finally {
+      try {
+        await lockRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [
+          schemaName,
+        ]);
+      } finally {
+        await lockRunner.release();
+      }
     }
   }
 }
