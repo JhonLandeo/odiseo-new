@@ -3,11 +3,13 @@ import { ref, watch } from 'vue';
 import { useSyllabusStore } from '../store';
 import { useAcademicTimeStore } from '@/features/academic-time/store';
 import { useCatalogsStore } from '@/features/catalogs/store';
+import { useApi } from '@/composables/useApi';
 import { useToast } from '#imports';
 
 const store = useSyllabusStore();
 const timeStore = useAcademicTimeStore();
 const catalogsStore = useCatalogsStore();
+const api = useApi();
 const toast = useToast();
 
 const isOpen = ref(false);
@@ -39,11 +41,7 @@ watch(selectedCycleId, async (val) => {
   }
   loadingSyllabuses.value = true;
   try {
-    const authStore = (await import('@/stores/auth.store')).useAuthStore();
-    const subdomain = authStore.getSubdomain();
-    const res = await $fetch(`/api/v1/syllabus/cycle/${val}`, {
-      headers: { 'x-subdomain': subdomain }
-    });
+    const res = await api(`/api/v1/syllabus/cycle/${val}`);
     availableSyllabuses.value = res as any[];
     
     // Auto-select syllabus for the same course if it exists

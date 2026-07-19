@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface CycleWeek {
   id: string;
@@ -75,16 +75,12 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
     }
 
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
+      const api = useApi();
       const url = `/api/v1/academic-time/cycles?limit=${limit}&offset=${currentOffset.value}${currentSearch.value ? `&search=${encodeURIComponent(currentSearch.value)}` : ''}`
-      
-      console.log('[AcademicTimeStore] fetchCycles requested URL:', url, 'with subdomain:', subdomain);
-      
-      const response = await $fetch(url, {
-        headers: { 'x-subdomain': subdomain }
-      });
+
+      console.log('[AcademicTimeStore] fetchCycles requested URL:', url);
+
+      const response = await api(url);
       
       const { data, total } = response as { data: Cycle[], total: number };
       
@@ -112,12 +108,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function createCycle(data: { name: string; year: number; startDate: string; daysPerWeek: number; totalWeeks: number }) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch('/api/v1/academic-time/cycles', {
+      const api = useApi();
+      await api('/api/v1/academic-time/cycles', {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: data
       })
       await fetchCycles()
@@ -128,12 +121,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function updateCycle(id: string, data: { name: string; year: number; startDate: string; daysPerWeek: number; totalWeeks: number }) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${id}`, {
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${id}`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: data
       })
       await fetchCycles()
@@ -151,12 +141,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
     const prev = cycle.isActive
     cycle.isActive = isActive
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${id}/visibility`, {
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${id}/visibility`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { isActive }
       })
     } catch {
@@ -175,12 +162,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
     const prev = targetWeek.isActive
     targetWeek.isActive = isActive
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/weeks/${id}/visibility`, {
+      const api = useApi();
+      await api(`/api/v1/academic-time/weeks/${id}/visibility`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { isActive }
       })
     } catch {
@@ -191,12 +175,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function deleteCycle(id: string) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${id}`, { 
-        method: 'DELETE',
-        headers: { 'x-subdomain': subdomain }
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${id}`, {
+        method: 'DELETE'
       })
       await fetchCycles()
     } catch (e: any) {
@@ -212,12 +193,8 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
   async function fetchTemplates(cycleId: string) {
     isLoadingTemplates.value = true;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      const data = await $fetch(`/api/v1/academic-time/cycles/${cycleId}/templates`, {
-        headers: { 'x-subdomain': subdomain }
-      })
+      const api = useApi();
+      const data = await api(`/api/v1/academic-time/cycles/${cycleId}/templates`)
       templatesByCycle.value[cycleId] = data as CycleMaterialTemplate[];
     } catch (e: any) {
       console.error('Error fetching templates', e);
@@ -229,12 +206,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function createTemplate(cycleId: string, data: Partial<CycleMaterialTemplate>) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${cycleId}/templates`, {
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${cycleId}/templates`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: data
       })
       await fetchTemplates(cycleId)
@@ -246,12 +220,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function updateTemplate(cycleId: string, templateId: string, data: Partial<CycleMaterialTemplate>) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${cycleId}/templates/${templateId}`, {
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${cycleId}/templates/${templateId}`, {
         method: 'PUT',
-        headers: { 'x-subdomain': subdomain },
         body: data
       })
       await fetchTemplates(cycleId)
@@ -263,12 +234,9 @@ export const useAcademicTimeStore = defineStore('academicTime', () => {
 
   async function deleteTemplate(cycleId: string, templateId: string) {
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore
-      await $fetch(`/api/v1/academic-time/cycles/${cycleId}/templates/${templateId}`, {
-        method: 'DELETE',
-        headers: { 'x-subdomain': subdomain }
+      const api = useApi();
+      await api(`/api/v1/academic-time/cycles/${cycleId}/templates/${templateId}`, {
+        method: 'DELETE'
       })
       await fetchTemplates(cycleId)
     } catch (e: any) {

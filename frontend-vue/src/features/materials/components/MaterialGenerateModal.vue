@@ -68,6 +68,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useAcademicTimeStore } from '@/features/academic-time/store'
 import { useCatalogsStore } from '@/features/catalogs/store'
 import { usePdfDesignsStore } from '../store/pdfDesigns'
+import { useApi } from '@/composables/useApi'
 import PdfDesignSelector from './PdfDesignSelector.vue'
 
 const props = defineProps<{
@@ -159,7 +160,8 @@ async function submit() {
       design_template_id: form.designTemplateId || undefined
     }
 
-    const response = await $fetch('/api/v1/materials/generate', {
+    const api = useApi()
+    const response = await api('/api/v1/materials/generate', {
       method: 'POST',
       body: payload
     })

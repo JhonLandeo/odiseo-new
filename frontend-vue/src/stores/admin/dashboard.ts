@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '../auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface DashboardMetrics {
   active_users: number
@@ -18,9 +18,8 @@ export const useAdminDashboardStore = defineStore('adminDashboard', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore();
-      const response = await $fetch<DashboardMetrics>('/api/v1/admin/dashboard/metrics', {
-        headers: { 'x-subdomain': authStore.getSubdomain() },
+      const api = useApi();
+      const response = await api<DashboardMetrics>('/api/v1/admin/dashboard/metrics', {
         query: { tenant_id: tenantId, start_date: startDate, end_date: endDate }
       })
       metrics.value = response

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface CourseStatus {
   courseId: string;
@@ -92,12 +92,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch('/api/v1/materials/generate', {
+      const api = useApi()
+      const res = await api('/api/v1/materials/generate', {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: data,
       })
       return res as {
@@ -118,20 +115,17 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      
+      const api = useApi()
+
       const queryParams = new URLSearchParams();
       if (query.cycleIds?.length) queryParams.append('cycleIds', query.cycleIds.join(','));
       if (query.templateIds?.length) queryParams.append('templateIds', query.templateIds.join(','));
       if (query.weekNumbers?.length) queryParams.append('weekNumbers', query.weekNumbers.join(','));
 
       const url = `/api/v1/materials/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      
-      // @ts-ignore
-      const res = await $fetch(url, {
+
+      const res = await api(url, {
         method: 'GET',
-        headers: { 'x-subdomain': subdomain },
       })
       return res as any[]
     } catch (e: any) {
@@ -161,12 +155,8 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const data = await $fetch(`/api/v1/materials/${materialId}/review`, {
-        headers: { 'x-subdomain': subdomain },
-      })
+      const api = useApi()
+      const data = await api(`/api/v1/materials/${materialId}/review`)
       currentReview.value = data as ReviewData
       return currentReview.value
     } catch (e: any) {
@@ -186,12 +176,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     }
   ) {
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      await $fetch(`/api/v1/materials/${materialId}/draft`, {
+      const api = useApi()
+      await api(`/api/v1/materials/${materialId}/draft`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: payload,
       })
     } catch (e: any) {
@@ -211,12 +198,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/${materialId}/approve`, {
+      const api = useApi()
+      const res = await api(`/api/v1/materials/${materialId}/approve`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: payload,
       })
       pendingReplacements.value = {}
@@ -237,12 +221,8 @@ export const useMaterialsStore = defineStore('materials', () => {
 
   async function fetchDownloadUrl(materialId: string, courseId: string) {
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/${materialId}/courses/${courseId}/download`, {
-        headers: { 'x-subdomain': subdomain },
-      })
+      const api = useApi()
+      const res = await api(`/api/v1/materials/${materialId}/courses/${courseId}/download`)
       return res as {
         materialId: string;
         courseId: string;
@@ -257,12 +237,8 @@ export const useMaterialsStore = defineStore('materials', () => {
 
   async function fetchMergedDownloadUrl(materialId: string) {
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/${materialId}/download-merged`, {
-        headers: { 'x-subdomain': subdomain },
-      })
+      const api = useApi()
+      const res = await api(`/api/v1/materials/${materialId}/download-merged`)
       return res as {
         materialId: string;
         downloadUrl: string;
@@ -279,12 +255,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/${materialId}/attempts`, {
+      const api = useApi()
+      const res = await api(`/api/v1/materials/${materialId}/attempts`, {
         method: 'GET',
-        headers: { 'x-subdomain': subdomain },
       })
       return res as any[]
     } catch (e: any) {
@@ -299,12 +272,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/question/${questionId}/preview`, {
+      const api = useApi()
+      const res = await api(`/api/v1/materials/question/${questionId}/preview`, {
         method: 'GET',
-        headers: { 'x-subdomain': subdomain },
       })
       return res as any
     } catch (e: any) {
@@ -319,9 +289,8 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      
+      const api = useApi()
+
       const payload: Record<string, any> = {
         limit: limit,
       };
@@ -332,10 +301,8 @@ export const useMaterialsStore = defineStore('materials', () => {
       if (levelId) payload.levelId = levelId;
       if (excludeIds && excludeIds.length > 0) payload.excludeIds = excludeIds;
 
-      // @ts-ignore
-      const res = await $fetch(`/api/v1/materials/question/alternatives/search`, {
+      const res = await api(`/api/v1/materials/question/alternatives/search`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: payload
       })
       return res as any[]
@@ -351,12 +318,9 @@ export const useMaterialsStore = defineStore('materials', () => {
     isLoading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const subdomain = authStore.getSubdomain()
-      // @ts-ignore
-      const res = await $fetch('/api/v1/materials/dashboard/metrics', {
+      const api = useApi()
+      const res = await api('/api/v1/materials/dashboard/metrics', {
         method: 'GET',
-        headers: { 'x-subdomain': subdomain },
       })
       return res as {
         totalMaterials: number;

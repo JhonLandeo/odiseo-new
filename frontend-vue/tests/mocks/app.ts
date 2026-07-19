@@ -7,6 +7,11 @@ if (typeof global !== 'undefined') {
 
 export const useRequestHeaders = vi.fn(() => ({}));
 export const defineNuxtRouteMiddleware = vi.fn((fn) => fn);
+export const defineNuxtPlugin = vi.fn((fn) => fn);
+export const useNuxtApp = vi.fn(() => ({
+  $api: (global as any).$fetch,
+  runWithContext: (fn: () => unknown) => fn(),
+}));
 export const navigateTo = vi.fn();
 export const abortNavigation = vi.fn();
 export const useRouter = vi.fn(() => ({

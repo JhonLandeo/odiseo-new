@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { useAuthStore } from '@/stores/auth.store';
+import { useApi } from '@/composables/useApi';
 import type { Syllabus, SyllabusWithProgress, SyllabusDistribution, CreateDistributionPayload, SyllabusSummary } from '../types';
 
 export const useSyllabusStore = defineStore('syllabus', () => {
@@ -16,11 +16,8 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch(`/api/v1/syllabus/cycle/${cycleId}`, {
-        headers: { 'x-subdomain': subdomain }
-      });
+      const api = useApi();
+      const response = await api(`/api/v1/syllabus/cycle/${cycleId}`);
       syllabiList.value = response as Syllabus[];
       hasFetched.value = true;
     } catch (err: unknown) {
@@ -35,11 +32,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch('/api/v1/syllabus', {
+      const api = useApi();
+      const response = await api('/api/v1/syllabus', {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: payload
       });
       syllabus.value = (response as { syllabus: Syllabus }).syllabus;
@@ -78,11 +73,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     distributions.value.push(newDist);
 
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch(`/api/v1/syllabus/${syllabusId}/distribution`, {
+      const api = useApi();
+      const response = await api(`/api/v1/syllabus/${syllabusId}/distribution`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: payload
       });
 
@@ -105,11 +98,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     dist.questionCount = questionCount;
 
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      await $fetch(`/api/v1/syllabus/${_syllabusId}/distribution/${distId}`, {
+      const api = useApi();
+      await api(`/api/v1/syllabus/${_syllabusId}/distribution/${distId}`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { questionCount }
       });
     } catch (err: unknown) {
@@ -126,11 +117,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     distributions.value.splice(distIndex, 1);
 
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      await $fetch(`/api/v1/syllabus/${_syllabusId}/distribution/${distId}`, {
-        method: 'DELETE',
-        headers: { 'x-subdomain': subdomain }
+      const api = useApi();
+      await api(`/api/v1/syllabus/${_syllabusId}/distribution/${distId}`, {
+        method: 'DELETE'
       });
     } catch (err: unknown) {
       distributions.value.splice(distIndex, 0, backupDist);
@@ -142,11 +131,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
+      const api = useApi();
       const params = templateId ? { templateId } : {};
-      const response = await $fetch(`/api/v1/syllabus/${syllabusId}/summary`, {
-        headers: { 'x-subdomain': subdomain },
+      const response = await api(`/api/v1/syllabus/${syllabusId}/summary`, {
         params,
       });
       const summary = (response as { summary: SyllabusSummary }).summary;
@@ -162,11 +149,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
   async function cloneSyllabus(syllabusId: string, sourceId: string) {
     loading.value = true;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch(`/api/v1/syllabus/${syllabusId}/clone`, {
+      const api = useApi();
+      const response = await api(`/api/v1/syllabus/${syllabusId}/clone`, {
         method: 'POST',
-        headers: { 'x-subdomain': subdomain },
         body: { sourceId }
       });
       distributions.value = (response as { summary: SyllabusSummary }).summary?.distributions || [];
@@ -180,11 +165,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
   async function cloneCycleSyllabuses(targetCycleId: string, sourceCycleId: string) {
     loading.value = true;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch<{ clonedCount: number }>(`/api/v1/syllabus/cycle/${targetCycleId}/clone-from/${sourceCycleId}`, {
-        method: 'POST',
-        headers: { 'x-subdomain': subdomain }
+      const api = useApi();
+      const response = await api<{ clonedCount: number }>(`/api/v1/syllabus/cycle/${targetCycleId}/clone-from/${sourceCycleId}`, {
+        method: 'POST'
       });
       await fetchSyllabiByCycle(targetCycleId);
       return response;
@@ -200,11 +183,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
       syllabus.value.templateId = templateId;
     }
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      await $fetch(`/api/v1/syllabus/${syllabusId}/template`, {
+      const api = useApi();
+      await api(`/api/v1/syllabus/${syllabusId}/template`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { templateId }
       });
     } catch (err: unknown) {
@@ -218,11 +199,9 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     const prev = target.isActive;
     target.isActive = isActive;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      await $fetch(`/api/v1/syllabus/${id}/archive`, {
+      const api = useApi();
+      await api(`/api/v1/syllabus/${id}/archive`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { isActive }
       });
     } catch (err: unknown) {

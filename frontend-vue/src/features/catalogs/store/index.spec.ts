@@ -1,11 +1,17 @@
 import { setActivePinia, createPinia } from 'pinia';
-import { useCatalogsStore } from './index';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// The store now issues requests through the central client (`useApi`); mock it
+// so the assertions target the client instead of a global `$fetch`.
+const api = vi.fn();
+vi.mock('@/composables/useApi', () => ({ useApi: () => api }));
+
+import { useCatalogsStore } from './index';
 
 describe('Catalogs Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    global.$fetch = vi.fn();
+    api.mockReset();
   });
 
   it('toggles topic visibility optimistically', async () => {
@@ -22,15 +28,15 @@ describe('Catalogs Store', () => {
       }
     ];
 
-    // Mock API response for $fetch
-    (global.$fetch as any).mockResolvedValue({ id: 't1', isActive: false });
+    // Mock API response for the central client
+    api.mockResolvedValue({ id: 't1', isActive: false });
 
     await store.toggleVisibility('t1', false);
 
     // Verify optimistic update
     const topic = store.courses[0].topics[0];
     expect(topic.isActive).toBe(false);
-    expect(global.$fetch).toHaveBeenCalledWith(
+    expect(api).toHaveBeenCalledWith(
       expect.stringContaining('/api/v1/catalogs/topics/t1/visibility'),
       expect.objectContaining({
         method: 'PATCH',

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface OnboardingStepInfo {
   id: string
@@ -26,20 +26,13 @@ export const useOnboardingStore = defineStore('onboarding', () => {
 
   const isComplete = computed(() => progressPercentage.value >= 100)
 
-  function getHeaders() {
-    const authStore = useAuthStore()
-    return { 'x-subdomain': authStore.getSubdomain() }
-  }
-
   async function fetchProgress() {
     if (isLoading.value) return
     isLoading.value = true
     error.value = null
     try {
-      // @ts-ignore
-      const data = await $fetch<OnboardingProgress>('/api/v1/onboarding/progress', {
-        headers: getHeaders(),
-      })
+      const api = useApi()
+      const data = await api<OnboardingProgress>('/api/v1/onboarding/progress')
       stepsCompleted.value = data.stepsCompleted
       isDismissed.value = data.isDismissed
       progressPercentage.value = data.progressPercentage
@@ -54,10 +47,9 @@ export const useOnboardingStore = defineStore('onboarding', () => {
 
   async function dismissTour() {
     try {
-      // @ts-ignore
-      await $fetch('/api/v1/onboarding/dismiss', {
+      const api = useApi()
+      await api('/api/v1/onboarding/dismiss', {
         method: 'PATCH',
-        headers: getHeaders(),
       })
       isDismissed.value = true
     } catch (e: any) {
@@ -68,10 +60,9 @@ export const useOnboardingStore = defineStore('onboarding', () => {
   async function resetTour() {
     isLoading.value = true
     try {
-      // @ts-ignore
-      await $fetch('/api/v1/onboarding/reset', {
+      const api = useApi()
+      await api('/api/v1/onboarding/reset', {
         method: 'PATCH',
-        headers: getHeaders(),
       })
       isDismissed.value = false
       await fetchProgress()

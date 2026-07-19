@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface PdfDesignTemplate {
   id: string
@@ -36,16 +36,12 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
-  function getHeaders() {
-    const authStore = useAuthStore()
-    return { 'x-subdomain': authStore.getSubdomain() }
-  }
-
   async function fetchDesigns() {
     isLoading.value = true
     error.value = null
     try {
-      const data = await $fetch('/api/v1/pdf-designs', { headers: getHeaders() })
+      const api = useApi()
+      const data = await api('/api/v1/pdf-designs')
       designs.value = data as PdfDesignTemplate[]
     } catch (e: any) {
       error.value = e.data?.message || e.message || 'Error al cargar diseños'
@@ -58,7 +54,8 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     isLoading.value = true
     error.value = null
     try {
-      const data = await $fetch(`/api/v1/pdf-designs/${id}`, { headers: getHeaders() })
+      const api = useApi()
+      const data = await api(`/api/v1/pdf-designs/${id}`)
       currentDesign.value = data as PdfDesignTemplate
       return currentDesign.value
     } catch (e: any) {
@@ -73,9 +70,10 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     isLoading.value = true
     error.value = null
     try {
-      const data = await $fetch('/api/v1/pdf-designs', {
+      const api = useApi()
+      const data = await api('/api/v1/pdf-designs', {
         method: 'POST',
-        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: dto,
       })
       designs.value.unshift(data as PdfDesignTemplate)
@@ -92,9 +90,10 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     isLoading.value = true
     error.value = null
     try {
-      const data = await $fetch(`/api/v1/pdf-designs/${id}`, {
+      const api = useApi()
+      const data = await api(`/api/v1/pdf-designs/${id}`, {
         method: 'PATCH',
-        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: dto,
       })
       const idx = designs.value.findIndex(d => d.id === id)
@@ -113,9 +112,9 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     isLoading.value = true
     error.value = null
     try {
-      await $fetch(`/api/v1/pdf-designs/${id}`, {
+      const api = useApi()
+      await api(`/api/v1/pdf-designs/${id}`, {
         method: 'DELETE',
-        headers: getHeaders(),
       })
       designs.value = designs.value.filter(d => d.id !== id)
       if (currentDesign.value?.id === id) currentDesign.value = null
@@ -133,9 +132,9 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     try {
       const form = new FormData()
       form.append('file', file)
-      const data = await $fetch(`/api/v1/pdf-designs/${designId}/upload-asset?type=${type}`, {
+      const api = useApi()
+      const data = await api(`/api/v1/pdf-designs/${designId}/upload-asset?type=${type}`, {
         method: 'POST',
-        headers: getHeaders(),
         body: form,
       })
       const result = data as { url: string }
@@ -165,9 +164,9 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
     isLoading.value = true
     error.value = null
     try {
-      await $fetch(`/api/v1/pdf-designs/${designId}/asset?type=${type}`, {
+      const api = useApi()
+      await api(`/api/v1/pdf-designs/${designId}/asset?type=${type}`, {
         method: 'DELETE',
-        headers: getHeaders(),
       })
       const design = designs.value.find(d => d.id === designId)
       if (design) {
@@ -190,9 +189,10 @@ export const usePdfDesignsStore = defineStore('pdfDesigns', () => {
 
   async function fetchPreview(designId: string, body?: Record<string, any>) {
     try {
-      const data = await $fetch(`/api/v1/pdf-designs/${designId}/preview`, {
+      const api = useApi()
+      const data = await api(`/api/v1/pdf-designs/${designId}/preview`, {
         method: 'POST',
-        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: body || {},
       })
       return (data as { html: string }).html

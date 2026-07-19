@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '../auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface TenantAdmin {
   id: string
@@ -21,10 +21,8 @@ export const useTenantAdminsStore = defineStore('tenantAdmins', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const response: any = await $fetch(`/api/v1/admin/tenants/${tenantId}/admins`, {
-        headers: { 'x-subdomain': authStore.getSubdomain() }
-      })
+      const api = useApi()
+      const response: any = await api(`/api/v1/admin/tenants/${tenantId}/admins`)
       admins.value = response.data || []
     } catch (e: any) {
       error.value = e.data?.message || e.message || 'Error fetching admins'
@@ -38,10 +36,9 @@ export const useTenantAdminsStore = defineStore('tenantAdmins', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${tenantId}/admins`, {
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${tenantId}/admins`, {
         method: 'POST',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
       await fetchAdmins(tenantId)
@@ -57,10 +54,9 @@ export const useTenantAdminsStore = defineStore('tenantAdmins', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}`, {
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
       await fetchAdmins(tenantId)
@@ -76,10 +72,9 @@ export const useTenantAdminsStore = defineStore('tenantAdmins', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}/password`, {
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}/password`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
     } catch (e: any) {
@@ -94,10 +89,9 @@ export const useTenantAdminsStore = defineStore('tenantAdmins', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}`, {
-        method: 'DELETE',
-        headers: { 'x-subdomain': authStore.getSubdomain() }
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${tenantId}/admins/${adminId}`, {
+        method: 'DELETE'
       })
       await fetchAdmins(tenantId)
     } catch (e: any) {

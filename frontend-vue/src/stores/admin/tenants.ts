@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '../auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface Tenant {
   id: string
@@ -26,10 +26,8 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const response = await $fetch<Tenant[]>('/api/v1/admin/tenants', {
-        headers: { 'x-subdomain': authStore.getSubdomain() }
-      })
+      const api = useApi()
+      const response = await api<Tenant[]>('/api/v1/admin/tenants')
       tenants.value = response
     } catch (e: any) {
       error.value = e.message || 'Error fetching tenants'
@@ -53,10 +51,9 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch('/api/v1/admin/tenants', {
+      const api = useApi()
+      await api('/api/v1/admin/tenants', {
         method: 'POST',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
       await fetchTenants()
@@ -80,10 +77,9 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${id}`, {
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${id}`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
       await fetchTenants()
@@ -99,10 +95,9 @@ export const useAdminTenantsStore = defineStore('adminTenants', () => {
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch(`/api/v1/admin/tenants/${id}/status`, {
+      const api = useApi()
+      await api(`/api/v1/admin/tenants/${id}/status`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: { status }
       })
       await fetchTenants()

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from '../auth.store'
+import { useApi } from '@/composables/useApi'
 
 export interface SubscriptionPlan {
   id: string
@@ -21,10 +21,8 @@ export const useAdminSubscriptionsStore = defineStore('adminSubscriptions', () =
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      const response = await $fetch<SubscriptionPlan[]>('/api/v1/admin/subscriptions/plans', {
-        headers: { 'x-subdomain': authStore.getSubdomain() }
-      })
+      const api = useApi()
+      const response = await api<SubscriptionPlan[]>('/api/v1/admin/subscriptions/plans')
       plans.value = response
     } catch (e: any) {
       error.value = e.message || 'Error fetching plans'
@@ -37,10 +35,9 @@ export const useAdminSubscriptionsStore = defineStore('adminSubscriptions', () =
     loading.value = true
     error.value = null
     try {
-      const authStore = useAuthStore()
-      await $fetch('/api/v1/admin/subscriptions/plans', {
+      const api = useApi()
+      await api('/api/v1/admin/subscriptions/plans', {
         method: 'POST',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: data
       })
       await fetchPlans()

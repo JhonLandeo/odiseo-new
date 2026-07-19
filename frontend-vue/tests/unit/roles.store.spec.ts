@@ -1,5 +1,18 @@
 import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+/**
+ * The store now talks to the central HTTP client (`useApi`) instead of a bare
+ * `$fetch`/`fetch`. The tenant `x-subdomain` header is attached by the client's
+ * interceptor, so it is asserted in `api.plugin.spec.ts`, not here. These tests
+ * keep their original intent — correct path, method, body (incl. the snake_case
+ * `role_ids`), error propagation and refresh behaviour — against the client.
+ */
+
+// A single mock stands in for the `$fetch` instance the plugin provides.
+const api = vi.fn();
+vi.mock('@/composables/useApi', () => ({ useApi: () => api }));
+
 import { useRolesStore } from '../../src/modules/admin/store/roles.store';
 
 /** Shape returned by a real `$fetch` rejection: status plus parsed body. */
@@ -18,33 +31,37 @@ function buildRole(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** URL of the roles list — hit by `fetchRoles`, i.e. the post-mutation refresh. */
+const ROLES_URL = '/api/v1/admin/roles';
+
 /**
- * jsdom sirve en `localhost`, así que `getSubdomain()` cae al tenant de sistema.
- * Todas las llamadas del store deben viajar con esa cabecera.
+ * `fetchRoles` calls `api(ROLES_URL)` with no options. Every mutation calls
+ * `api(url, { method, body })`. This implementation answers the refresh with a
+ * one-role list and lets each test control the mutation's own result.
  */
-const EXPECTED_SUBDOMAIN = 'odiseo';
+function withMutation(result: unknown, reject = false) {
+  api.mockImplementation(async (_url: string, options?: { method?: string }) => {
+    if (!options) return { data: [buildRole()] }; // fetchRoles refresh
+    if (reject) throw result;
+    return result;
+  });
+}
 
 describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    vi.stubGlobal('$fetch', vi.fn());
-    // `fetchRoles` sigue usando `fetch` nativo; lo neutralizamos para que los
-    // refrescos posteriores a cada mutación no ensucien las aserciones.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ json: async () => ({ data: [buildRole()] }) }),
-    );
+    api.mockReset();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   describe('createRole', () => {
-    it('hace POST a /api/v1/admin/roles con el body y la cabecera x-subdomain', async () => {
+    it('hace POST a /api/v1/admin/roles con el body (sin cabecera manual: la pone el interceptor)', async () => {
       const store = useRolesStore();
       const created = buildRole({ id: 'role-nuevo' });
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue(created);
+      withMutation(created);
 
       const payload = {
         name: 'Coordinador',
@@ -54,9 +71,8 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
       };
       const result = await store.createRole(payload);
 
-      expect(globalThis.$fetch).toHaveBeenCalledWith('/api/v1/admin/roles', {
+      expect(api).toHaveBeenCalledWith(ROLES_URL, {
         method: 'POST',
-        headers: { 'x-subdomain': EXPECTED_SUBDOMAIN },
         body: payload,
       });
       expect(result).toEqual(created);
@@ -64,13 +80,12 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
 
     it('refresca la lista de roles tras crear', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue(buildRole());
+      withMutation(buildRole());
 
       await store.createRole({ name: 'Coordinador' });
 
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v1/admin/roles', {
-        headers: { 'x-subdomain': EXPECTED_SUBDOMAIN },
-      });
+      // El refresco es un GET sin opciones a la misma URL.
+      expect(api).toHaveBeenCalledWith(ROLES_URL);
       expect(store.roles).toEqual([buildRole()]);
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
@@ -79,9 +94,7 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
     it('propaga el 403 de assertCanGrant con su mensaje intacto', async () => {
       const store = useRolesStore();
       const mensaje = 'You cannot grant permissions you do not hold: manage_users';
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(
-        fetchError(403, { message: mensaje }),
-      );
+      withMutation(fetchError(403, { message: mensaje }), true);
 
       await expect(
         store.createRole({ name: 'Coordinador', permissions: ['manage_users'] }),
@@ -93,17 +106,16 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
   });
 
   describe('updateRole', () => {
-    it('hace PATCH a /api/v1/admin/roles/:id con el body y la cabecera x-subdomain', async () => {
+    it('hace PATCH a /api/v1/admin/roles/:id con el body', async () => {
       const store = useRolesStore();
       const updated = buildRole({ name: 'Coordinador Senior' });
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue(updated);
+      withMutation(updated);
 
       const payload = { name: 'Coordinador Senior', permissions: ['view_materials'] };
       const result = await store.updateRole('role-1', payload);
 
-      expect(globalThis.$fetch).toHaveBeenCalledWith('/api/v1/admin/roles/role-1', {
+      expect(api).toHaveBeenCalledWith('/api/v1/admin/roles/role-1', {
         method: 'PATCH',
-        headers: { 'x-subdomain': EXPECTED_SUBDOMAIN },
         body: payload,
       });
       expect(result).toEqual(updated);
@@ -114,9 +126,7 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
     it('propaga el 403 de assertCanGrant con su mensaje intacto', async () => {
       const store = useRolesStore();
       const mensaje = 'You cannot grant permissions you do not hold: manage_roles';
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(
-        fetchError(403, { message: mensaje }),
-      );
+      withMutation(fetchError(403, { message: mensaje }), true);
 
       await expect(
         store.updateRole('role-1', { permissions: ['manage_roles'] }),
@@ -127,9 +137,7 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
 
     it('propaga el 409 al renombrar un rol de sistema', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(
-        fetchError(409, { message: 'Cannot rename a system default role' }),
-      );
+      withMutation(fetchError(409, { message: 'Cannot rename a system default role' }), true);
 
       await expect(store.updateRole('role-1', { name: 'Otro' })).rejects.toMatchObject({
         status: 409,
@@ -140,26 +148,23 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
   });
 
   describe('deleteRole', () => {
-    it('hace DELETE a /api/v1/admin/roles/:id con la cabecera x-subdomain y sin body', async () => {
+    it('hace DELETE a /api/v1/admin/roles/:id sin body', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue(undefined);
+      withMutation(undefined);
 
       await store.deleteRole('role-1');
 
-      expect(globalThis.$fetch).toHaveBeenCalledWith('/api/v1/admin/roles/role-1', {
+      expect(api).toHaveBeenCalledWith('/api/v1/admin/roles/role-1', {
         method: 'DELETE',
-        headers: { 'x-subdomain': EXPECTED_SUBDOMAIN },
       });
       // Refresco posterior: la lista queda sincronizada con el backend.
-      expect(globalThis.fetch).toHaveBeenCalled();
+      expect(api).toHaveBeenCalledWith(ROLES_URL);
       expect(store.roles).toEqual([buildRole()]);
     });
 
     it('propaga el error en lugar de silenciarlo', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(
-        fetchError(404, { message: 'Role not found' }),
-      );
+      withMutation(fetchError(404, { message: 'Role not found' }), true);
 
       await expect(store.deleteRole('inexistente')).rejects.toMatchObject({ status: 404 });
 
@@ -169,15 +174,14 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
   });
 
   describe('assignRolesToUser', () => {
-    it('hace PUT a /api/v1/admin/users/:userId/roles con role_ids y x-subdomain', async () => {
+    it('hace PUT a /api/v1/admin/users/:userId/roles con role_ids (snake_case)', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue({ success: true });
+      withMutation({ success: true });
 
       await store.assignRolesToUser('user-7', ['role-1', 'role-2']);
 
-      expect(globalThis.$fetch).toHaveBeenCalledWith('/api/v1/admin/users/user-7/roles', {
+      expect(api).toHaveBeenCalledWith('/api/v1/admin/users/user-7/roles', {
         method: 'PUT',
-        headers: { 'x-subdomain': EXPECTED_SUBDOMAIN },
         body: { role_ids: ['role-1', 'role-2'] },
       });
       expect(store.error).toBeNull();
@@ -186,11 +190,11 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
 
     it('acepta una lista vacía: dejar al usuario sin roles es una operación válida', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue({ success: true });
+      withMutation({ success: true });
 
       await store.assignRolesToUser('user-7', []);
 
-      expect(globalThis.$fetch).toHaveBeenCalledWith(
+      expect(api).toHaveBeenCalledWith(
         '/api/v1/admin/users/user-7/roles',
         expect.objectContaining({ method: 'PUT', body: { role_ids: [] } }),
       );
@@ -198,18 +202,18 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
 
     it('no refresca la lista de roles: asignar no altera el catálogo', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockResolvedValue({ success: true });
+      withMutation({ success: true });
 
       await store.assignRolesToUser('user-7', ['role-1']);
 
-      expect(globalThis.fetch).not.toHaveBeenCalled();
+      // Una sola llamada (la asignación); no hay GET de refresco a ROLES_URL.
+      expect(api).toHaveBeenCalledTimes(1);
+      expect(api).not.toHaveBeenCalledWith(ROLES_URL);
     });
 
     it('propaga el 403 por permisos insuficientes con su mensaje', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(
-        fetchError(403, { message: 'Forbidden resource' }),
-      );
+      withMutation(fetchError(403, { message: 'Forbidden resource' }), true);
 
       await expect(
         store.assignRolesToUser('user-7', ['role-1']),
@@ -221,7 +225,7 @@ describe('Roles Store (mutaciones de roles y asignación a usuarios)', () => {
 
     it('usa el mensaje del Error cuando el backend no envía cuerpo', async () => {
       const store = useRolesStore();
-      vi.mocked(globalThis.$fetch as any).mockRejectedValue(new Error('Network Error'));
+      withMutation(new Error('Network Error'), true);
 
       await expect(store.assignRolesToUser('user-7', ['role-1'])).rejects.toThrow(
         'Network Error',

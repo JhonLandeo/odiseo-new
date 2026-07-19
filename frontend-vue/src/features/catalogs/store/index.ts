@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
-import { handlePasswordChangeRequired } from '@/core/auth/password-change-required'
+import { useApi } from '@/composables/useApi'
 import type { CatalogCourse, CatalogTopic, CatalogSubtopic } from '../types'
 
 export type { CatalogCourse, CatalogTopic, CatalogSubtopic }
@@ -27,12 +26,9 @@ export const useCatalogsStore = defineStore('catalogs', () => {
     isLoading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
+      const api = useApi();
       const url = search ? `/api/v1/catalogs/courses?search=${encodeURIComponent(search)}` : '/api/v1/catalogs/courses';
-      const response = await $fetch(url, {
-        headers: { 'x-subdomain': subdomain }
-      });
+      const response = await api(url);
       if (Array.isArray(response)) {
         courses.value = (response as CatalogCourse[]).map(c => ({
           ...c,
@@ -47,9 +43,9 @@ export const useCatalogsStore = defineStore('catalogs', () => {
         lastSyncedAt.value = data.lastSyncedAt;
       }
     } catch (e: any) {
-      // A stale password hold surfaces here as 403 PASSWORD_CHANGE_REQUIRED.
-      // Recover instead of showing a raw error. Opt-in, see the helper's docs.
-      if (handlePasswordChangeRequired(e)) return;
+      // A stale password hold (403 PASSWORD_CHANGE_REQUIRED) is now recovered
+      // centrally by the `api` client interceptor, which marks the hold and
+      // redirects before this catch runs. Anything reaching here is a real error.
       error.value = e.message || 'Error fetching catalogs'
     } finally {
       isLoading.value = false;
@@ -61,11 +57,8 @@ export const useCatalogsStore = defineStore('catalogs', () => {
     const course = courses.value.find(c => c.id === courseId)
     if (!course) return;
     try {
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      const response = await $fetch(`/api/v1/catalogs/courses/${courseId}/topics`, {
-        headers: { 'x-subdomain': subdomain }
-      });
+      const api = useApi();
+      const response = await api(`/api/v1/catalogs/courses/${courseId}/topics`);
       course.topics = response as CatalogTopic[];
     } catch (e: any) {
       error.value = e.message || 'Error fetching course topics'
@@ -101,12 +94,9 @@ export const useCatalogsStore = defineStore('catalogs', () => {
 
     try {
       // 3. Persist
-      const authStore = useAuthStore();
-      const subdomain = authStore.getSubdomain();
-      // @ts-ignore - Assuming $fetch is available globally in Nuxt
-      await $fetch(`/api/v1/catalogs/topics/${topicId}/visibility`, {
+      const api = useApi();
+      await api(`/api/v1/catalogs/topics/${topicId}/visibility`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': subdomain },
         body: { isActive }
       })
     } catch {

@@ -6,7 +6,7 @@ import { useAcademicTimeStore } from '@/features/academic-time/store';
 import { useMaterialsStore } from '../store/materials';
 import { usePdfDesignsStore } from '../store/pdfDesigns';
 import { useCatalogsStore } from '@/features/catalogs/store';
-import { useAuthStore } from '@/stores/auth.store';
+import { useApi } from '@/composables/useApi';
 import MaterialReviewList from '@/features/materials/components/MaterialReviewList.vue';
 import PdfDesignSelector from '@/features/materials/components/PdfDesignSelector.vue';
 
@@ -18,7 +18,7 @@ const materialsStore = useMaterialsStore();
 const catalogsStore = useCatalogsStore();
 const pdfDesignsStore = usePdfDesignsStore();
 const toast = useToast();
-const authStore = useAuthStore();
+const api = useApi();
 
 const isOpen = ref(false);
 const selectedCycleId = ref('');
@@ -243,12 +243,13 @@ const downloadPdf = async (course: any, type: any = 'student') => {
   if (!currentRequest.value) return;
   const downloadType = typeof type === 'string' ? type : 'student';
   try {
-    const response = await fetch(
+    // `api.raw` keeps the raw Response (blob body + headers) while still adding
+    // x-subdomain and rejecting on 4xx via the central client.
+    const response = await api.raw(
       `/api/v1/materials/${currentRequest.value.id}/courses/${course.courseId}/download?type=${downloadType}`,
-      { headers: { 'x-subdomain': authStore.getSubdomain() } }
+      { responseType: 'blob' }
     );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
+    const blob = response._data as Blob;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -272,11 +273,10 @@ const downloadMergedPdf = async (type: any = 'student') => {
   if (!currentRequest.value) return;
   const downloadType = typeof type === 'string' ? type : 'student';
   try {
-    const response = await fetch(
+    const response = await api.raw(
       `/api/v1/materials/${currentRequest.value.id}/download-merged?type=${downloadType}`,
-      { headers: { 'x-subdomain': authStore.getSubdomain() } }
+      { responseType: 'blob' }
     );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
 
@@ -289,7 +289,7 @@ const downloadMergedPdf = async (type: any = 'student') => {
       filename = filename.replace(/\.pdf$/, `${suffix}.pdf`);
     }
 
-    const blob = await response.blob();
+    const blob = response._data as Blob;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -332,15 +332,14 @@ watch(currentRequest, () => {
 const downloadMergedPdfForAttempt = async (attempt: any) => {
   if (!attempt || !attempt.mergedDownloadUrl) return;
   try {
-    const response = await fetch(
+    const response = await api.raw(
       `/api/v1/materials/${attempt.id}/download-merged`,
-      { headers: { 'x-subdomain': authStore.getSubdomain() } }
+      { responseType: 'blob' }
     );
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentDisposition = response.headers.get('Content-Disposition') || '';
     const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
     const filename = filenameMatch?.[1] || 'Completo.pdf';
-    const blob = await response.blob();
+    const blob = response._data as Blob;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

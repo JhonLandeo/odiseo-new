@@ -83,6 +83,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRolesStore } from '../store/roles.store';
 import type { Role } from '../types/roles.types';
+import { useApi } from '@/composables/useApi';
 import { useToast } from '#imports';
 
 const toast = useToast();
@@ -116,10 +117,11 @@ const availableRolesToInherit = computed(() => {
 onMounted(async () => {
   loadingPermissions.value = true;
   try {
-    const response = await fetch('/api/v1/admin/permissions', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    });
-    const result = await response.json();
+    // Central client: tenant-scoped, so it needs x-subdomain (added by the
+    // interceptor) and the session cookie, not a bearer token. It also rejects on
+    // 4xx instead of the old native `fetch` that resolved and swallowed errors.
+    const api = useApi();
+    const result = await api<{ data: any[] }>('/api/v1/admin/permissions');
     permissionsMetadata.value = result.data;
   } finally {
     loadingPermissions.value = false;

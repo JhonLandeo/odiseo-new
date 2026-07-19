@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { useAuthStore } from '../../../stores/auth.store';
+import { useApi } from '@/composables/useApi';
 import type { Role, CreateRoleDto, UpdateRoleDto } from '../types/roles.types';
 
 export const useRolesStore = defineStore('roles', () => {
@@ -11,14 +11,11 @@ export const useRolesStore = defineStore('roles', () => {
   async function fetchRoles() {
     loading.value = true;
     try {
-      // Roles are tenant-scoped: the backend resolves the tenant from the
-      // subdomain, which the browser host does not carry on localhost.
-      // Authentication itself travels in an httpOnly cookie, not a header.
-      const authStore = useAuthStore();
-      const response = await fetch('/api/v1/admin/roles', {
-        headers: { 'x-subdomain': authStore.getSubdomain() }
-      });
-      const result = await response.json();
+      // Goes through the central client so it rejects on 4xx instead of the old
+      // native `fetch`, which resolved on error and silently swallowed it. The
+      // tenant `x-subdomain` header is added by the client interceptor.
+      const api = useApi();
+      const result = await api<{ data: Role[] }>('/api/v1/admin/roles');
       roles.value = result.data;
     } catch (err: any) {
       error.value = err.message;
@@ -27,21 +24,19 @@ export const useRolesStore = defineStore('roles', () => {
     }
   }
 
-  // Las mutaciones usan `$fetch` y no `fetch` nativo a propósito: `fetch` resuelve
-  // normalmente ante un 4xx, así que un 403 de `assertCanGrant` ("no puedes otorgar
-  // permisos que no tienes") se perdería sin llegar nunca al catch. `$fetch` rechaza
-  // y expone el cuerpo del error en `e.data`, que es de donde sale el mensaje real.
-  // El error se guarda en el store Y se relanza, igual que en `stores/admin/tenants.ts`,
-  // para que la vista pueda mostrarlo al usuario.
+  // Todas las llamadas viajan por el cliente central (`useApi`): rechaza ante un
+  // 4xx y expone el cuerpo del error en `e.data`, así que un 403 de
+  // `assertCanGrant` ("no puedes otorgar permisos que no tienes") llega al catch
+  // con su mensaje real. El error se guarda en el store Y se relanza, igual que
+  // en `stores/admin/tenants.ts`, para que la vista pueda mostrarlo al usuario.
 
   async function createRole(payload: CreateRoleDto) {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const role = await $fetch<Role>('/api/v1/admin/roles', {
+      const api = useApi();
+      const role = await api<Role>('/api/v1/admin/roles', {
         method: 'POST',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: payload
       });
       await fetchRoles();
@@ -58,10 +53,9 @@ export const useRolesStore = defineStore('roles', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      const role = await $fetch<Role>(`/api/v1/admin/roles/${id}`, {
+      const api = useApi();
+      const role = await api<Role>(`/api/v1/admin/roles/${id}`, {
         method: 'PATCH',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: payload
       });
       await fetchRoles();
@@ -78,10 +72,9 @@ export const useRolesStore = defineStore('roles', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      await $fetch(`/api/v1/admin/roles/${id}`, {
-        method: 'DELETE',
-        headers: { 'x-subdomain': authStore.getSubdomain() }
+      const api = useApi();
+      await api(`/api/v1/admin/roles/${id}`, {
+        method: 'DELETE'
       });
       await fetchRoles();
     } catch (e: any) {
@@ -102,10 +95,9 @@ export const useRolesStore = defineStore('roles', () => {
     loading.value = true;
     error.value = null;
     try {
-      const authStore = useAuthStore();
-      await $fetch(`/api/v1/admin/users/${userId}/roles`, {
+      const api = useApi();
+      await api(`/api/v1/admin/users/${userId}/roles`, {
         method: 'PUT',
-        headers: { 'x-subdomain': authStore.getSubdomain() },
         body: { role_ids: roleIds }
       });
     } catch (e: any) {
