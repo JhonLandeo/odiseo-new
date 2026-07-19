@@ -1,4 +1,4 @@
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { TenantAdminsService } from './tenant-admins.service';
 
 // ────────────────────────────────────────────────────────────────────
@@ -39,8 +39,15 @@ function createService(companyRepoOverride?: any, tenantServiceOverride?: any) {
   const companyRepo = companyRepoOverride ?? createMockCompanyRepo();
   const tenantService =
     tenantServiceOverride ?? createMockTenantService(mockManager);
-  const service = new TenantAdminsService(companyRepo, tenantService);
-  return { service, mockManager, companyRepo, tenantService };
+  const authService = {
+    invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
+  };
+  const service = new TenantAdminsService(
+    companyRepo,
+    tenantService,
+    authService as any,
+  );
+  return { service, mockManager, companyRepo, tenantService, authService };
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -284,12 +291,51 @@ describe('TenantAdminsService', () => {
     });
 
     it('should reject password change for non-existent admin', async () => {
-      const { service, mockManager } = createService();
+      const { service, mockManager, authService } = createService();
       mockManager.query.mockResolvedValueOnce([]); // not found
 
       await expect(
         service.updatePassword(TENANT_ID, 'ghost-id', { password: 'Pass123!' }),
       ).rejects.toThrow(NotFoundException);
+      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+    });
+
+    // The force_password_reset hold is served from the cached auth state, so
+    // the committed write must drop that entry or the hold stays invisible for
+    // up to the cache TTL.
+    it('invalidates the cached auth state after the password change', async () => {
+      const { service, mockManager, authService } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([{ id: USER_ID }])
+        .mockResolvedValueOnce(undefined);
+
+      await service.updatePassword(TENANT_ID, USER_ID, {
+        password: 'NewPass123!',
+      });
+
+      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+        TENANT_ID,
+        USER_ID,
+      );
+    });
+
+    it('still reports success when the cache invalidation rejects', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service, mockManager, authService } = createService();
+      authService.invalidateUserPermissions.mockRejectedValue(
+        new Error('Redis down'),
+      );
+      mockManager.query
+        .mockResolvedValueOnce([{ id: USER_ID }])
+        .mockResolvedValueOnce(undefined);
+
+      const result = await service.updatePassword(TENANT_ID, USER_ID, {
+        password: 'NewPass123!',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
   });
 
@@ -328,7 +374,7 @@ describe('TenantAdminsService', () => {
     });
 
     it('EC-005: should return 404 for already-deleted admin', async () => {
-      const { service, mockManager } = createService();
+      const { service, mockManager, authService } = createService();
       mockManager.query
         .mockResolvedValueOnce([{ count: '3' }]) // 3 active
         .mockResolvedValueOnce([[], 0]); // update affected 0 rows
@@ -336,6 +382,40 @@ describe('TenantAdminsService', () => {
       await expect(service.softDelete(TENANT_ID, USER_ID)).rejects.toThrow(
         NotFoundException,
       );
+      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+    });
+
+    // A deactivated admin holding a still-valid JWT would keep their cached
+    // permissions until the TTL expired without this.
+    it('invalidates the cached auth state after the deactivation', async () => {
+      const { service, mockManager, authService } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([{ count: '2' }])
+        .mockResolvedValueOnce([[{ id: USER_ID }], 1]);
+
+      await service.softDelete(TENANT_ID, USER_ID);
+
+      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+        TENANT_ID,
+        USER_ID,
+      );
+    });
+
+    it('still reports success when the cache invalidation rejects', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service, mockManager, authService } = createService();
+      authService.invalidateUserPermissions.mockRejectedValue(
+        new Error('Redis down'),
+      );
+      mockManager.query
+        .mockResolvedValueOnce([{ count: '2' }])
+        .mockResolvedValueOnce([[{ id: USER_ID }], 1]);
+
+      const result = await service.softDelete(TENANT_ID, USER_ID);
+
+      expect(result).toEqual({ success: true });
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
   });
 });

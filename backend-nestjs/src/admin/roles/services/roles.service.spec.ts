@@ -1,4 +1,9 @@
-import { ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { RolesService } from './roles.service';
@@ -228,9 +233,9 @@ describe('RolesService inheritance escalation guard (A5)', () => {
       ),
     ).rejects.toThrow(ForbiddenException);
 
-    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
-      ['super-admin-role'],
-    );
+    expect(
+      rolesResolver.getEffectivePermissionsForRoleIds,
+    ).toHaveBeenCalledWith(['super-admin-role']);
     expect(repo.save).not.toHaveBeenCalled();
   });
 
@@ -336,9 +341,9 @@ describe('RolesService.assignRolesToUser escalation guard (A6)', () => {
       service.assignRolesToUser(ACTOR_ID, 'target-user', ['super-admin-role']),
     ).rejects.toThrow(ForbiddenException);
 
-    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
-      ['super-admin-role'],
-    );
+    expect(
+      rolesResolver.getEffectivePermissionsForRoleIds,
+    ).toHaveBeenCalledWith(['super-admin-role']);
     // Nothing was written: the guard runs before the transaction.
     expect(repo.delete).not.toHaveBeenCalled();
     expect(repo.save).not.toHaveBeenCalled();
@@ -390,9 +395,9 @@ describe('RolesService.assignRolesToUser escalation guard (A6)', () => {
     await service.assignRolesToUser(ACTOR_ID, 'target-user', []);
 
     // No role rows to write; the delete still runs to clear existing ones.
-    expect(rolesResolver.getEffectivePermissionsForRoleIds).toHaveBeenCalledWith(
-      [],
-    );
+    expect(
+      rolesResolver.getEffectivePermissionsForRoleIds,
+    ).toHaveBeenCalledWith([]);
     expect(repo.delete).toHaveBeenCalledWith({ userId: 'target-user' });
     expect(repo.save).not.toHaveBeenCalled();
   });
@@ -409,6 +414,124 @@ describe('RolesService.assignRolesToUser escalation guard (A6)', () => {
     ).rejects.toThrow(ForbiddenException);
 
     expect(repo.save).not.toHaveBeenCalled();
+  });
+});
+
+// ───────────────── 009: write-time inheritance cycle prevention ────
+describe('RolesService inheritance cycle prevention (009)', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  // The cycle guard walks the ancestor closure of the PROPOSED parents; the
+  // holder fan-out walks descendants. Dispatch on the CTE name so each query
+  // answers independently of call order.
+  function primeQueries(
+    manager: { query: jest.Mock },
+    ancestorRowsOfProposedParents: Array<{ found: number }>,
+  ) {
+    manager.query.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('dependent_roles') ? [] : ancestorRowsOfProposedParents,
+      ),
+    );
+  }
+
+  it('rejects direct self-inheritance before touching the database', async () => {
+    const { service, repo, manager } = createService([]);
+
+    await expect(
+      service.update(
+        'role-A',
+        { inheritedRoleIds: ['role-A'] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    expect(manager.query).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects a two-role cycle: A inherits B while B already inherits A', async () => {
+    const { service, repo, manager } = createService([]);
+    // B's ancestor closure contains A, so the guard query finds the target.
+    primeQueries(manager, [{ found: 1 }]);
+
+    await expect(
+      service.update(
+        'role-A',
+        { inheritedRoleIds: ['role-B'] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects a transitive cycle: A inherits B, B → C, C → A', async () => {
+    const { service, repo, manager } = createService([]);
+    // The recursive walk reaches A through C, two hops from the seed.
+    primeQueries(manager, [{ found: 1 }]);
+
+    await expect(
+      service.update(
+        'role-A',
+        { inheritedRoleIds: ['role-B'] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(/cycle/i);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('asks the database for the ancestor closure of the proposed parents', async () => {
+    const { service, manager } = createService([]);
+    primeQueries(manager, []);
+
+    await service.update(
+      'role-D',
+      { inheritedRoleIds: ['role-B', 'role-C'] } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    const [sql, params] = manager.query.mock.calls[1];
+    expect(sql).toContain('WITH RECURSIVE');
+    expect(sql).not.toContain('UNION ALL');
+    expect(params).toEqual([['role-B', 'role-C'], 'role-D']);
+  });
+
+  // TOCTOU guard: without the advisory lock, two concurrent updates writing
+  // disjoint role_inheritance rows both pass the check and commit a cycle.
+  it('takes the per-schema advisory lock before running the cycle check', async () => {
+    const { service, manager } = createService([]);
+    primeQueries(manager, []);
+
+    await service.update(
+      'role-D',
+      { inheritedRoleIds: ['role-B'] } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    const sqls = manager.query.mock.calls.map((call) => String(call[0]));
+    const lockIndex = sqls.findIndex((sql) =>
+      sql.includes('pg_advisory_xact_lock'),
+    );
+    const cycleIndex = sqls.findIndex((sql) => sql.includes('WITH RECURSIVE'));
+    expect(lockIndex).toBe(0);
+    expect(sqls[lockIndex]).toContain('role_inheritance');
+    expect(cycleIndex).toBeGreaterThan(lockIndex);
+  });
+
+  it('accepts a diamond: D inherits B and C, both inheriting A', async () => {
+    const { service, repo, manager } = createService([]);
+    // The closure of {B, C} is {B, C, A} — D is not in it, so no cycle.
+    primeQueries(manager, []);
+
+    await service.update(
+      'role-D',
+      { inheritedRoleIds: ['role-B', 'role-C'] } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(repo.save).toHaveBeenCalled();
   });
 });
 
@@ -469,5 +592,40 @@ describe('RolesService cache invalidation with role inheritance', () => {
       COMPANY_ID,
       'child-role-holder',
     );
+  });
+
+  // Invalidation runs AFTER the transaction commits, so a Redis failure must
+  // degrade to "stale until the TTL" — never fail a mutation that succeeded.
+  it('does not fail the update when the cache invalidation rejects', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service, manager, authService } = createService([]);
+    manager.query.mockResolvedValue([{ user_id: 'direct-holder' }]);
+    authService.invalidateUserPermissions.mockRejectedValue(
+      new Error('Redis down'),
+    );
+
+    const role = await service.update(
+      'role-1',
+      { name: 'Renamed' } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(role).toEqual({ id: 'role-1', name: 'Coordinator' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('does not fail the assignment when the cache invalidation rejects', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service, authService } = createService([]);
+    authService.invalidateUserPermissions.mockRejectedValue(
+      new Error('Redis down'),
+    );
+
+    await expect(
+      service.assignRolesToUser(ACTOR_ID, 'target-user', []),
+    ).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 });

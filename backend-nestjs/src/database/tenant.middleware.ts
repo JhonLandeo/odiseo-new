@@ -6,9 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ClsService } from 'nestjs-cls';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Company } from '../tenants/entities/tenant.entity';
+import { TenantsService } from '../tenants/tenants.service';
 
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
@@ -62,8 +60,7 @@ export class TenantMiddleware implements NestMiddleware {
 
   constructor(
     private readonly cls: ClsService,
-    @InjectRepository(Company)
-    private readonly companyRepository: Repository<Company>,
+    private readonly tenantsService: TenantsService,
   ) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
@@ -99,10 +96,12 @@ export class TenantMiddleware implements NestMiddleware {
       );
     }
 
-    // Resolve subdomain → company → tenantSchema via DB
-    const company = await this.companyRepository.findOne({
-      where: { subdomain, isActive: true },
-    });
+    // Resolve subdomain → company → tenantSchema. The lookup is served from
+    // the short-TTL Redis cache in TenantsService (filtering isActive: true),
+    // falling through to Postgres on any miss or cache failure. Company
+    // mutations invalidate the cached row, so a suspension is enforced on the
+    // next request and the TTL only bounds the fallback case.
+    const company = await this.tenantsService.findBySubdomain(subdomain);
 
     if (!company) {
       throw new BadRequestException(

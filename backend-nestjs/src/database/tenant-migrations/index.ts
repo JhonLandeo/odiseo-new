@@ -504,4 +504,37 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ON "${schema}".onboarding_progress (user_id);
     `,
   },
+  {
+    // FK-side btree indexes for the joins the hot paths actually run:
+    //
+    //  - role_inheritance(child_role_id): every permission resolution walks the
+    //    hierarchy child -> parent (see flattened-permissions.query.ts), and
+    //    the write-time cycle guard does the same; only (parent, child) is
+    //    indexed by the 0001 primary key, so each recursion step scanned.
+    //  - user_roles(role_id): the invalidation fan-out and the admin listings
+    //    join user_roles by role, but the 0001 primary key leads with user_id.
+    //  - syllabus(cycle_id), cycle_material_templates(cycle_id),
+    //    cycle_material_template_courses(template_id): child-side FK joins the
+    //    planning and generation reads filter by, with no covering index.
+    //
+    // Names are deliberately unprefixed, following 0004/0006 rather than the
+    // idx_${schema} pattern of 0001/0002: indexes already live in the schema's
+    // namespace, and the 43-char "idx_tenant_<uuid>_" prefix would push two of
+    // these names past Postgres's 63-char identifier limit, truncating them
+    // into the SAME identifier — so the second CREATE INDEX IF NOT EXISTS
+    // would silently never run.
+    id: '0008_fk_join_indexes',
+    up: (schema: string) => `
+      CREATE INDEX IF NOT EXISTS "idx_role_inheritance_child_role_id"
+        ON "${schema}".role_inheritance (child_role_id);
+      CREATE INDEX IF NOT EXISTS "idx_user_roles_role_id"
+        ON "${schema}".user_roles (role_id);
+      CREATE INDEX IF NOT EXISTS "idx_syllabus_cycle_id"
+        ON "${schema}".syllabus (cycle_id);
+      CREATE INDEX IF NOT EXISTS "idx_cycle_material_templates_cycle_id"
+        ON "${schema}".cycle_material_templates (cycle_id);
+      CREATE INDEX IF NOT EXISTS "idx_cycle_material_template_courses_template_id"
+        ON "${schema}".cycle_material_template_courses (template_id);
+    `,
+  },
 ];

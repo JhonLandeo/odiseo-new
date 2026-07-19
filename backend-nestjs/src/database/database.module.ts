@@ -85,7 +85,9 @@ function buildPoolExtra(config: ConfigService): Record<string, unknown> {
         extra: buildPoolExtra(config),
       }),
     }),
-    // Company entity needed by TenantMiddleware (global scope)
+    // Company repository exported for global consumers (provisioning listener,
+    // admin services). TenantMiddleware itself resolves companies through the
+    // cached TenantsService lookup.
     TypeOrmModule.forFeature([Company]),
   ],
   providers: [TenantService, SchemaService, TenantMigrationService],

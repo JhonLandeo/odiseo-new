@@ -1,7 +1,9 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -13,10 +15,15 @@ import { ClsService } from 'nestjs-cls';
 import { TenantService } from '../../../database/tenant.service';
 import { AuthService } from '../../../auth/auth.service';
 import { RolesResolverService } from './roles-resolver.service';
-import { findDependentRoleHolderIds } from '../permissions/flattened-permissions.query';
+import {
+  findDependentRoleHolderIds,
+  roleSetInheritsRole,
+} from '../permissions/flattened-permissions.query';
 
 @Injectable()
 export class RolesService {
+  private readonly logger = new Logger(RolesService.name);
+
   // Roles live in the per-tenant schema, so every operation must run inside the
   // tenant transaction (via TenantService). A plain default-connection
   // repository would target the public schema, where the roles table does not
@@ -54,17 +61,27 @@ export class RolesService {
   /**
    * Drops the cached permissions of the given users in the current tenant.
    * Best-effort by design: the mutation is already committed, and the 60s TTL
-   * is the backstop if the cache is momentarily unreachable.
+   * is the backstop if the cache is momentarily unreachable — so a cache
+   * failure here is logged, never surfaced to the client as an error on a
+   * write that already succeeded.
    */
   private async invalidateUsers(userIds: string[]): Promise<void> {
     const companyId = this.cls.get('companyId');
     if (!companyId || userIds.length === 0) return;
 
-    await Promise.all(
-      userIds.map((userId) =>
-        this.authService.invalidateUserPermissions(companyId, userId),
-      ),
-    );
+    try {
+      await Promise.all(
+        userIds.map((userId) =>
+          this.authService.invalidateUserPermissions(companyId, userId),
+        ),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Permission cache invalidation failed for ${userIds.length} user(s) in company ${String(companyId)}; stale entries expire with the TTL: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   /**
@@ -224,6 +241,22 @@ export class RolesService {
     });
   }
 
+  /**
+   * Serializes role-inheritance mutations per tenant schema. The cycle guard
+   * is check-then-write under READ COMMITTED: two concurrent updates (A
+   * inherits B, B inherits A) touch disjoint role_inheritance rows, so nothing
+   * else orders them and both could pass the check and commit a cycle. A
+   * transaction-scoped advisory lock makes the second writer wait until the
+   * first commits, so its guard query sees the fresh edges. Keyed on the
+   * current schema to stay per-tenant, and released automatically at
+   * commit/rollback. Admin-frequency writes only — reads are unaffected.
+   */
+  private async lockRoleInheritance(manager: EntityManager): Promise<void> {
+    await manager.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('role_inheritance:' || current_schema(), 0))",
+    );
+  }
+
   async update(
     id: string,
     updateRoleDto: UpdateRoleDto,
@@ -257,6 +290,20 @@ export class RolesService {
         if (inheritedRoleIds !== undefined) {
           if (inheritedRoleIds.includes(id)) {
             throw new ConflictException('A role cannot inherit from itself');
+          }
+          // Cycle guard. Only update can close a cycle: a role being CREATED
+          // does not exist yet, so no persisted role can already inherit it —
+          // and that also covers the concurrent case, since no other
+          // transaction can reference an uncommitted role id, which is why
+          // create takes no lock. The read CTEs are merely cycle-tolerant; a
+          // persisted cycle would grant every role in the ring the union of
+          // all their permissions, so it is rejected inside the same
+          // transaction that would write it.
+          await this.lockRoleInheritance(manager);
+          if (await roleSetInheritsRole(manager, inheritedRoleIds, id)) {
+            throw new BadRequestException(
+              'Role inheritance cannot form a cycle: an inherited role already inherits this role',
+            );
           }
           role.inheritedRoles = await repo.findBy({ id: In(inheritedRoleIds) });
         }

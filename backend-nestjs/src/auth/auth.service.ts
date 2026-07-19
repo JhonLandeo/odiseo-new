@@ -215,9 +215,7 @@ export class AuthService {
     // hung or broken Redis must degrade this hot path to a slower DB-computed
     // lookup, keeping the authenticated API up rather than hanging it.
     let cached:
-      | { permissions: string[]; forcePasswordReset: boolean }
-      | null
-      | undefined;
+      { permissions: string[]; forcePasswordReset: boolean } | null | undefined;
     try {
       cached = await this.withCacheTimeout(
         () =>
@@ -387,14 +385,32 @@ export class AuthService {
    * Invalidates the cached permissions for a specific user, forcing the next
    * request to reload them from the database.
    *
-   * Wired into every role/permission mutation flow: RolesService.update/remove
-   * (which fans out to every holder of the role) and UserRolesController
-   * assignment. The cache is Redis-backed, so the delete reaches every instance.
+   * Wired into every mutation that changes a user's authority or hold state:
+   * RolesService.update/remove (which fan out to every holder of the role),
+   * user-role assignment, tenant-admin password/deactivation flows and the
+   * platform credentials reset. The cache is Redis-backed, so the delete
+   * reaches every instance.
+   *
+   * Best-effort and bounded, like every other cache access here: callers run
+   * AFTER their database write has committed, so a Redis failure must degrade
+   * to "stale until the 60s TTL expires" — never to an error on a mutation
+   * that already succeeded.
    */
   async invalidateUserPermissions(
     companyId: string,
     userId: string,
   ): Promise<void> {
-    await this.cacheManager.del(`auth:permissions:${companyId}:${userId}`);
+    try {
+      await this.withCacheTimeout(
+        () => this.cacheManager.del(`auth:permissions:${companyId}:${userId}`),
+        'permission cache invalidation',
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Permission cache invalidation bypassed for user ${userId} in company ${companyId}; stale entry expires with the TTL: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { Global, Module, forwardRef } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthController } from './auth.controller';
@@ -13,6 +13,34 @@ import Redis from 'ioredis';
 import Keyv from 'keyv';
 import KeyvRedis from '@keyv/redis';
 import { RedisThrottlerStorage } from './redis-throttler-storage';
+
+/**
+ * JwtModule options, exported so the wiring is unit-testable: JWT_EXPIRATION
+ * was validated at boot but never read — signing hardcoded '24h', silently
+ * ignoring the operator's configured lifetime. The default stays '24h' when
+ * the variable is unset, preserving the previous behavior exactly.
+ */
+export const jwtModuleOptionsFactory = (
+  config: ConfigService,
+): JwtModuleOptions => {
+  const secret = config.get<string>('JWT_SECRET');
+  if (!secret) {
+    // Fail fast instead of falling back: a checked-in default key is a
+    // published key, and anyone holding it can forge a token for any
+    // tenant. A refused boot is strictly safer than a silent forgery.
+    throw new Error(
+      'JWT_SECRET is not set. Refusing to start: falling back to a default signing key would allow anyone to forge tokens for any tenant.',
+    );
+  }
+  return {
+    secret,
+    signOptions: {
+      expiresIn: (config.get<string>('JWT_EXPIRATION') ?? '24h') as NonNullable<
+        JwtModuleOptions['signOptions']
+      >['expiresIn'],
+    },
+  };
+};
 
 // Global so JwtAuthGuard/AuthService resolve from the root injector: both are
 // registered as APP_GUARD in AppModule and must be constructible for every
@@ -76,21 +104,7 @@ import { RedisThrottlerStorage } from './redis-throttler-storage';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const secret = config.get<string>('JWT_SECRET');
-        if (!secret) {
-          // Fail fast instead of falling back: a checked-in default key is a
-          // published key, and anyone holding it can forge a token for any
-          // tenant. A refused boot is strictly safer than a silent forgery.
-          throw new Error(
-            'JWT_SECRET is not set. Refusing to start: falling back to a default signing key would allow anyone to forge tokens for any tenant.',
-          );
-        }
-        return {
-          secret,
-          signOptions: { expiresIn: '24h' as const },
-        };
-      },
+      useFactory: jwtModuleOptionsFactory,
     }),
     forwardRef(() => TenantsModule),
   ],

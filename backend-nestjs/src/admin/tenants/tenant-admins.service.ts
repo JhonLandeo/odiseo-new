@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   ForbiddenException,
@@ -9,6 +10,7 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { TenantService } from '../../database/tenant.service';
+import { AuthService } from '../../auth/auth.service';
 import {
   CreateTenantAdminDto,
   UpdateTenantAdminDto,
@@ -18,11 +20,36 @@ import { TENANT_SUPER_ADMIN_PERMISSIONS } from '../roles/constants/permissions.c
 
 @Injectable()
 export class TenantAdminsService {
+  private readonly logger = new Logger(TenantAdminsService.name);
+
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     private readonly tenantService: TenantService,
+    private readonly authService: AuthService,
   ) {}
+
+  /**
+   * Drops the target user's cached auth state after a committed mutation.
+   * Without this a deactivated admin keeps a working session and a
+   * password-reset hold stays invisible for up to the cache TTL. Best-effort:
+   * the database write already committed, so a cache failure is logged and the
+   * TTL remains the backstop — it must never fail the mutation.
+   */
+  private async invalidateAuthState(
+    companyId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.authService.invalidateUserPermissions(companyId, userId);
+    } catch (error) {
+      this.logger.warn(
+        `Auth-state cache invalidation failed for user ${userId} in company ${companyId}; stale entry expires with the TTL: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
 
   private async validateCompanyExists(tenantId: string) {
     const company = await this.companyRepository.findOne({
@@ -207,69 +234,86 @@ export class TenantAdminsService {
     await this.validateCompanyExists(tenantId);
     const schema = `tenant_${tenantId}`;
 
-    return this.tenantService.runInSchema(schema, async (manager) => {
-      const existing = await manager.query(
-        `
+    const result = await this.tenantService.runInSchema(
+      schema,
+      async (manager) => {
+        const existing = await manager.query(
+          `
         SELECT u.id FROM "${schema}".users u
         JOIN "${schema}".user_roles ur ON u.id = ur.user_id
         JOIN "${schema}".roles r ON ur.role_id = r.id
         WHERE u.id = $1 AND r.name = 'Super Administrador' AND u.is_active = true
       `,
-        [userId],
-      );
+          [userId],
+        );
 
-      if (existing.length === 0)
-        throw new NotFoundException('Administrador activo no encontrado.');
+        if (existing.length === 0)
+          throw new NotFoundException('Administrador activo no encontrado.');
 
-      // See `create` above for why force_password_reset is raised here.
-      const passwordHash = await bcrypt.hash(data.password, 10);
-      await manager.query(
-        `
+        // See `create` above for why force_password_reset is raised here.
+        const passwordHash = await bcrypt.hash(data.password, 10);
+        await manager.query(
+          `
         UPDATE "${schema}".users
         SET password_hash = $1, force_password_reset = true, updated_at = now()
         WHERE id = $2
       `,
-        [passwordHash, userId],
-      );
+          [passwordHash, userId],
+        );
 
-      return { success: true };
-    });
+        return { success: true };
+      },
+    );
+
+    // The force_password_reset hold is served from the cached auth state, so
+    // without this the new hold stays invisible for up to the cache TTL.
+    await this.invalidateAuthState(tenantId, userId);
+    return result;
   }
 
   async softDelete(tenantId: string, userId: string) {
     await this.validateCompanyExists(tenantId);
     const schema = `tenant_${tenantId}`;
 
-    return this.tenantService.runInSchema(schema, async (manager) => {
-      // Validar si quedan más de 1 superadmin activo
-      const countRes = await manager.query(`
+    const result = await this.tenantService.runInSchema(
+      schema,
+      async (manager) => {
+        // Validar si quedan más de 1 superadmin activo
+        const countRes = await manager.query(`
         SELECT count(1) as count FROM "${schema}".users u
         JOIN "${schema}".user_roles ur ON u.id = ur.user_id
         JOIN "${schema}".roles r ON ur.role_id = r.id
         WHERE r.name = 'Super Administrador' AND u.is_active = true
       `);
-      const count = parseInt(countRes[0].count, 10);
+        const count = parseInt(countRes[0].count, 10);
 
-      if (count <= 1) {
-        throw new ConflictException(
-          'La empresa debe conservar al menos un administrador activo.',
-        );
-      }
+        if (count <= 1) {
+          throw new ConflictException(
+            'La empresa debe conservar al menos un administrador activo.',
+          );
+        }
 
-      const res = await manager.query(
-        `
+        const res = await manager.query(
+          `
         UPDATE "${schema}".users SET is_active = false, updated_at = now() 
         WHERE id = $1 AND is_active = true
         RETURNING id
       `,
-        [userId],
-      );
+          [userId],
+        );
 
-      if (res[1] === 0) {
-        throw new NotFoundException('Administrador activo no encontrado.');
-      }
+        if (res[1] === 0) {
+          throw new NotFoundException('Administrador activo no encontrado.');
+        }
 
-      return { success: true };
-    });
+        return { success: true };
+      },
+    );
+
+    // A deactivated admin holding a still-valid JWT keeps their cached
+    // permissions until the TTL expires; drop them so the very next request
+    // re-reads the account state.
+    await this.invalidateAuthState(tenantId, userId);
+    return result;
   }
 }

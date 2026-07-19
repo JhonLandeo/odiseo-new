@@ -1,6 +1,7 @@
 import {
   Injectable,
   ConflictException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -11,17 +12,23 @@ import { Company } from '../../tenants/entities/tenant.entity';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TenantProvisioningEvent } from './events/tenant-provisioning.event';
 import { TenantService } from '../../database/tenant.service';
+import { TenantsService } from '../../tenants/tenants.service';
+import { AuthService } from '../../auth/auth.service';
 
 // Name of the tenant's system-default admin role (matches the provisioning seed).
 const SUPER_ADMIN_ROLE_NAME = 'Super Administrador';
 
 @Injectable()
 export class TenantsAdminService {
+  private readonly logger = new Logger(TenantsAdminService.name);
+
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     private readonly eventEmitter: EventEmitter2,
     private readonly tenantService: TenantService,
+    private readonly tenantsService: TenantsService,
+    private readonly authService: AuthService,
   ) {}
 
   async findAll(): Promise<any[]> {
@@ -119,7 +126,12 @@ export class TenantsAdminService {
       company.gracePeriodUntil = undefined as any;
     }
 
-    return this.companyRepository.save(company);
+    const saved = await this.companyRepository.save(company);
+    // TenantMiddleware serves this company from the subdomain-lookup cache, so
+    // a suspension must drop the cached row or it would keep resolving as
+    // ACTIVE for up to the cache TTL.
+    await this.tenantsService.invalidateSubdomainCache(saved.subdomain);
+    return saved;
   }
 
   async update(
@@ -150,7 +162,11 @@ export class TenantsAdminService {
     if (data.taxId !== undefined) company.taxId = data.taxId;
     if (data.logoUrl !== undefined) company.logoUrl = data.logoUrl;
 
-    return this.companyRepository.save(company);
+    const saved = await this.companyRepository.save(company);
+    // The cached lookup stores the whole company row; drop it so reads through
+    // the cache never serve the pre-update fields for the TTL.
+    await this.tenantsService.invalidateSubdomainCache(saved.subdomain);
+    return saved;
   }
 
   async resetAdminCredentials(
@@ -211,13 +227,14 @@ export class TenantsAdminService {
 
         // force_password_reset: see TenantAdminsService.create — the operator,
         // not the administrator, chose this password (AC-016).
-        return manager.query(
+        const updateResult = await manager.query(
           `UPDATE users
            SET email = $1, password_hash = $2, force_password_reset = true, updated_at = now()
            WHERE id = $3
            RETURNING id`,
           [newEmail, passwordHash, admins[0].id],
         );
+        return { updateResult, adminId: admins[0].id as string };
       },
     );
 
@@ -225,10 +242,29 @@ export class TenantsAdminService {
     // and DELETE commands — NOT the row array. Checking `result.length` here
     // would always see 2 and never fire, reporting success for a reset that
     // touched nothing. Only the affected count proves the write happened.
-    const affectedRows = Array.isArray(result) ? (result[1] as number) : 0;
+    const affectedRows = Array.isArray(result.updateResult)
+      ? (result.updateResult[1] as number)
+      : 0;
     if (!affectedRows) {
       throw new NotFoundException(
         'Administrador principal no encontrado en el esquema del cliente.',
+      );
+    }
+
+    // The reset raises force_password_reset, which is served from the cached
+    // auth state: without dropping it the hold stays invisible (and the old
+    // permissions stay live) for up to the cache TTL. Best-effort — the write
+    // already committed, so a cache failure is logged, never surfaced.
+    try {
+      await this.authService.invalidateUserPermissions(
+        company.id,
+        result.adminId,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Auth-state cache invalidation failed for admin ${result.adminId} in company ${company.id}; stale entry expires with the TTL: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
       );
     }
 

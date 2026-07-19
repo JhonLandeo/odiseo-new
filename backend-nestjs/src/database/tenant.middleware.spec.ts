@@ -5,7 +5,7 @@ import { Company } from '../tenants/entities/tenant.entity';
 describe('TenantMiddleware', () => {
   let middleware: TenantMiddleware;
   let mockCls: any;
-  let mockCompanyRepo: any;
+  let mockTenantsService: any;
 
   const mockCompany: Partial<Company> = {
     id: 'uuid-company-A',
@@ -20,11 +20,13 @@ describe('TenantMiddleware', () => {
       get: jest.fn(),
     };
 
-    mockCompanyRepo = {
-      findOne: jest.fn(),
+    // The middleware resolves companies through the cached TenantsService
+    // lookup; caching behavior itself is covered in tenants.service.spec.ts.
+    mockTenantsService = {
+      findBySubdomain: jest.fn(),
     };
 
-    middleware = new TenantMiddleware(mockCls, mockCompanyRepo);
+    middleware = new TenantMiddleware(mockCls, mockTenantsService);
   });
 
   const createMockReq = (overrides: any = {}): any => ({
@@ -43,7 +45,7 @@ describe('TenantMiddleware', () => {
 
   describe('subdomain extraction', () => {
     it('should extract subdomain from host header', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+      mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
 
       await middleware.use(
         createMockReq({ headers: { host: 'colegio.odiseo.com' } }),
@@ -61,7 +63,7 @@ describe('TenantMiddleware', () => {
     });
 
     it('should extract subdomain from x-subdomain header', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+      mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
 
       await middleware.use(
         createMockReq({
@@ -76,7 +78,7 @@ describe('TenantMiddleware', () => {
     });
 
     it('should prefer x-subdomain header over host', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+      mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
 
       await middleware.use(
         createMockReq({
@@ -101,7 +103,7 @@ describe('TenantMiddleware', () => {
         mockNext,
       );
 
-      expect(mockCompanyRepo.findOne).not.toHaveBeenCalled();
+      expect(mockTenantsService.findBySubdomain).not.toHaveBeenCalled();
       expect(mockNext).toHaveBeenCalled();
     });
 
@@ -115,24 +117,27 @@ describe('TenantMiddleware', () => {
       '/api/v1/admin/permissions',
       '/api/v1/tenants/branding',
       '/queues',
-    ])('should skip tenant resolution for the platform path %s', async (path) => {
-      await middleware.use(
-        createMockReq({ headers: { host: 'localhost:3000' }, path }),
-        mockRes,
-        mockNext,
-      );
+    ])(
+      'should skip tenant resolution for the platform path %s',
+      async (path) => {
+        await middleware.use(
+          createMockReq({ headers: { host: 'localhost:3000' }, path }),
+          mockRes,
+          mockNext,
+        );
 
-      expect(mockCompanyRepo.findOne).not.toHaveBeenCalled();
-      expect(mockCls.set).not.toHaveBeenCalledWith(
-        'companyId',
-        expect.anything(),
-      );
-      expect(mockCls.set).not.toHaveBeenCalledWith(
-        'tenantSchema',
-        expect.anything(),
-      );
-      expect(mockNext).toHaveBeenCalled();
-    });
+        expect(mockTenantsService.findBySubdomain).not.toHaveBeenCalled();
+        expect(mockCls.set).not.toHaveBeenCalledWith(
+          'companyId',
+          expect.anything(),
+        );
+        expect(mockCls.set).not.toHaveBeenCalledWith(
+          'tenantSchema',
+          expect.anything(),
+        );
+        expect(mockNext).toHaveBeenCalled();
+      },
+    );
 
     // Regression guard for the blanket '/api/v1/admin' exemption: these admin
     // controllers read and write the per-tenant schema, so they MUST resolve
@@ -142,23 +147,26 @@ describe('TenantMiddleware', () => {
       '/api/v1/admin/roles/role-1',
       '/api/v1/admin/users',
       '/api/v1/admin/users/abc/roles',
-    ])('should resolve the tenant for the tenant-scoped path %s', async (path) => {
-      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+    ])(
+      'should resolve the tenant for the tenant-scoped path %s',
+      async (path) => {
+        mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
 
-      await middleware.use(
-        createMockReq({ headers: { host: 'colegio.odiseo.com' }, path }),
-        mockRes,
-        mockNext,
-      );
+        await middleware.use(
+          createMockReq({ headers: { host: 'colegio.odiseo.com' }, path }),
+          mockRes,
+          mockNext,
+        );
 
-      expect(mockCompanyRepo.findOne).toHaveBeenCalled();
-      expect(mockCls.set).toHaveBeenCalledWith('companyId', 'uuid-company-A');
-      expect(mockCls.set).toHaveBeenCalledWith(
-        'tenantSchema',
-        'tenant_uuid-company-A',
-      );
-      expect(mockNext).toHaveBeenCalled();
-    });
+        expect(mockTenantsService.findBySubdomain).toHaveBeenCalled();
+        expect(mockCls.set).toHaveBeenCalledWith('companyId', 'uuid-company-A');
+        expect(mockCls.set).toHaveBeenCalledWith(
+          'tenantSchema',
+          'tenant_uuid-company-A',
+        );
+        expect(mockNext).toHaveBeenCalled();
+      },
+    );
 
     it('should reject a tenant-scoped admin path when no subdomain is present', async () => {
       await expect(
@@ -192,7 +200,7 @@ describe('TenantMiddleware', () => {
     });
 
     it('should throw BadRequestException when subdomain has no matching company', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue(null);
+      mockTenantsService.findBySubdomain.mockResolvedValue(null);
 
       await expect(
         middleware.use(
@@ -210,7 +218,7 @@ describe('TenantMiddleware', () => {
 
   describe('subscription status enforcement', () => {
     it('should throw ForbiddenException when the company is SUSPENDED', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue({
+      mockTenantsService.findBySubdomain.mockResolvedValue({
         ...mockCompany,
         status: 'SUSPENDED',
       });
@@ -227,7 +235,7 @@ describe('TenantMiddleware', () => {
     });
 
     it('should allow a company in GRACE_PERIOD to resolve', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue({
+      mockTenantsService.findBySubdomain.mockResolvedValue({
         ...mockCompany,
         status: 'GRACE_PERIOD',
       });
@@ -240,7 +248,7 @@ describe('TenantMiddleware', () => {
 
   describe('CLS context setting', () => {
     it('should set tenantSchema correctly for a valid company', async () => {
-      mockCompanyRepo.findOne.mockResolvedValue(mockCompany);
+      mockTenantsService.findBySubdomain.mockResolvedValue(mockCompany);
 
       await middleware.use(createMockReq(), mockRes, mockNext);
 

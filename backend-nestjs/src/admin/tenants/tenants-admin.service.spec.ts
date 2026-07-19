@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { TenantsAdminService } from './tenants-admin.service';
 
 jest.mock('bcrypt', () => ({
@@ -11,6 +11,7 @@ function createService(company: any = { id: TENANT_ID }) {
   const mockManager = { query: jest.fn() };
   const companyRepository = {
     findOne: jest.fn().mockResolvedValue(company),
+    save: jest.fn((entity: any) => Promise.resolve(entity)),
     manager: mockManager,
   };
   const eventEmitter = { emit: jest.fn() };
@@ -19,12 +20,27 @@ function createService(company: any = { id: TENANT_ID }) {
       op(mockManager),
     ),
   };
+  const tenantsService = {
+    invalidateSubdomainCache: jest.fn().mockResolvedValue(undefined),
+  };
+  const authService = {
+    invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new TenantsAdminService(
     companyRepository as any,
     eventEmitter as any,
     tenantService as any,
+    tenantsService as any,
+    authService as any,
   );
-  return { service, mockManager, companyRepository, tenantService };
+  return {
+    service,
+    mockManager,
+    companyRepository,
+    tenantService,
+    tenantsService,
+    authService,
+  };
 }
 
 /**
@@ -157,12 +173,102 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
     // so the original `rows.length === 0` check always saw 2 and never fired,
     // reporting success for a write that touched nothing.
     it('does not report success when the update affected no rows', async () => {
-      const { service, mockManager } = createService();
+      const { service, mockManager, authService } = createService();
       mockQueries(mockManager, [{ id: 'user-1' }], [[], 0]);
 
       await expect(
         service.resetAdminCredentials(TENANT_ID, 'new@test.com'),
       ).rejects.toBeInstanceOf(NotFoundException);
+      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
     });
+
+    // The reset raises force_password_reset and rotates the credentials, both
+    // served from the cached auth state; the committed write must drop it.
+    it('invalidates the cached auth state of the reset administrator', async () => {
+      const { service, mockManager, authService } = createService();
+      mockQueries(mockManager, [{ id: 'user-1' }]);
+
+      await service.resetAdminCredentials(TENANT_ID, 'new@test.com');
+
+      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+        TENANT_ID,
+        'user-1',
+      );
+    });
+
+    it('still reports success when the cache invalidation rejects', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service, mockManager, authService } = createService();
+      authService.invalidateUserPermissions.mockRejectedValue(
+        new Error('Redis down'),
+      );
+      mockQueries(mockManager, [{ id: 'user-1' }]);
+
+      const result = await service.resetAdminCredentials(
+        TENANT_ID,
+        'new@test.com',
+      );
+
+      expect(result.success).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+  });
+});
+
+// The subdomain-lookup cache serves TenantMiddleware, so any company mutation
+// that changes what the middleware enforces (or serves) must drop the cached
+// row instead of waiting out the TTL.
+describe('TenantsAdminService company lookup cache invalidation', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('invalidates the subdomain on a status change (suspension)', async () => {
+    const { service, tenantsService } = createService({
+      id: TENANT_ID,
+      subdomain: 'colegio',
+      status: 'ACTIVE',
+    });
+
+    await service.updateStatus(TENANT_ID, 'SUSPENDED');
+
+    expect(tenantsService.invalidateSubdomainCache).toHaveBeenCalledWith(
+      'colegio',
+    );
+  });
+
+  it('invalidates the subdomain on a reactivation', async () => {
+    const { service, tenantsService } = createService({
+      id: TENANT_ID,
+      subdomain: 'colegio',
+      status: 'SUSPENDED',
+    });
+
+    await service.updateStatus(TENANT_ID, 'ACTIVE');
+
+    expect(tenantsService.invalidateSubdomainCache).toHaveBeenCalledWith(
+      'colegio',
+    );
+  });
+
+  it('invalidates the subdomain when company data is updated', async () => {
+    const { service, tenantsService } = createService({
+      id: TENANT_ID,
+      subdomain: 'colegio',
+    });
+
+    await service.update(TENANT_ID, { commercialName: 'Renamed' });
+
+    expect(tenantsService.invalidateSubdomainCache).toHaveBeenCalledWith(
+      'colegio',
+    );
+  });
+
+  it('does not invalidate when the tenant does not exist', async () => {
+    const { service, tenantsService } = createService(null);
+
+    await expect(service.updateStatus(TENANT_ID, 'SUSPENDED')).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(tenantsService.invalidateSubdomainCache).not.toHaveBeenCalled();
   });
 });

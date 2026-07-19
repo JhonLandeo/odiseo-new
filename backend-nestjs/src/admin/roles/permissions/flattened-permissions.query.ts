@@ -66,17 +66,46 @@ const EFFECTIVE_PERMISSIONS_SQL = `
  * themselves hold. `UNION` (not `UNION ALL`) makes it cycle-safe for the same
  * reason the other CTEs are.
  */
-const ROLE_SET_EFFECTIVE_PERMISSIONS_SQL = `
+/**
+ * Shared by ROLE_SET_EFFECTIVE_PERMISSIONS_SQL and ROLE_SET_INHERITS_ROLE_SQL:
+ * the permission resolver and the write-time cycle guard MUST traverse the
+ * graph identically, or a filter added to one but not the other would let a
+ * role set pass the guard while resolving to different effective ancestors.
+ */
+const ROLE_SET_CLOSURE_CTE = `
   WITH RECURSIVE effective_roles AS (
     SELECT unnest($1::uuid[]) AS role_id
     UNION
     SELECT ri.parent_role_id AS role_id
     FROM role_inheritance ri
     INNER JOIN effective_roles er ON ri.child_role_id = er.role_id
-  )
+  )`;
+
+const ROLE_SET_EFFECTIVE_PERMISSIONS_SQL = `${ROLE_SET_CLOSURE_CTE}
   SELECT r.id, r.name, r.permissions
   FROM roles r
   INNER JOIN effective_roles er ON er.role_id = r.id
+`;
+
+/**
+ * Whether a set of roles transitively inherits a given role: seeds the same
+ * upward (child -> parent) walk as ROLE_SET_EFFECTIVE_PERMISSIONS_SQL and asks
+ * if the target role appears anywhere in the closure (the seeds included).
+ *
+ * This is the write-time cycle guard. `role_inheritance` rows are
+ * (parent_role_id, child_role_id) and a role's `inheritedRoles` are its
+ * PARENTS, so attaching parents P to role R creates edges (P, R). That closes a
+ * cycle exactly when R is already an ancestor of some P — i.e. when this query
+ * finds R in the ancestor closure of the proposed parents. The read-side CTEs
+ * are cycle-TOLERANT (UNION semantics terminate), but a persisted cycle would
+ * still grant every member role the union of the whole ring's permissions,
+ * so it must be rejected before it is written.
+ */
+const ROLE_SET_INHERITS_ROLE_SQL = `${ROLE_SET_CLOSURE_CTE}
+  SELECT 1 AS found
+  FROM effective_roles
+  WHERE role_id = $2::uuid
+  LIMIT 1
 `;
 
 /**
@@ -152,6 +181,24 @@ export async function findEffectivePermissionsForRoleIds(
     [roleIds],
   );
   return flattenPermissions(rows);
+}
+
+/**
+ * True when any of `roleIds` transitively inherits `roleId` (or IS `roleId`).
+ * Used by RolesService.update to refuse an inheritance assignment that would
+ * close a cycle. Empty input can inherit nothing and skips the database.
+ */
+export async function roleSetInheritsRole(
+  manager: EntityManager,
+  roleIds: string[],
+  roleId: string,
+): Promise<boolean> {
+  if (roleIds.length === 0) return false;
+  const rows: Array<{ found: number }> = await manager.query(
+    ROLE_SET_INHERITS_ROLE_SQL,
+    [roleIds, roleId],
+  );
+  return rows.length > 0;
 }
 
 /**

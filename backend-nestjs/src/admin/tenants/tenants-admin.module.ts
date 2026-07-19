@@ -7,6 +7,7 @@ import { TenantProvisioningListener } from './listeners/tenant-provisioning.list
 import { TenantAdminsController } from './tenant-admins.controller';
 import { TenantAdminsService } from './tenant-admins.service';
 import { DatabaseModule } from '../../database/database.module';
+import { TenantsModule } from '../../tenants/tenants.module';
 
 import { AuthModule } from '../../auth/auth.module';
 
@@ -15,6 +16,7 @@ import { AuthModule } from '../../auth/auth.module';
     TypeOrmModule.forFeature([Company]),
     forwardRef(() => AuthModule),
     DatabaseModule,
+    TenantsModule,
   ],
   controllers: [TenantsAdminController, TenantAdminsController],
   providers: [

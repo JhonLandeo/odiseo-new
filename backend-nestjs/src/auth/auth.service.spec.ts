@@ -238,7 +238,11 @@ describe('AuthService', () => {
         mockTenantWithUser();
 
         await expect(
-          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+          authService.validateUser(
+            'admin@colegio.com',
+            'password123',
+            'colegio',
+          ),
         ).rejects.toThrow(ForbiddenException);
       });
 
@@ -249,7 +253,11 @@ describe('AuthService', () => {
         });
 
         await expect(
-          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+          authService.validateUser(
+            'admin@colegio.com',
+            'password123',
+            'colegio',
+          ),
         ).rejects.toThrow(
           "The company 'colegio' is currently suspended. Please contact support.",
         );
@@ -262,7 +270,11 @@ describe('AuthService', () => {
         });
 
         await expect(
-          authService.validateUser('admin@colegio.com', 'password123', 'colegio'),
+          authService.validateUser(
+            'admin@colegio.com',
+            'password123',
+            'colegio',
+          ),
         ).rejects.toThrow(ForbiddenException);
         expect(mockTenantService.runInSchema).not.toHaveBeenCalled();
       });
@@ -546,12 +558,18 @@ describe('AuthService bounded permission cache', () => {
     const { service, manager } = build({
       get: jest
         .fn()
-        .mockResolvedValue({ permissions: ['CACHED'], forcePasswordReset: true }),
+        .mockResolvedValue({
+          permissions: ['CACHED'],
+          forcePasswordReset: true,
+        }),
     });
 
     const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
 
-    expect(state).toEqual({ permissions: ['CACHED'], forcePasswordReset: true });
+    expect(state).toEqual({
+      permissions: ['CACHED'],
+      forcePasswordReset: true,
+    });
     expect(manager.query).not.toHaveBeenCalled();
   });
 
@@ -637,6 +655,47 @@ describe('AuthService bounded permission cache', () => {
       // The race timer must be cleared once the read settles, or every request
       // would leak a handle onto the event loop.
       expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  // Invalidation is documented best-effort and always runs after a committed
+  // database write, so it must be as bounded and non-throwing as the reads.
+  describe('invalidateUserPermissions', () => {
+    it('deletes the cached entry', async () => {
+      const { service, cacheManager } = build();
+
+      await service.invalidateUserPermissions(COMPANY_ID, USER_ID);
+
+      expect(cacheManager.del).toHaveBeenCalledWith(CACHE_KEY);
+    });
+
+    it('logs and swallows a delete rejection instead of throwing', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service } = build({
+        del: jest.fn().mockRejectedValue(new Error('Redis down')),
+      });
+
+      await expect(
+        service.invalidateUserPermissions(COMPANY_ID, USER_ID),
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it('times out a hung delete instead of hanging the caller', async () => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const { service } = build({
+        del: jest.fn().mockReturnValue(new Promise<never>(() => {})),
+      });
+
+      const pending = service.invalidateUserPermissions(COMPANY_ID, USER_ID);
+      await jest.advanceTimersByTimeAsync(1000);
+      await expect(pending).resolves.toBeUndefined();
+
+      expect(String(warn.mock.calls[0][0])).toContain('timed out');
+      warn.mockRestore();
+      jest.useRealTimers();
     });
   });
 });

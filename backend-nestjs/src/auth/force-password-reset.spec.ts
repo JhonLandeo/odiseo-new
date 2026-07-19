@@ -113,17 +113,16 @@ describe('AC-016 force password reset — wiring', () => {
   });
 
   // Onboarding dismissal moves from a per-tenant singleton (0004) to per-user
-  // (0007). 0007 must be the last migration, drop the singleton machinery, and
-  // key the row on user_id.
+  // (0007). 0007 must sit directly after 0006 (the list is append-only), drop
+  // the singleton machinery, and key the row on user_id.
   describe('tenant migration 0007 — onboarding dismissal per user', () => {
     const migration = () =>
       TENANT_MIGRATIONS.find(
         (m) => m.id === '0007_onboarding_progress_per_user',
       );
 
-    it('appends 0007 as the last migration, directly after 0006', () => {
+    it('appends 0007 directly after 0006', () => {
       const ids = TENANT_MIGRATIONS.map((m) => m.id);
-      expect(ids[ids.length - 1]).toBe('0007_onboarding_progress_per_user');
       expect(ids.indexOf('0007_onboarding_progress_per_user')).toBe(
         ids.indexOf('0006_material_and_default_design_uniqueness') + 1,
       );
@@ -168,7 +167,9 @@ describe('AC-016 force password reset — wiring', () => {
     it('is idempotent and re-runnable (guarded add/drop everywhere)', () => {
       const sql = migration()!.up('tenant_x');
       expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS user_id/i);
-      expect(sql).toMatch(/DROP CONSTRAINT IF EXISTS fk_onboarding_progress_user/i);
+      expect(sql).toMatch(
+        /DROP CONSTRAINT IF EXISTS fk_onboarding_progress_user/i,
+      );
       expect(sql).toMatch(
         /CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_user"/i,
       );
