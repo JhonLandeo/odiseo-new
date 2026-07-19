@@ -177,12 +177,29 @@ export class AcademicTimeUseCase {
   }
 
   async deleteCycle(id: string) {
-    const cycle = await this.repository.getCycleWithSyllabus(id);
-    if (cycle && cycle.hasSyllabus) {
+    // FR-005 / US3.5: a cycle may be soft-deleted ONLY when it has NO related
+    // records; otherwise it must be deactivated, not deleted. The old guard
+    // only looked at ACTIVE syllabuses, so a cycle carrying material templates,
+    // generated materials, material requests, or an INACTIVE syllabus could be
+    // tombstoned — its cycle_id FKs are ON DELETE CASCADE, but soft-delete is an
+    // UPDATE that never fires them, leaving those rows orphaned by soft-delete.
+    // getCycleUsage counts every dependent kind (syllabuses regardless of
+    // is_active), subsuming the previous active-syllabus check.
+    const usage = await this.repository.getCycleUsage(id);
+    const dependants = [
+      { count: usage.templates, label: 'material templates' },
+      { count: usage.syllabus, label: 'syllabus' },
+      { count: usage.materials, label: 'generated materials' },
+      { count: usage.materialRequests, label: 'material requests' },
+    ].filter((d) => d.count > 0);
+
+    if (dependants.length > 0) {
+      const detail = dependants.map((d) => `${d.count} ${d.label}`).join(', ');
       throw new ConflictException(
-        'Cannot delete cycle because it has active syllabus relationships. Please deactivate it instead.',
+        `Cannot delete cycle because it has related records (${detail}). Please deactivate it instead.`,
       );
     }
+
     await this.repository.softDeleteCycle(id);
   }
 

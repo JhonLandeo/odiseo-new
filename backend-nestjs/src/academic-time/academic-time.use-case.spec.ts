@@ -12,6 +12,13 @@ const NO_TEMPLATE_USAGE = {
   materials: 0,
 };
 
+const NO_CYCLE_USAGE = {
+  templates: 0,
+  syllabus: 0,
+  materials: 0,
+  materialRequests: 0,
+};
+
 describe('AcademicTimeUseCase', () => {
   let useCase: AcademicTimeUseCase;
   let mockRepo: any;
@@ -22,6 +29,7 @@ describe('AcademicTimeUseCase', () => {
       createCycle: jest.fn().mockResolvedValue(undefined),
       updateCycle: jest.fn().mockResolvedValue(undefined),
       getCycleWithSyllabus: jest.fn(),
+      getCycleUsage: jest.fn().mockResolvedValue(NO_CYCLE_USAGE),
       getWeeksByCycle: jest.fn(),
       softDeleteCycle: jest.fn().mockResolvedValue(undefined),
       createTemplate: jest.fn().mockResolvedValue(undefined),
@@ -162,10 +170,17 @@ describe('AcademicTimeUseCase', () => {
   });
 
   describe('deleteCycle', () => {
+    it('soft-deletes a cycle with no dependent records', async () => {
+      mockRepo.getCycleUsage.mockResolvedValue(NO_CYCLE_USAGE);
+
+      await useCase.deleteCycle('c1');
+      expect(mockRepo.softDeleteCycle).toHaveBeenCalledWith('c1');
+    });
+
     it('blocks deletion when the cycle has active syllabus relations', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({
-        id: 'c1',
-        hasSyllabus: true,
+      mockRepo.getCycleUsage.mockResolvedValue({
+        ...NO_CYCLE_USAGE,
+        syllabus: 2,
       });
 
       await expect(useCase.deleteCycle('c1')).rejects.toThrow(
@@ -174,20 +189,63 @@ describe('AcademicTimeUseCase', () => {
       expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
     });
 
-    it('soft-deletes a cycle with no syllabus relations', async () => {
-      mockRepo.getCycleWithSyllabus.mockResolvedValue({
-        id: 'c1',
-        hasSyllabus: false,
+    // The old guard only looked at ACTIVE syllabuses. getCycleUsage counts
+    // syllabuses regardless of is_active, so an inactive syllabus still blocks
+    // the delete — the cycle would otherwise be tombstoned under it.
+    it('blocks deletion when only an inactive syllabus references the cycle', async () => {
+      mockRepo.getCycleUsage.mockResolvedValue({
+        ...NO_CYCLE_USAGE,
+        syllabus: 1,
       });
 
-      await useCase.deleteCycle('c1');
-      expect(mockRepo.softDeleteCycle).toHaveBeenCalledWith('c1');
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
     });
 
-    // B2 — the syllabus check must fail closed. If getCycleWithSyllabus cannot
-    // prove the cycle is unused, the delete must not proceed.
-    it('does not delete when the syllabus check itself fails', async () => {
-      mockRepo.getCycleWithSyllabus.mockRejectedValue(
+    it('blocks deletion when material templates still reference the cycle', async () => {
+      mockRepo.getCycleUsage.mockResolvedValue({
+        ...NO_CYCLE_USAGE,
+        templates: 3,
+      });
+
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
+    });
+
+    it('blocks deletion when generated materials still reference the cycle', async () => {
+      mockRepo.getCycleUsage.mockResolvedValue({
+        ...NO_CYCLE_USAGE,
+        materials: 1,
+      });
+
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
+    });
+
+    it('names every kind of dependant in the conflict message', async () => {
+      mockRepo.getCycleUsage.mockResolvedValue({
+        templates: 3,
+        syllabus: 2,
+        materials: 4,
+        materialRequests: 1,
+      });
+
+      await expect(useCase.deleteCycle('c1')).rejects.toThrow(
+        /3 material templates, 2 syllabus, 4 generated materials, 1 material requests/,
+      );
+      expect(mockRepo.softDeleteCycle).not.toHaveBeenCalled();
+    });
+
+    // The usage check must fail closed. If getCycleUsage cannot prove the cycle
+    // is unused, the delete must not proceed.
+    it('does not delete when the usage check itself fails', async () => {
+      mockRepo.getCycleUsage.mockRejectedValue(
         new Error('relation "syllabus" does not exist'),
       );
 

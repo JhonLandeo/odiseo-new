@@ -92,4 +92,37 @@ describe('AcademicTimeRepositoryImpl', () => {
       );
     });
   });
+
+  describe('getCycleUsage', () => {
+    it('collapses every dependent-record count into one query', async () => {
+      const { repository, manager } = createRepository();
+      manager.query.mockResolvedValue([
+        {
+          templates: '3',
+          syllabus: '2',
+          materials: '4',
+          material_requests: '1',
+        },
+      ]);
+
+      const usage = await repository.getCycleUsage('c1');
+
+      expect(manager.query).toHaveBeenCalledTimes(1);
+      expect(usage).toEqual({
+        templates: 3,
+        syllabus: 2,
+        materials: 4,
+        materialRequests: 1,
+      });
+    });
+
+    it('propagates a failed usage check rather than reporting zero usage', async () => {
+      const { repository, manager } = createRepository();
+      manager.query.mockRejectedValue(new Error('connection reset'));
+
+      await expect(repository.getCycleUsage('c1')).rejects.toThrow(
+        'connection reset',
+      );
+    });
+  });
 });

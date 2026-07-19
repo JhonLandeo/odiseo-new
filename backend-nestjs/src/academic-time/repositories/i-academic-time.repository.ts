@@ -16,6 +16,22 @@ export interface TemplateUsage {
   materials: number;
 }
 
+/**
+ * How many live rows still point at a cycle. Every one of these tables has a
+ * `cycle_id` FK with `ON DELETE CASCADE`, but the cycle is removed via
+ * soft-delete (an UPDATE of deleted_at), so that CASCADE never fires: the rows
+ * would be left pointing at a tombstoned cycle. `syllabus` counts ACTIVE and
+ * ARCHIVED syllabuses alike — an inactive syllabus is still a related record
+ * that FR-005 forbids deleting a cycle over. These counts are what makes the
+ * deletion refusable.
+ */
+export interface CycleUsage {
+  templates: number;
+  syllabus: number;
+  materials: number;
+  materialRequests: number;
+}
+
 export interface IAcademicTimeRepository {
   getCycles(
     limit?: number,
@@ -29,6 +45,7 @@ export interface IAcademicTimeRepository {
   /** All non-deleted weeks of a cycle, fetched by cycleId (its stable key). */
   getWeeksByCycle(cycleId: string): Promise<CycleWeek[]>;
   getCycleWithSyllabus(id: string): Promise<any>;
+  getCycleUsage(cycleId: string): Promise<CycleUsage>;
   updateCycle(id: string, data: any): Promise<void>;
   softDeleteCycle(id: string): Promise<void>;
 

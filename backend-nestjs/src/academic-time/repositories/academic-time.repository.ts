@@ -7,6 +7,7 @@ import { IsNull, ILike } from 'typeorm';
 import {
   IAcademicTimeRepository,
   TemplateUsage,
+  CycleUsage,
 } from './i-academic-time.repository';
 import { Cycle } from '../entities/cycle.entity';
 import { CycleWeek } from '../entities/cycle-week.entity';
@@ -170,6 +171,37 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
       }
 
       return { ...cycle, hasSyllabus };
+    });
+  }
+
+  async getCycleUsage(cycleId: string): Promise<CycleUsage> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // One round-trip, four scalar sub-selects — mirrors getTemplateUsage.
+      // Every table below carries a cycle_id FK straight to cycles(id); the
+      // soft-delete of the cycle never cascades to them, so a non-zero count
+      // means the cycle still owns related records. `syllabus` is counted with
+      // NO is_active filter on purpose: an archived syllabus is still a related
+      // record, and the old active-only guard let a cycle be tombstoned out
+      // from under its inactive syllabuses.
+      const [row] = await manager.query(
+        `
+        SELECT
+          (SELECT COUNT(1) FROM "cycle_material_templates" WHERE "cycle_id" = $1) AS templates,
+          (SELECT COUNT(1) FROM "syllabus" WHERE "cycle_id" = $1) AS syllabus,
+          (SELECT COUNT(1) FROM "materials" WHERE "cycle_id" = $1) AS materials,
+          (SELECT COUNT(1) FROM "material_requests" WHERE "cycle_id" = $1) AS material_requests
+        `,
+        [cycleId],
+      );
+
+      // No try/catch on purpose: like getCycleWithSyllabus, a failed usage check
+      // must block the delete rather than read as "nothing depends on it".
+      return {
+        templates: parseInt(row?.templates ?? '0', 10),
+        syllabus: parseInt(row?.syllabus ?? '0', 10),
+        materials: parseInt(row?.materials ?? '0', 10),
+        materialRequests: parseInt(row?.material_requests ?? '0', 10),
+      };
     });
   }
 
