@@ -14,11 +14,15 @@ import { Topic } from './entities/topic.entity';
 import { Subtopic } from './entities/subtopic.entity';
 import { CatalogSyncState } from './entities/catalog-sync-state.entity';
 import { CatalogCronService } from './catalog.cron';
+import { TopicIdSpaceReconciliationService } from './topic-id-space-reconciliation.service';
+import { TopicIdSpaceCronService } from './topic-id-space.cron';
 import { AuthModule } from '../auth/auth.module';
 
 const providers: any[] = [
   CatalogUseCase,
   CatalogCronService,
+  TopicIdSpaceReconciliationService,
+  TopicIdSpaceCronService,
   {
     provide: ICatalogRepository,
     useClass: CatalogRepositoryImpl,
@@ -63,8 +67,13 @@ const providers: any[] = [
   ],
   controllers: [CatalogsController],
   providers,
-  // ICatalogRepository is consumed outside this module (SyllabusUseCase
-  // validates course visibility before creating a syllabus).
-  exports: [ICatalogRepository],
+  exports: [
+    // Consumed outside this module (SyllabusUseCase validates course
+    // visibility before creating a syllabus).
+    ICatalogRepository,
+    // Exported so a future admin endpoint/CLI can trigger the id-space
+    // reconciliation check on demand without waiting for its daily cron.
+    TopicIdSpaceReconciliationService,
+  ],
 })
 export class CatalogsModule {}

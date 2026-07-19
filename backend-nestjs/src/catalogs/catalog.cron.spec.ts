@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
+import { EntityManager } from 'typeorm';
 import { of, throwError } from 'rxjs';
 import { CatalogCronService } from './catalog.cron';
+import { CatalogUseCase } from './catalog.use-case';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
 import { DISTRIBUTED_LOCK } from '../common/locking/distributed-lock.interface';
 
@@ -10,6 +12,8 @@ describe('CatalogCronService', () => {
   let service: CatalogCronService;
   let repository: any;
   let httpService: HttpService;
+  let catalogUseCase: any;
+  let entityManager: any;
   let lock: any;
 
   beforeEach(async () => {
@@ -32,6 +36,16 @@ describe('CatalogCronService', () => {
 
     const mockHttpService = {
       get: jest.fn(),
+    };
+
+    const mockCatalogUseCase = {
+      invalidateCacheForTenants: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // One active tenant by default, so the cache-invalidation tests exercise
+    // the real fan-out without every test needing its own company list.
+    const mockEntityManager = {
+      find: jest.fn().mockResolvedValue([{ id: 'company-1' }]),
     };
 
     // Default: this replica wins the lock, so the existing behavioral tests
@@ -60,12 +74,22 @@ describe('CatalogCronService', () => {
           provide: HttpService,
           useValue: mockHttpService,
         },
+        {
+          provide: CatalogUseCase,
+          useValue: mockCatalogUseCase,
+        },
+        {
+          provide: EntityManager,
+          useValue: mockEntityManager,
+        },
       ],
     }).compile();
 
     service = module.get<CatalogCronService>(CatalogCronService);
     repository = module.get<ICatalogRepository>(ICatalogRepository);
     httpService = module.get<HttpService>(HttpService);
+    catalogUseCase = module.get(CatalogUseCase);
+    entityManager = module.get(EntityManager);
     lock = module.get(DISTRIBUTED_LOCK);
   });
 
@@ -181,6 +205,64 @@ describe('CatalogCronService', () => {
     // failure — nor throw out of the cron.
     await expect(service.syncCatalogs()).resolves.toBeUndefined();
     expect(repository.recordSyncFailure).not.toHaveBeenCalled();
+  });
+
+  // The sync commits fresh public.courses/topics/subtopics, but the per-tenant
+  // read-cache (CatalogUseCase) has no TTL-independent way to know that.
+  describe('cache invalidation after sync', () => {
+    it('bumps the catalog cache for every active tenant after a successful sync', async () => {
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(of({ data: { courses: [] } } as any));
+      entityManager.find.mockResolvedValue([
+        { id: 'company-1' },
+        { id: 'company-2' },
+      ]);
+
+      await service.syncCatalogs();
+
+      expect(catalogUseCase.invalidateCacheForTenants).toHaveBeenCalledWith([
+        'tenant_company-1',
+        'tenant_company-2',
+      ]);
+    });
+
+    it('does NOT bump the cache when every attempt fails', async () => {
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(throwError(() => new Error('upstream down')));
+
+      await service.syncCatalogs();
+
+      expect(catalogUseCase.invalidateCacheForTenants).not.toHaveBeenCalled();
+    });
+
+    it('skips the tenant fan-out (and does not throw) when there are no active tenants', async () => {
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(of({ data: { courses: [] } } as any));
+      entityManager.find.mockResolvedValue([]);
+
+      await expect(service.syncCatalogs()).resolves.toBeUndefined();
+
+      expect(catalogUseCase.invalidateCacheForTenants).not.toHaveBeenCalled();
+    });
+
+    it('still reports success when cache invalidation itself fails', async () => {
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(of({ data: { courses: [] } } as any));
+      catalogUseCase.invalidateCacheForTenants.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      // A cache-bump failure must not turn a successful catalog sync into a
+      // failure — nor throw out of the cron. Same bookkeeping contract as the
+      // sync-state writes (see `safely`).
+      await expect(service.syncCatalogs()).resolves.toBeUndefined();
+      expect(repository.recordSyncFailure).not.toHaveBeenCalled();
+      expect(repository.recordSyncSuccess).toHaveBeenCalledTimes(1);
+    });
   });
 
   // @Cron fires in every replica; without exclusion the external Core API is

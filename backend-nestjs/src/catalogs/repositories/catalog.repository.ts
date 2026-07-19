@@ -12,8 +12,35 @@ import {
 import { validateCatalogPayload } from '../dto/catalog-payload.dto';
 import { TenantService } from '../../database/tenant.service';
 
+/**
+ * Escapes ILIKE metacharacters (`%`, `_`) and the escape character itself,
+ * so a search term is matched LITERALLY once wrapped in `%...%`. Without
+ * this, a course/topic/subtopic literally named e.g. "50%" degrades the
+ * search into an unintentional match-everything wildcard.
+ *
+ * The backslash MUST be escaped first: escaping `%`/`_` afterwards would
+ * double-escape the backslashes this step just inserted. Postgres's default
+ * LIKE/ILIKE escape character is already backslash, but the queries below
+ * still spell out `ESCAPE '\'` explicitly rather than lean on that default.
+ */
+function escapeLikePattern(term: string): string {
+  return term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 @Injectable()
 export class CatalogRepositoryImpl implements ICatalogRepository {
+  /**
+   * Safety cap on `getCourses`, not a pagination feature: the current (and
+   * only) caller — the frontend catalog browser, `frontend-vue/src/features/
+   * catalogs/store/index.ts` — calls `/v1/catalogs/courses` with no
+   * page/limit params and renders the full result, so adding a page/total
+   * envelope here would be scope the caller cannot use. This LIMIT exists
+   * only so a catalog that grows far past "there are few" (the assumption
+   * `i-catalog.repository.ts` documented) degrades into a bounded, still-slow
+   * query instead of an unbounded one.
+   */
+  private static readonly MAX_COURSES_RESULT = 500;
+
   constructor(
     private readonly tenantService: TenantService,
     @InjectEntityManager()
@@ -23,9 +50,9 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
   async getCourses(search?: string): Promise<Course[]> {
     return this.tenantService.runInTenant(async (manager) => {
       let query = `
-        SELECT 
-          c.id, 
-          c.name, 
+        SELECT
+          c.id,
+          c.name,
           COUNT(DISTINCT t.id) as topics_count,
           COUNT(DISTINCT CASE WHEN COALESCE(ttv.is_active, true) = true THEN t.id END) as active_topics_count
         FROM public.courses c
@@ -35,10 +62,11 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
       const params: any[] = [];
       if (search) {
         query += ` LEFT JOIN public.subtopics s ON s.topic_id = t.id `;
-        query += ` WHERE c.name ILIKE $1 OR t.name ILIKE $1 OR s.name ILIKE $1 `;
-        params.push(`%${search}%`);
+        query += ` WHERE c.name ILIKE $1 ESCAPE '\\' OR t.name ILIKE $1 ESCAPE '\\' OR s.name ILIKE $1 ESCAPE '\\' `;
+        params.push(`%${escapeLikePattern(search)}%`);
       }
-      query += ` GROUP BY c.id, c.name ORDER BY c.name;`;
+      query += ` GROUP BY c.id, c.name ORDER BY c.name LIMIT $${params.length + 1};`;
+      params.push(CatalogRepositoryImpl.MAX_COURSES_RESULT);
 
       return manager.query(query, params);
     });
@@ -47,7 +75,7 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
   async getCourseTopics(courseId: string, search?: string): Promise<any[]> {
     return this.tenantService.runInTenant(async (manager) => {
       let query = `
-        SELECT 
+        SELECT
           t.id AS topic_id, t.name AS topic_name,
           COALESCE(ttv.is_active, true) AS is_active,
           s.id AS subtopic_id, s.name AS subtopic_name
@@ -58,8 +86,8 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
       `;
       const params: any[] = [courseId];
       if (search) {
-        query += ` AND (t.name ILIKE $2 OR s.name ILIKE $2) `;
-        params.push(`%${search}%`);
+        query += ` AND (t.name ILIKE $2 ESCAPE '\\' OR s.name ILIKE $2 ESCAPE '\\') `;
+        params.push(`%${escapeLikePattern(search)}%`);
       }
       query += ` ORDER BY t.name, s.name;`;
 

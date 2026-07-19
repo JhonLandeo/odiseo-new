@@ -178,6 +178,39 @@ describe('CatalogUseCase', () => {
     expect(keyAfter).not.toBe(keyBefore);
   });
 
+  it('invalidateCacheForTenants bumpea la versión de CADA tenant recibido', async () => {
+    // Called by CatalogCronService after a successful sync: the sync itself
+    // has no single tenant in scope, so it hands over every active schema.
+    await useCase.invalidateCacheForTenants([
+      'tenant_a',
+      'tenant_b',
+      'tenant_c',
+    ]);
+
+    expect(mockCacheManager.set).toHaveBeenCalledTimes(3);
+    expect(mockCacheManager.set).toHaveBeenCalledWith(
+      'catalogs:version:tenant_a',
+      expect.any(Number),
+      0,
+    );
+    expect(mockCacheManager.set).toHaveBeenCalledWith(
+      'catalogs:version:tenant_b',
+      expect.any(Number),
+      0,
+    );
+    expect(mockCacheManager.set).toHaveBeenCalledWith(
+      'catalogs:version:tenant_c',
+      expect.any(Number),
+      0,
+    );
+  });
+
+  it('invalidateCacheForTenants no escribe nada para una lista vacía', async () => {
+    await useCase.invalidateCacheForTenants([]);
+
+    expect(mockCacheManager.set).not.toHaveBeenCalled();
+  });
+
   it('lanza NotFound y no escribe ni invalida caché cuando el topic no existe', async () => {
     mockCatalogRepository.findCourseIdByTopicId.mockResolvedValue(null);
 

@@ -5,7 +5,10 @@ export const ICatalogRepository = Symbol('ICatalogRepository');
 
 export interface ICatalogRepository {
   /**
-   * Obtiene la lista de cursos paginada o completa (son pocos)
+   * Obtiene la lista completa de cursos (son pocos), acotada por una cota de
+   * seguridad (`CatalogRepositoryImpl.MAX_COURSES_RESULT`) — no pagina: el
+   * único caller (el catalog browser del frontend) no envía parámetros de
+   * paginación y renderiza el resultado completo.
    */
   getCourses(search?: string): Promise<Course[]>;
 

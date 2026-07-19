@@ -2,8 +2,12 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
+import { InjectEntityManager } from '@nestjs/typeorm';
+import { EntityManager } from 'typeorm';
 import { lastValueFrom } from 'rxjs';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
+import { CatalogUseCase } from './catalog.use-case';
+import { Company } from '../tenants/entities/tenant.entity';
 import { DISTRIBUTED_LOCK } from '../common/locking/distributed-lock.interface';
 import type { DistributedLock } from '../common/locking/distributed-lock.interface';
 
@@ -35,6 +39,9 @@ export class CatalogCronService {
     private readonly catalogRepository: ICatalogRepository,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly catalogUseCase: CatalogUseCase,
+    @InjectEntityManager()
+    private readonly entityManager: EntityManager,
     @Inject(DISTRIBUTED_LOCK)
     private readonly lock: DistributedLock,
   ) {}
@@ -71,6 +78,14 @@ export class CatalogCronService {
           () => this.catalogRepository.recordSyncSuccess(),
           'record sync success',
         );
+        // The sync just committed fresh course/topic/subtopic rows, but the
+        // per-tenant read-cache (CatalogUseCase) does not know that — without
+        // this, a renamed/added course stays cached until the existing 10-min
+        // TTL expires even though the data underneath already changed.
+        await this.safely(
+          () => this.invalidateCachesForActiveTenants(),
+          'invalidate catalog cache for active tenants',
+        );
         this.logger.log(
           'Successfully synchronized catalogs to the public schema.',
         );
@@ -96,6 +111,26 @@ export class CatalogCronService {
       () => this.catalogRepository.recordSyncFailure(message),
       'record sync failure',
     );
+  }
+
+  /**
+   * Bumps the catalog read-cache for every active tenant. See
+   * `CatalogUseCase.invalidateCacheForTenants` for why this is per-tenant
+   * rather than one global key.
+   *
+   * Enumerates companies the same way `MaterialsCron.generateForAllTenants`
+   * does: `entityManager.find(Company, ...)` on the default connection,
+   * no per-tenant schema fan-out required since only the id is needed.
+   */
+  private async invalidateCachesForActiveTenants(): Promise<void> {
+    const companies = await this.entityManager.find(Company, {
+      where: { isActive: true },
+      select: ['id'],
+    });
+    if (companies.length === 0) return;
+
+    const tenantSchemas = companies.map((company) => `tenant_${company.id}`);
+    await this.catalogUseCase.invalidateCacheForTenants(tenantSchemas);
   }
 
   private async fetchAndUpsert(): Promise<void> {

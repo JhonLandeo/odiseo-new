@@ -142,3 +142,80 @@ describe('CatalogRepositoryImpl.courseExists', () => {
     await expect(repo.courseExists('missing')).resolves.toBe(false);
   });
 });
+
+describe('CatalogRepositoryImpl.getCourses', () => {
+  const buildRepo = (rows: unknown[] = []) => {
+    const manager = { query: jest.fn().mockResolvedValue(rows) };
+    const tenantService = {
+      runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
+    } as any;
+    return {
+      repo: new CatalogRepositoryImpl(tenantService, {} as any),
+      manager,
+    };
+  };
+
+  it('escapes literal % and _ in the search term instead of treating them as wildcards', async () => {
+    const { repo, manager } = buildRepo([]);
+
+    await repo.getCourses('50%_off');
+
+    const [query, params] = manager.query.mock.calls[0];
+    // A course literally named "50%" must match literally, not degrade into
+    // a match-everything wildcard.
+    expect(query).toContain("ILIKE $1 ESCAPE '\\'");
+    expect(params[0]).toBe('%50\\%\\_off%');
+  });
+
+  it('doubles a literal backslash first, so it cannot swallow the escape it introduces', async () => {
+    const { repo, manager } = buildRepo([]);
+
+    await repo.getCourses('a\\b');
+
+    const [, params] = manager.query.mock.calls[0];
+    expect(params[0]).toBe('%a\\\\b%');
+  });
+
+  it('caps the result with a LIMIT even with no search term', async () => {
+    const { repo, manager } = buildRepo([]);
+
+    await repo.getCourses();
+
+    const [query, params] = manager.query.mock.calls[0];
+    expect(query).toContain('LIMIT $1');
+    expect(params).toEqual([500]);
+  });
+
+  it('appends the LIMIT parameter after the search parameter', async () => {
+    const { repo, manager } = buildRepo([]);
+
+    await repo.getCourses('algebra');
+
+    const [query, params] = manager.query.mock.calls[0];
+    expect(query).toContain('LIMIT $2');
+    expect(params).toEqual(['%algebra%', 500]);
+  });
+});
+
+describe('CatalogRepositoryImpl.getCourseTopics search escaping', () => {
+  const buildRepo = (rows: unknown[] = []) => {
+    const manager = { query: jest.fn().mockResolvedValue(rows) };
+    const tenantService = {
+      runInTenant: jest.fn((cb: (m: unknown) => unknown) => cb(manager)),
+    } as any;
+    return {
+      repo: new CatalogRepositoryImpl(tenantService, {} as any),
+      manager,
+    };
+  };
+
+  it('escapes literal % and _ before wrapping the topic/subtopic search term', async () => {
+    const { repo, manager } = buildRepo([]);
+
+    await repo.getCourseTopics('course-1', '100%_match');
+
+    const [query, params] = manager.query.mock.calls[0];
+    expect(query).toContain("ILIKE $2 ESCAPE '\\'");
+    expect(params).toEqual(['course-1', '%100\\%\\_match%']);
+  });
+});

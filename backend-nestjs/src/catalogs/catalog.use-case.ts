@@ -47,6 +47,45 @@ export class CatalogUseCase {
     return version ?? 0;
   }
 
+  /** Bumps a single tenant's cache-namespace version. See getCacheVersion. */
+  private async bumpCacheVersion(tenantId: string): Promise<void> {
+    await this.cacheManager.set(
+      `catalogs:version:${tenantId}`,
+      Date.now(),
+      // ttl 0 == never expires (Keyv maps 0 to undefined). The version must
+      // outlive the entries it guards; if the store drops it anyway, the
+      // timestamp scheme keeps that safe (see getCacheVersion).
+      0,
+    );
+  }
+
+  /**
+   * Bumps the cache-namespace version for every given tenant schema.
+   *
+   * WHY PER-TENANT, EVEN THOUGH THE SYNC ITSELF IS GLOBAL
+   * -------------------------------------------------------
+   * `CatalogCronService`'s hourly sync writes only public.courses/topics/
+   * subtopics — data shared by every tenant, with no tenant in scope. But
+   * `getCourses`/`getCourseTopics` join that data against
+   * `tenant_topic_visibility`, which lives in EACH TENANT'S OWN schema (see
+   * `TenantService.runInTenant`) and is genuinely tenant-scoped: two tenants
+   * can hide different topics, so the SAME course can render with different
+   * `activeTopicsCount` per tenant. The cached RESULT is therefore per-tenant
+   * even though the underlying course/topic rows are not — so invalidation
+   * has to walk every active tenant's version key rather than collapse to one
+   * global key (which would be wrong: it would invalidate the correctly
+   * cached per-tenant visibility on every sync, not just the shared data).
+   *
+   * Called by `CatalogCronService` after a successful sync so a renamed or
+   * added course is visible immediately, instead of only after the existing
+   * cache entries' TTL (10 min) expires.
+   */
+  async invalidateCacheForTenants(tenantSchemas: string[]): Promise<void> {
+    await Promise.all(
+      tenantSchemas.map((schema) => this.bumpCacheVersion(schema)),
+    );
+  }
+
   /**
    * Retorna los catálogos listos para ser mostrados en la UI.
    * Internamente hace el JOIN con la tabla de visibilidad.
@@ -130,14 +169,6 @@ export class CatalogUseCase {
 
     // A single write retires EVERY cached variant for this tenant — course
     // lists, topic lists, and all of their search-scoped permutations.
-    const tenantId = this.tenantId();
-    await this.cacheManager.set(
-      `catalogs:version:${tenantId}`,
-      Date.now(),
-      // ttl 0 == never expires (Keyv maps 0 to undefined). The version must
-      // outlive the entries it guards; if the store drops it anyway, the
-      // timestamp scheme keeps that safe (see getCacheVersion).
-      0,
-    );
+    await this.bumpCacheVersion(this.tenantId());
   }
 }
