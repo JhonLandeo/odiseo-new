@@ -11,6 +11,8 @@ describe('SyllabusUseCase', () => {
   const mockRepo = {
     getSummaryBySyllabus: jest.fn(),
     createDistribution: jest.fn(),
+    getDistributionById: jest.fn(),
+    sumWeekQuestionCount: jest.fn(),
     findByCourseAndCycle: jest.fn(),
     createSyllabus: jest.fn(),
     findById: jest.fn(),
@@ -51,6 +53,7 @@ describe('SyllabusUseCase', () => {
   });
 
   it('should create distribution successfully with question count', async () => {
+    mockRepo.sumWeekQuestionCount.mockResolvedValue(0);
     mockRepo.createDistribution.mockResolvedValue({
       id: 'new-dist',
       questionCount: 5,
@@ -69,6 +72,112 @@ describe('SyllabusUseCase', () => {
         questionCount: 5,
       }),
     );
+  });
+
+  describe('FR-007 weekly question-count limit (per syllabus/week)', () => {
+    it('allows a create that keeps the week within the 100 limit', async () => {
+      // Existing week total 50 + incoming 40 = 90 <= 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(50);
+      mockRepo.createDistribution.mockResolvedValue({ id: 'new-dist' });
+
+      await useCase.addDistribution('syl-1', {
+        weekNumber: 3,
+        topicId: 't-1',
+        subtopicId: 'st-1',
+        questionCount: 40,
+      });
+
+      expect(mockRepo.sumWeekQuestionCount).toHaveBeenCalledWith('syl-1', 3);
+      expect(mockRepo.createDistribution).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a create that would push the week over the 100 limit', async () => {
+      // Existing week total 80 + incoming 30 = 110 > 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(80);
+
+      await expect(
+        useCase.addDistribution('syl-1', {
+          weekNumber: 3,
+          topicId: 't-1',
+          subtopicId: 'st-1',
+          questionCount: 30,
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockRepo.createDistribution).not.toHaveBeenCalled();
+    });
+
+    it('allows a create landing exactly on the 100 boundary', async () => {
+      // Existing week total 60 + incoming 40 = exactly 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(60);
+      mockRepo.createDistribution.mockResolvedValue({ id: 'new-dist' });
+
+      await useCase.addDistribution('syl-1', {
+        weekNumber: 3,
+        topicId: 't-1',
+        subtopicId: 'st-1',
+        questionCount: 40,
+      });
+
+      expect(mockRepo.createDistribution).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows an update within the limit, excluding the edited cell from the sum', async () => {
+      mockRepo.getDistributionById.mockResolvedValue({
+        id: 'dist-1',
+        weekNumber: 3,
+      });
+      // Sum of the OTHER cells in the week is 40; new value 50 => 90 <= 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(40);
+      mockRepo.updateDistributionQuantity.mockResolvedValue(undefined);
+
+      await useCase.updateDistributionQuantity('dist-1', 'syl-1', 50);
+
+      // The edited cell must be excluded so its previous value is not counted.
+      expect(mockRepo.sumWeekQuestionCount).toHaveBeenCalledWith(
+        'syl-1',
+        3,
+        'dist-1',
+      );
+      expect(mockRepo.updateDistributionQuantity).toHaveBeenCalledWith(
+        'dist-1',
+        'syl-1',
+        50,
+      );
+    });
+
+    it('rejects an update that would push the week over the limit', async () => {
+      mockRepo.getDistributionById.mockResolvedValue({
+        id: 'dist-1',
+        weekNumber: 3,
+      });
+      // Other cells sum to 70; new value 40 => 110 > 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(70);
+
+      await expect(
+        useCase.updateDistributionQuantity('dist-1', 'syl-1', 40),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockRepo.updateDistributionQuantity).not.toHaveBeenCalled();
+    });
+
+    it('allows an update landing exactly on the 100 boundary', async () => {
+      mockRepo.getDistributionById.mockResolvedValue({
+        id: 'dist-1',
+        weekNumber: 3,
+      });
+      // Other cells sum to 55; new value 45 => exactly 100.
+      mockRepo.sumWeekQuestionCount.mockResolvedValue(55);
+      mockRepo.updateDistributionQuantity.mockResolvedValue(undefined);
+
+      await useCase.updateDistributionQuantity('dist-1', 'syl-1', 45);
+
+      expect(mockRepo.updateDistributionQuantity).toHaveBeenCalledWith(
+        'dist-1',
+        'syl-1',
+        45,
+      );
+    });
   });
 
   it('forwards both distId and syllabusId when updating a distribution', async () => {

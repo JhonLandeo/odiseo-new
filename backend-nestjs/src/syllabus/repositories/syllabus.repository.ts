@@ -161,6 +161,40 @@ export class SyllabusRepositoryImpl implements ISyllabusRepository {
     });
   }
 
+  async getDistributionById(
+    id: string,
+    syllabusId: string,
+  ): Promise<SyllabusDistribution | null> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // Scoped by the owning syllabus so a mismatched :id cannot leak a cell
+      // from a different syllabus (object-level authorization).
+      return await manager.findOne(SyllabusDistribution, {
+        where: { id, syllabusId },
+      });
+    });
+  }
+
+  async sumWeekQuestionCount(
+    syllabusId: string,
+    weekNumber: number,
+    excludeDistId?: string,
+  ): Promise<number> {
+    return this.tenantService.runInTenant(async (manager) => {
+      // Parameterized raw aggregate (same style as findGeneratedWeeks). The
+      // ($3 IS NULL OR id <> $3) guard makes the exclusion a no-op on create
+      // and drops the updated cell on update, in a single query.
+      const rows = await manager.query(
+        `SELECT COALESCE(SUM(question_count), 0) AS sum
+         FROM syllabus_distribution
+         WHERE syllabus_id = $1
+           AND week_number = $2
+           AND ($3::uuid IS NULL OR id <> $3::uuid)`,
+        [syllabusId, weekNumber, excludeDistId ?? null],
+      );
+      return Number(rows[0]?.sum ?? 0);
+    });
+  }
+
   async updateDistributionQuantity(
     id: string,
     syllabusId: string,

@@ -13,6 +13,14 @@ import { AcademicTimeUseCase } from '../academic-time/academic-time.use-case';
 import { Syllabus } from './entities/syllabus.entity';
 import { SyllabusDistribution } from './entities/syllabus-distribution.entity';
 
+/**
+ * FR-007: hard technical cap on the sum of `question_count` per syllabus week,
+ * across every template (a generated material reads the whole week, regardless
+ * of template — see generate-material.use-case). This is complementary to the
+ * per-cell `Max(100)` enforced by the DTOs.
+ */
+const WEEKLY_QUESTION_LIMIT = 100;
+
 @Injectable()
 export class SyllabusUseCase {
   constructor(
@@ -46,6 +54,23 @@ export class SyllabusUseCase {
   }
 
   async addDistribution(syllabusId: string, dto: CreateDistributionDto) {
+    // FR-007: reject if this cell would push the week's total over the limit.
+    // Residual TOCTOU race: this is an application-level check-then-write, not
+    // an atomic guarantee. A per-week SUM cannot be expressed as a DB CHECK
+    // constraint, so two concurrent creates can each read a sum under the cap
+    // and jointly exceed it. That is accepted for a soft business limit; heavy
+    // locking is not justified here.
+    const currentSum = await this.syllabusRepo.sumWeekQuestionCount(
+      syllabusId,
+      dto.weekNumber,
+    );
+    if (currentSum + dto.questionCount > WEEKLY_QUESTION_LIMIT) {
+      throw new BadRequestException(
+        `La semana ${dto.weekNumber} superaría el límite de ${WEEKLY_QUESTION_LIMIT} preguntas ` +
+          `(actual: ${currentSum}, se intenta agregar: ${dto.questionCount}).`,
+      );
+    }
+
     return await this.syllabusRepo.createDistribution({
       syllabusId,
       templateId: dto.templateId || null,
@@ -61,6 +86,30 @@ export class SyllabusUseCase {
     syllabusId: string,
     questionCount: number,
   ) {
+    // FR-007: the week total must stay within the limit AFTER this cell takes
+    // its new value, so exclude the cell being updated from the current sum and
+    // add the incoming quantity. Same residual TOCTOU caveat as addDistribution
+    // applies (application-level check-then-write, no DB-level atomicity).
+    const dist = await this.syllabusRepo.getDistributionById(
+      distId,
+      syllabusId,
+    );
+    if (dist) {
+      const otherCellsSum = await this.syllabusRepo.sumWeekQuestionCount(
+        syllabusId,
+        dist.weekNumber,
+        distId,
+      );
+      if (otherCellsSum + questionCount > WEEKLY_QUESTION_LIMIT) {
+        throw new BadRequestException(
+          `La semana ${dist.weekNumber} superaría el límite de ${WEEKLY_QUESTION_LIMIT} preguntas ` +
+            `(resto de la semana: ${otherCellsSum}, nuevo valor: ${questionCount}).`,
+        );
+      }
+    }
+    // If the cell does not exist, fall through: the repository update reports
+    // the same NotFound it always has, preserving existing behavior.
+
     await this.syllabusRepo.updateDistributionQuantity(
       distId,
       syllabusId,

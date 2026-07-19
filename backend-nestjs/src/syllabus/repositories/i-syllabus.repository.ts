@@ -31,12 +31,28 @@ export interface ISyllabusRepository {
   createDistribution(
     distribution: Partial<SyllabusDistribution>,
   ): Promise<SyllabusDistribution>;
+  getDistributionById(
+    id: string,
+    syllabusId: string,
+  ): Promise<SyllabusDistribution | null>;
   updateDistributionQuantity(
     id: string,
     syllabusId: string,
     questionCount: number,
   ): Promise<void>;
   deleteDistribution(id: string, syllabusId: string): Promise<void>;
+
+  /**
+   * Sum of `question_count` for a syllabus week, across every template
+   * (FR-007 is a per-week technical cap, not a per-template one). Pass
+   * `excludeDistId` to omit a single cell from the total (used on update so the
+   * cell being changed is not double-counted).
+   */
+  sumWeekQuestionCount(
+    syllabusId: string,
+    weekNumber: number,
+    excludeDistId?: string,
+  ): Promise<number>;
   bulkCreateDistributions(
     distributions: Partial<SyllabusDistribution>[],
   ): Promise<SyllabusDistribution[]>;
