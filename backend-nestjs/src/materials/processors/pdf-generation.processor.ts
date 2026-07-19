@@ -1,8 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger, Inject } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
-import { EntityManager, In } from 'typeorm';
+import { EntityManager } from 'typeorm';
 import {
   CoreApiService,
   ExtractedQuestion,
@@ -13,12 +13,11 @@ import {
 } from '../services/pdf-generator.service';
 import { S3Service } from '../../aws/s3.service';
 import { MaterialDownloadsUseCase } from '../use-cases/material-downloads.use-case';
-import { HandleMaterialWebhookUseCase } from '../use-cases/handle-material-webhook.use-case';
-import { ClsService } from 'nestjs-cls';
 import {
-  I_MATERIALS_REPOSITORY,
-  type IMaterialsRepository,
-} from '../repositories/i-materials.repository';
+  HandleMaterialWebhookUseCase,
+  QuestionUsageRecord,
+} from '../use-cases/handle-material-webhook.use-case';
+import { ClsService } from 'nestjs-cls';
 import { CourseMaterialStatus } from '../entities/material-request-course.entity';
 import { PdfDesignTemplate } from '../entities/pdf-design-template.entity';
 import { PDFDocument } from 'pdf-lib';
@@ -27,7 +26,6 @@ import {
   ReviewQuestionStatus,
 } from '../entities/material-review-question.entity';
 import { Topic } from '../../catalogs/entities/topic.entity';
-import { Question } from '../../question-bank/entities/question.entity';
 import { TenantService } from '../../database/tenant.service';
 import { Cycle } from '../../academic-time/entities/cycle.entity';
 import { GcsService } from '../../gcs/gcs.service';
@@ -44,8 +42,6 @@ export class PdfGenerationProcessor extends WorkerHost {
     private readonly materialDownloadsUseCase: MaterialDownloadsUseCase,
     private readonly handleMaterialWebhookUseCase: HandleMaterialWebhookUseCase,
     private readonly cls: ClsService,
-    @Inject(I_MATERIALS_REPOSITORY)
-    private readonly materialsRepo: IMaterialsRepository,
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
     private readonly flatQuestionsRepo: FlatQuestionsRepository,
@@ -106,6 +102,181 @@ export class PdfGenerationProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Loads the questions for one course of a material request: curated review
+   * questions (MaterialReviewQuestion joined to Topic for the course filter)
+   * when curation happened, otherwise random questions from the bank per
+   * syllabus topic. Shared by the multi-course and single-course job handlers
+   * so both produce identical questions, warnings and REPLACED flags.
+   */
+  private async loadCourseQuestions(params: {
+    schemaName: string;
+    tenantId: string;
+    cycleId: string;
+    materialRequestId: string;
+    dist: any;
+    logContext: string;
+  }): Promise<{
+    allQuestions: ExtractedQuestion[];
+    missingDesglose: string[];
+    replacedQuestionIds: Set<string>;
+  }> {
+    const { schemaName, tenantId, cycleId, materialRequestId, dist } = params;
+    const courseId = dist.course_id;
+    let allQuestions: ExtractedQuestion[] = [];
+    const missingDesglose: string[] = [];
+    // Question ids the curation flow swapped in (MaterialReviewQuestion
+    // status REPLACED); their usage rows are flagged was_replacement.
+    const replacedQuestionIds = new Set<string>();
+
+    // Try to load curated review questions first
+    let reviewQuestions: MaterialReviewQuestion[] = [];
+    await this.tenantService.runInSchema(schemaName, async (manager) => {
+      reviewQuestions = await manager
+        .createQueryBuilder(MaterialReviewQuestion, 'mrq')
+        .innerJoin(Topic, 't', 't.id = mrq.topic_id')
+        .where('mrq.material_request_id = :materialRequestId', {
+          materialRequestId,
+        })
+        .andWhere('t.course_id = :courseId', { courseId })
+        .orderBy('mrq.position', 'ASC')
+        .getMany();
+    });
+
+    if (reviewQuestions.length > 0) {
+      this.logger.log(
+        `Found ${reviewQuestions.length} review questions in DB for ${params.logContext} ${materialRequestId} course ${courseId}`,
+      );
+
+      const questionIds = reviewQuestions
+        .map((q) => q.questionId)
+        .filter((id): id is string => !!id);
+
+      let questionMap = new Map<string, any>();
+      if (questionIds.length > 0) {
+        const dbQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
+        questionMap = new Map(
+          dbQuestions.map((q: any) => [String(q.question_id), q]),
+        );
+      }
+
+      let universityId: string | undefined | null;
+      await this.tenantService.runInSchema(schemaName, async (manager) => {
+        const cycle = await manager.findOne(Cycle, {
+          where: { id: cycleId },
+        });
+        universityId = cycle?.universityId;
+      });
+
+      for (const mrq of reviewQuestions) {
+        if (mrq.status === ReviewQuestionStatus.EMPTY) {
+          missingDesglose.push(`Falta pregunta de subtema ${mrq.subtopicId}`);
+        } else if (mrq.status === ReviewQuestionStatus.REMOVED) {
+          missingDesglose.push(
+            `Pregunta descartada en subtema ${mrq.subtopicId}`,
+          );
+        } else {
+          if (mrq.questionId) {
+            const q = questionMap.get(mrq.questionId);
+            if (q) {
+              // A signing failure throws and is deliberately left to reach
+              // the calling handler's per-course `catch`, which reports the
+              // course as `failed` and fails the job. Swallowing it would
+              // put an empty `src` in the PDF, shipping an exam with missing
+              // images under a `completed` status.
+              const signedImages = await Promise.all(
+                (q.images || []).map(async (img: any) => ({
+                  id: img.id,
+                  url: await this.gcsService.getSignedUrl(img.gcs_key),
+                })),
+              );
+
+              const signedDiagImages = await Promise.all(
+                (q.solution?.diagrammed_images || []).map(async (img: any) => ({
+                  id: img.id,
+                  url: await this.gcsService.getSignedUrl(img.gcs_key),
+                })),
+              );
+
+              const textOrigin =
+                universityId && q.origins ? q.origins[universityId] : null;
+
+              allQuestions.push({
+                id: String(q.question_id),
+                topicId: mrq.topicId,
+                subtopicId: mrq.subtopicId,
+                code: q.code,
+                content: q.html_content,
+                options: (q.alternatives || []).map((alt: any) => ({
+                  label: alt.label,
+                  text: alt.text,
+                  isCorrect: alt.is_correct,
+                })),
+                configAlternative: q.config_alternative,
+                images: signedImages,
+                solution: {
+                  diagrammed: q.solution?.diagrammed || [],
+                  diagrammedImages: signedDiagImages,
+                  didiMaths: q.solution?.didi_maths || [],
+                },
+                textOrigin: textOrigin || 'Desconocido',
+              });
+              if (mrq.status === ReviewQuestionStatus.REPLACED) {
+                replacedQuestionIds.add(String(q.question_id));
+              }
+            } else {
+              missingDesglose.push(
+                `Falta reactivo con ID ${mrq.questionId} en posición ${mrq.position}`,
+              );
+            }
+          } else {
+            missingDesglose.push(`Falta pregunta de subtema ${mrq.subtopicId}`);
+          }
+        }
+      }
+    } else {
+      // Fallback: fetch random questions from mock/bank
+      for (const topic of dist.topics || []) {
+        const qs = await this.coreApiService.fetchQuestions(
+          topic.topic_id,
+          topic.subtopic_id,
+          topic.quantity,
+          dist.exclude_question_ids,
+          tenantId,
+          cycleId,
+        );
+        allQuestions = allQuestions.concat(qs);
+        if (qs.length < topic.quantity) {
+          missingDesglose.push(
+            `Faltan ${topic.quantity - qs.length} de subtema ${topic.subtopic_id}`,
+          );
+        }
+      }
+    }
+
+    return { allQuestions, missingDesglose, replacedQuestionIds };
+  }
+
+  /**
+   * The anti-repetition ledger rows for one generated course, in PDF order.
+   * They travel WITH the completion callback so the webhook use case commits
+   * the course's terminal status and its ledger in one tenant transaction.
+   */
+  private buildUsageRecords(
+    allQuestions: ExtractedQuestion[],
+    cycleId: string,
+    replacedQuestionIds: Set<string>,
+  ): QuestionUsageRecord[] {
+    return allQuestions.map((q, idx) => ({
+      cycleId,
+      questionId: q.id,
+      topicId: q.topicId,
+      subtopicId: q.subtopicId,
+      positionInPdf: idx + 1,
+      wasReplacement: replacedQuestionIds.has(q.id),
+    }));
+  }
+
   async process(job: Job<any, any, string>): Promise<any> {
     this.logger.log(`Processing job ${job.id} of type ${job.name}`);
 
@@ -137,173 +308,217 @@ export class PdfGenerationProcessor extends WorkerHost {
     } = data;
     const schemaName = 'tenant_' + tenant_id;
 
-    return this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
-      const tenantMock = tenant || {
-        commercial_name: 'Odiseo',
-        logo_url: '',
-      };
-      const design = await this.loadDesignTemplate(
-        tenant_id,
-        design_template_id,
-      );
-      if (design) {
-        this.logger.log(
-          `Applying design template ${design_template_id} for request ${material_request_id}`,
+    // companyId must ride along with tenantSchema: the webhook use case's
+    // merge-once roll-up reads cls.get('companyId') to dispatch the merge-pdf
+    // job. Without it, completions arriving through this in-process path had
+    // no tenant identity and the merge dispatch silently skipped.
+    return this.cls.runWith(
+      { tenantSchema: schemaName, companyId: tenant_id } as any,
+      async () => {
+        const tenantMock = tenant || {
+          commercial_name: 'Odiseo',
+          logo_url: '',
+        };
+        const design = await this.loadDesignTemplate(
+          tenant_id,
+          design_template_id,
         );
-      }
-      const results: {
-        courseId: string;
-        pdfBuffer: Buffer;
-        keysPdfBuffer: Buffer;
-        solutionPdfBuffer: Buffer;
-        warnings: string[];
-      }[] = [];
+        if (design) {
+          this.logger.log(
+            `Applying design template ${design_template_id} for request ${material_request_id}`,
+          );
+        }
+        let processed = 0;
 
-      for (const dist of distributions) {
+        for (const dist of distributions) {
+          const courseId = dist.course_id;
+
+          try {
+            const { allQuestions, missingDesglose, replacedQuestionIds } =
+              await this.loadCourseQuestions({
+                schemaName,
+                tenantId: tenant_id,
+                cycleId: cycle_id,
+                materialRequestId: material_request_id,
+                dist,
+                logContext: 'request',
+              });
+
+            if (allQuestions.length === 0) {
+              this.logger.warn(
+                `No questions found for course ${courseId}. Skipping PDF generation.`,
+              );
+              if (dist.course_request_id) {
+                await this.handleMaterialWebhookUseCase.execute({
+                  job_id: dist.course_request_id,
+                  status: 'empty_bank',
+                  error_message:
+                    'Banco vacío. No se encontraron reactivos para este curso.',
+                });
+              }
+              continue; // Skip to next course
+            }
+
+            // 1. Student PDF (standard)
+            const pdfBuffer = await this.pdfGeneratorService.generatePdf(
+              tenantMock,
+              courseId,
+              allQuestions,
+              design,
+              week_number,
+              template_name,
+              false,
+              false,
+            );
+
+            const safeName =
+              `${template_name || 'Material'}_Semana${week_number || ''}_${courseId}`.replace(
+                /[^a-zA-Z0-9_\-]/g,
+                '_',
+              );
+            const s3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}.pdf`;
+            const downloadUrl = await this.s3Service.uploadBuffer(
+              s3Key,
+              pdfBuffer,
+              'application/pdf',
+            );
+
+            // 2. Keys PDF (answer key table at the end)
+            const keysPdfBuffer = await this.pdfGeneratorService.generatePdf(
+              tenantMock,
+              courseId,
+              allQuestions,
+              design,
+              week_number,
+              template_name,
+              false,
+              true,
+            );
+            const keysS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_keys.pdf`;
+            const keyDownloadUrl = await this.s3Service.uploadBuffer(
+              keysS3Key,
+              keysPdfBuffer,
+              'application/pdf',
+            );
+
+            // 3. Solutions PDF (step-by-step resolution)
+            const solutionPdfBuffer =
+              await this.pdfGeneratorService.generatePdf(
+                tenantMock,
+                courseId,
+                allQuestions,
+                design,
+                week_number,
+                template_name,
+                true,
+                false,
+              );
+            const solutionS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
+            const solutionDownloadUrl = await this.s3Service.uploadBuffer(
+              solutionS3Key,
+              solutionPdfBuffer,
+              'application/pdf',
+            );
+
+            const status =
+              missingDesglose.length > 0
+                ? CourseMaterialStatus.COMPLETED_WITH_WARNINGS
+                : CourseMaterialStatus.COMPLETED;
+
+            if (dist.course_request_id) {
+              await this.handleMaterialWebhookUseCase.execute(
+                {
+                  job_id: dist.course_request_id,
+                  status:
+                    status === CourseMaterialStatus.COMPLETED
+                      ? 'completed'
+                      : 'completed_with_warnings',
+                  download_url: downloadUrl,
+                  key_download_url: keyDownloadUrl,
+                  solution_download_url: solutionDownloadUrl,
+                  error_message:
+                    missingDesglose.length > 0
+                      ? missingDesglose.join(', ')
+                      : undefined,
+                },
+                this.buildUsageRecords(
+                  allQuestions,
+                  cycle_id,
+                  replacedQuestionIds,
+                ),
+              );
+            }
+
+            processed++;
+          } catch (error: any) {
+            this.logger.error(
+              `Error generating PDF for course ${courseId}: ${error.message}`,
+            );
+
+            if (dist.course_request_id) {
+              await this.handleMaterialWebhookUseCase.execute({
+                job_id: dist.course_request_id,
+                status: 'failed',
+                error_message: error.message,
+              });
+            }
+
+            throw error;
+          }
+        }
+
+        // The combined PDF is NOT produced here. When the last course's
+        // completion callback rolls the parent request up, the webhook use
+        // case dispatches the 'merge-pdf' job exactly once (merge-once
+        // guard); handleMergePdf is the single merge path.
+        return { processed };
+      },
+    );
+  }
+
+  private async handleGenerateSingleCourse(data: any) {
+    const {
+      tenant_id,
+      cycle_id,
+      material_request_id,
+      tenant,
+      week_number,
+      template_name,
+      design_template_id,
+    } = data;
+    const schemaName = 'tenant_' + tenant_id;
+
+    // companyId: see handleGeneratePdf — required for the webhook use case's
+    // merge-pdf dispatch on this in-process path.
+    return this.cls.runWith(
+      { tenantSchema: schemaName, companyId: tenant_id } as any,
+      async () => {
+        const tenantMock = tenant || {
+          commercial_name: 'Odiseo',
+          logo_url: '',
+        };
+        const design = await this.loadDesignTemplate(
+          tenant_id,
+          design_template_id,
+        );
+        const dist = data.distributions?.[0] || {
+          course_id: data.course_id,
+          topics: data.syllabus_distribution || [],
+          exclude_question_ids: [],
+          course_request_id: data.job_id,
+        };
         const courseId = dist.course_id;
-        let allQuestions: ExtractedQuestion[] = [];
-        const missingDesglose: string[] = [];
-        // Question ids the curation flow swapped in (MaterialReviewQuestion
-        // status REPLACED); their usage rows are flagged was_replacement.
-        const replacedQuestionIds = new Set<string>();
 
         try {
-          // Try to load curated review questions first
-          let reviewQuestions: MaterialReviewQuestion[] = [];
-          await this.tenantService.runInSchema(schemaName, async (manager) => {
-            reviewQuestions = await manager
-              .createQueryBuilder(MaterialReviewQuestion, 'mrq')
-              .innerJoin(Topic, 't', 't.id = mrq.topic_id')
-              .where('mrq.material_request_id = :materialRequestId', {
-                materialRequestId: material_request_id,
-              })
-              .andWhere('t.course_id = :courseId', { courseId })
-              .orderBy('mrq.position', 'ASC')
-              .getMany();
-          });
-
-          if (reviewQuestions.length > 0) {
-            this.logger.log(
-              `Found ${reviewQuestions.length} review questions in DB for request ${material_request_id} course ${courseId}`,
-            );
-
-            const questionIds = reviewQuestions
-              .map((q) => q.questionId)
-              .filter((id): id is string => !!id);
-
-            let questionMap = new Map<string, any>();
-            if (questionIds.length > 0) {
-              const dbQuestions =
-                await this.flatQuestionsRepo.findByIds(questionIds);
-              questionMap = new Map(
-                dbQuestions.map((q: any) => [String(q.question_id), q]),
-              );
-            }
-
-            let universityId: string | undefined | null;
-            await this.tenantService.runInSchema(
+          const { allQuestions, missingDesglose, replacedQuestionIds } =
+            await this.loadCourseQuestions({
               schemaName,
-              async (manager) => {
-                const cycle = await manager.findOne(Cycle, {
-                  where: { id: cycle_id },
-                });
-                universityId = cycle?.universityId;
-              },
-            );
-
-            for (const mrq of reviewQuestions) {
-              if (mrq.status === ReviewQuestionStatus.EMPTY) {
-                missingDesglose.push(
-                  `Falta pregunta de subtema ${mrq.subtopicId}`,
-                );
-              } else if (mrq.status === ReviewQuestionStatus.REMOVED) {
-                missingDesglose.push(
-                  `Pregunta descartada en subtema ${mrq.subtopicId}`,
-                );
-              } else {
-                if (mrq.questionId) {
-                  const q = questionMap.get(mrq.questionId);
-                  if (q) {
-                    // A signing failure throws and is deliberately left to
-                    // reach this course's `catch` below, which reports the
-                    // course as `failed` and fails the job. Swallowing it
-                    // would put an empty `src` in the PDF, shipping an exam
-                    // with missing images under a `completed` status.
-                    const signedImages = await Promise.all(
-                      (q.images || []).map(async (img: any) => ({
-                        id: img.id,
-                        url: await this.gcsService.getSignedUrl(img.gcs_key),
-                      })),
-                    );
-
-                    const signedDiagImages = await Promise.all(
-                      (q.solution?.diagrammed_images || []).map(
-                        async (img: any) => ({
-                          id: img.id,
-                          url: await this.gcsService.getSignedUrl(img.gcs_key),
-                        }),
-                      ),
-                    );
-
-                    const textOrigin =
-                      universityId && q.origins
-                        ? q.origins[universityId]
-                        : null;
-
-                    allQuestions.push({
-                      id: String(q.question_id),
-                      topicId: mrq.topicId,
-                      subtopicId: mrq.subtopicId,
-                      code: q.code,
-                      content: q.html_content,
-                      options: (q.alternatives || []).map((alt: any) => ({
-                        label: alt.label,
-                        text: alt.text,
-                        isCorrect: alt.is_correct,
-                      })),
-                      configAlternative: q.config_alternative,
-                      images: signedImages,
-                      solution: {
-                        diagrammed: q.solution?.diagrammed || [],
-                        diagrammedImages: signedDiagImages,
-                        didiMaths: q.solution?.didi_maths || [],
-                      },
-                      textOrigin: textOrigin || 'Desconocido',
-                    });
-                    if (mrq.status === ReviewQuestionStatus.REPLACED) {
-                      replacedQuestionIds.add(String(q.question_id));
-                    }
-                  } else {
-                    missingDesglose.push(
-                      `Falta reactivo con ID ${mrq.questionId} en posición ${mrq.position}`,
-                    );
-                  }
-                } else {
-                  missingDesglose.push(
-                    `Falta pregunta de subtema ${mrq.subtopicId}`,
-                  );
-                }
-              }
-            }
-          } else {
-            // Fallback: fetch random questions from mock/bank
-            for (const topic of dist.topics) {
-              const qs = await this.coreApiService.fetchQuestions(
-                topic.topic_id,
-                topic.subtopic_id,
-                topic.quantity,
-                dist.exclude_question_ids,
-                tenant_id,
-                cycle_id,
-              );
-              allQuestions = allQuestions.concat(qs);
-              if (qs.length < topic.quantity) {
-                missingDesglose.push(
-                  `Faltan ${topic.quantity - qs.length} de subtema ${topic.subtopic_id}`,
-                );
-              }
-            }
-          }
+              tenantId: tenant_id,
+              cycleId: cycle_id,
+              materialRequestId: material_request_id,
+              dist,
+              logContext: 'single course request',
+            });
 
           if (allQuestions.length === 0) {
             this.logger.warn(
@@ -317,10 +532,12 @@ export class PdfGenerationProcessor extends WorkerHost {
                   'Banco vacío. No se encontraron reactivos para este curso.',
               });
             }
-            continue; // Skip to next course
+            return {
+              course_id: courseId,
+              status: CourseMaterialStatus.EMPTY_BANK,
+            };
           }
 
-          // 1. Student PDF (standard)
           const pdfBuffer = await this.pdfGeneratorService.generatePdf(
             tenantMock,
             courseId,
@@ -328,8 +545,6 @@ export class PdfGenerationProcessor extends WorkerHost {
             design,
             week_number,
             template_name,
-            false,
-            false,
           );
 
           const safeName =
@@ -344,53 +559,12 @@ export class PdfGenerationProcessor extends WorkerHost {
             'application/pdf',
           );
 
-          // 2. Keys PDF (answer key table at the end)
-          const keysPdfBuffer = await this.pdfGeneratorService.generatePdf(
-            tenantMock,
-            courseId,
-            allQuestions,
-            design,
-            week_number,
-            template_name,
-            false,
-            true,
-          );
-          const keysS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_keys.pdf`;
-          const keyDownloadUrl = await this.s3Service.uploadBuffer(
-            keysS3Key,
-            keysPdfBuffer,
-            'application/pdf',
-          );
-
-          // 3. Solutions PDF (step-by-step resolution)
-          const solutionPdfBuffer = await this.pdfGeneratorService.generatePdf(
-            tenantMock,
-            courseId,
-            allQuestions,
-            design,
-            week_number,
-            template_name,
-            true,
-            false,
-          );
-          const solutionS3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
-          const solutionDownloadUrl = await this.s3Service.uploadBuffer(
-            solutionS3Key,
-            solutionPdfBuffer,
-            'application/pdf',
-          );
-
           const status =
             missingDesglose.length > 0
               ? CourseMaterialStatus.COMPLETED_WITH_WARNINGS
               : CourseMaterialStatus.COMPLETED;
 
           if (dist.course_request_id) {
-            // The usage records travel WITH the completion callback so the
-            // webhook use case commits the course's terminal status and its
-            // anti-repetition ledger in one tenant transaction. Writing them
-            // here in a separate transaction (the previous shape) let a crash
-            // in between leave a COMPLETED course with no usage rows.
             await this.handleMaterialWebhookUseCase.execute(
               {
                 job_id: dist.course_request_id,
@@ -399,31 +573,20 @@ export class PdfGenerationProcessor extends WorkerHost {
                     ? 'completed'
                     : 'completed_with_warnings',
                 download_url: downloadUrl,
-                key_download_url: keyDownloadUrl,
-                solution_download_url: solutionDownloadUrl,
                 error_message:
                   missingDesglose.length > 0
                     ? missingDesglose.join(', ')
                     : undefined,
               },
-              allQuestions.map((q, idx) => ({
-                cycleId: cycle_id,
-                questionId: q.id,
-                topicId: q.topicId,
-                subtopicId: q.subtopicId,
-                positionInPdf: idx + 1,
-                wasReplacement: replacedQuestionIds.has(q.id),
-              })),
+              this.buildUsageRecords(
+                allQuestions,
+                cycle_id,
+                replacedQuestionIds,
+              ),
             );
           }
 
-          results.push({
-            courseId,
-            pdfBuffer,
-            keysPdfBuffer,
-            solutionPdfBuffer,
-            warnings: missingDesglose,
-          });
+          return { course_id: courseId, download_url: downloadUrl, status };
         } catch (error: any) {
           this.logger.error(
             `Error generating PDF for course ${courseId}: ${error.message}`,
@@ -439,347 +602,8 @@ export class PdfGenerationProcessor extends WorkerHost {
 
           throw error;
         }
-      }
-
-      // Generate merged PDF after all courses are processed
-      if (results.length > 1) {
-        try {
-          const safeName =
-            `${template_name || 'Material'}_Semana${week_number || ''}_Completo`.replace(
-              /[^a-zA-Z0-9_\-]/g,
-              '_',
-            );
-
-          // Merge Student PDFs
-          const mergedPdf = await PDFDocument.create();
-          for (const result of results) {
-            const pdfDoc = await PDFDocument.load(result.pdfBuffer);
-            const pages = await mergedPdf.copyPages(
-              pdfDoc,
-              pdfDoc.getPageIndices(),
-            );
-            pages.forEach((page) => mergedPdf.addPage(page));
-          }
-          const mergedBuffer = Buffer.from(await mergedPdf.save());
-          const mergedKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}.pdf`;
-          const mergedUrl = await this.s3Service.uploadBuffer(
-            mergedKey,
-            mergedBuffer,
-            'application/pdf',
-          );
-
-          // Merge Keys PDFs
-          const mergedKeysPdf = await PDFDocument.create();
-          for (const result of results) {
-            const pdfDoc = await PDFDocument.load(result.keysPdfBuffer);
-            const pages = await mergedKeysPdf.copyPages(
-              pdfDoc,
-              pdfDoc.getPageIndices(),
-            );
-            pages.forEach((page) => mergedKeysPdf.addPage(page));
-          }
-          const mergedKeysBuffer = Buffer.from(await mergedKeysPdf.save());
-          const mergedKeysKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_keys.pdf`;
-          const mergedKeysUrl = await this.s3Service.uploadBuffer(
-            mergedKeysKey,
-            mergedKeysBuffer,
-            'application/pdf',
-          );
-
-          // Merge Solutions PDFs
-          const mergedSolutionsPdf = await PDFDocument.create();
-          for (const result of results) {
-            const pdfDoc = await PDFDocument.load(result.solutionPdfBuffer);
-            const pages = await mergedSolutionsPdf.copyPages(
-              pdfDoc,
-              pdfDoc.getPageIndices(),
-            );
-            pages.forEach((page) => mergedSolutionsPdf.addPage(page));
-          }
-          const mergedSolutionsBuffer = Buffer.from(
-            await mergedSolutionsPdf.save(),
-          );
-          const mergedSolutionsKey = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}_solutions.pdf`;
-          const mergedSolutionsUrl = await this.s3Service.uploadBuffer(
-            mergedSolutionsKey,
-            mergedSolutionsBuffer,
-            'application/pdf',
-          );
-
-          await this.materialDownloadsUseCase.updateMergedDownloadUrl(
-            material_request_id,
-            mergedUrl,
-            mergedKeysUrl,
-            mergedSolutionsUrl,
-          );
-
-          this.logger.log(
-            `Merged PDFs uploaded for request ${material_request_id}: ${mergedUrl}`,
-          );
-        } catch (error: any) {
-          this.logger.error(`Failed to generate merged PDF: ${error.message}`);
-        }
-      }
-
-      return { processed: results.length };
-    });
-  }
-
-  private async handleGenerateSingleCourse(data: any) {
-    const {
-      tenant_id,
-      cycle_id,
-      material_request_id,
-      tenant,
-      week_number,
-      template_name,
-      design_template_id,
-    } = data;
-    const schemaName = 'tenant_' + tenant_id;
-
-    return this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
-      const tenantMock = tenant || {
-        commercial_name: 'Odiseo',
-        logo_url: '',
-      };
-      const design = await this.loadDesignTemplate(
-        tenant_id,
-        design_template_id,
-      );
-      const dist = data.distributions?.[0] || {
-        course_id: data.course_id,
-        topics: data.syllabus_distribution || [],
-        exclude_question_ids: [],
-        course_request_id: data.job_id,
-      };
-      const courseId = dist.course_id;
-      let allQuestions: ExtractedQuestion[] = [];
-      const missingDesglose: string[] = [];
-      // See handleGeneratePdf: REPLACED review questions are flagged in the
-      // usage ledger as was_replacement.
-      const replacedQuestionIds = new Set<string>();
-
-      try {
-        // Try to load curated review questions first
-        let reviewQuestions: MaterialReviewQuestion[] = [];
-        await this.tenantService.runInSchema(schemaName, async (manager) => {
-          reviewQuestions = await manager
-            .createQueryBuilder(MaterialReviewQuestion, 'mrq')
-            .innerJoin(Topic, 't', 't.id = mrq.topic_id')
-            .where('mrq.material_request_id = :materialRequestId', {
-              materialRequestId: material_request_id,
-            })
-            .andWhere('t.course_id = :courseId', { courseId })
-            .orderBy('mrq.position', 'ASC')
-            .getMany();
-        });
-
-        if (reviewQuestions.length > 0) {
-          this.logger.log(
-            `Found ${reviewQuestions.length} review questions in DB for single course request ${material_request_id} course ${courseId}`,
-          );
-
-          const questionIds = reviewQuestions
-            .map((q) => q.questionId)
-            .filter((id): id is string => !!id);
-
-          let questionMap = new Map<string, any>();
-          if (questionIds.length > 0) {
-            const dbQuestions =
-              await this.flatQuestionsRepo.findByIds(questionIds);
-            questionMap = new Map(
-              dbQuestions.map((q: any) => [String(q.question_id), q]),
-            );
-          }
-
-          let universityId: string | undefined | null;
-          await this.tenantService.runInSchema(schemaName, async (manager) => {
-            const cycle = await manager.findOne(Cycle, {
-              where: { id: cycle_id },
-            });
-            universityId = cycle?.universityId;
-          });
-
-          for (const mrq of reviewQuestions) {
-            if (mrq.status === ReviewQuestionStatus.EMPTY) {
-              missingDesglose.push(
-                `Falta pregunta de subtema ${mrq.subtopicId}`,
-              );
-            } else if (mrq.status === ReviewQuestionStatus.REMOVED) {
-              missingDesglose.push(
-                `Pregunta descartada en subtema ${mrq.subtopicId}`,
-              );
-            } else {
-              if (mrq.questionId) {
-                const q = questionMap.get(mrq.questionId);
-                if (q) {
-                  // See handleGeneratePdf: a signing failure must fail this
-                  // course via the `catch` below rather than emit an empty
-                  // image `src` into a PDF reported as completed.
-                  const signedImages = await Promise.all(
-                    (q.images || []).map(async (img: any) => ({
-                      id: img.id,
-                      url: await this.gcsService.getSignedUrl(img.gcs_key),
-                    })),
-                  );
-
-                  const signedDiagImages = await Promise.all(
-                    (q.solution?.diagrammed_images || []).map(
-                      async (img: any) => ({
-                        id: img.id,
-                        url: await this.gcsService.getSignedUrl(img.gcs_key),
-                      }),
-                    ),
-                  );
-
-                  const textOrigin =
-                    universityId && q.origins ? q.origins[universityId] : null;
-
-                  allQuestions.push({
-                    id: String(q.question_id),
-                    topicId: mrq.topicId,
-                    subtopicId: mrq.subtopicId,
-                    code: q.code,
-                    content: q.html_content,
-                    options: (q.alternatives || []).map((alt: any) => ({
-                      label: alt.label,
-                      text: alt.text,
-                      isCorrect: alt.is_correct,
-                    })),
-                    configAlternative: q.config_alternative,
-                    images: signedImages,
-                    solution: {
-                      diagrammed: q.solution?.diagrammed || [],
-                      diagrammedImages: signedDiagImages,
-                      didiMaths: q.solution?.didi_maths || [],
-                    },
-                    textOrigin: textOrigin || 'Desconocido',
-                  });
-                  if (mrq.status === ReviewQuestionStatus.REPLACED) {
-                    replacedQuestionIds.add(String(q.question_id));
-                  }
-                } else {
-                  missingDesglose.push(
-                    `Falta reactivo con ID ${mrq.questionId} en posición ${mrq.position}`,
-                  );
-                }
-              } else {
-                missingDesglose.push(
-                  `Falta pregunta de subtema ${mrq.subtopicId}`,
-                );
-              }
-            }
-          }
-        } else {
-          // Fallback: fetch random questions from mock/bank
-          if (dist.topics && dist.topics.length > 0) {
-            for (const topic of dist.topics) {
-              const qs = await this.coreApiService.fetchQuestions(
-                topic.topic_id,
-                topic.subtopic_id,
-                topic.quantity,
-                dist.exclude_question_ids,
-                tenant_id,
-                cycle_id,
-              );
-              allQuestions = allQuestions.concat(qs);
-              if (qs.length < topic.quantity) {
-                missingDesglose.push(
-                  `Faltan ${topic.quantity - qs.length} de subtema ${topic.subtopic_id}`,
-                );
-              }
-            }
-          }
-        }
-
-        if (allQuestions.length === 0) {
-          this.logger.warn(
-            `No questions found for course ${courseId}. Skipping PDF generation.`,
-          );
-          if (dist.course_request_id) {
-            await this.handleMaterialWebhookUseCase.execute({
-              job_id: dist.course_request_id,
-              status: 'empty_bank',
-              error_message:
-                'Banco vacío. No se encontraron reactivos para este curso.',
-            });
-          }
-          return {
-            course_id: courseId,
-            status: CourseMaterialStatus.EMPTY_BANK,
-          };
-        }
-
-        const pdfBuffer = await this.pdfGeneratorService.generatePdf(
-          tenantMock,
-          courseId,
-          allQuestions,
-          design,
-          week_number,
-          template_name,
-        );
-
-        const safeName =
-          `${template_name || 'Material'}_Semana${week_number || ''}_${courseId}`.replace(
-            /[^a-zA-Z0-9_\-]/g,
-            '_',
-          );
-        const s3Key = `materials/${tenant_id}/${cycle_id}/${material_request_id}/${safeName}.pdf`;
-        const downloadUrl = await this.s3Service.uploadBuffer(
-          s3Key,
-          pdfBuffer,
-          'application/pdf',
-        );
-
-        const status =
-          missingDesglose.length > 0
-            ? CourseMaterialStatus.COMPLETED_WITH_WARNINGS
-            : CourseMaterialStatus.COMPLETED;
-
-        if (dist.course_request_id) {
-          // Usage records ride along with the completion callback so status
-          // and anti-repetition ledger commit atomically — see handleGeneratePdf.
-          await this.handleMaterialWebhookUseCase.execute(
-            {
-              job_id: dist.course_request_id,
-              status:
-                status === CourseMaterialStatus.COMPLETED
-                  ? 'completed'
-                  : 'completed_with_warnings',
-              download_url: downloadUrl,
-              error_message:
-                missingDesglose.length > 0
-                  ? missingDesglose.join(', ')
-                  : undefined,
-            },
-            allQuestions.map((q, idx) => ({
-              cycleId: cycle_id,
-              questionId: q.id,
-              topicId: q.topicId,
-              subtopicId: q.subtopicId,
-              positionInPdf: idx + 1,
-              wasReplacement: replacedQuestionIds.has(q.id),
-            })),
-          );
-        }
-
-        return { course_id: courseId, download_url: downloadUrl, status };
-      } catch (error: any) {
-        this.logger.error(
-          `Error generating PDF for course ${courseId}: ${error.message}`,
-        );
-
-        if (dist.course_request_id) {
-          await this.handleMaterialWebhookUseCase.execute({
-            job_id: dist.course_request_id,
-            status: 'failed',
-            error_message: error.message,
-          });
-        }
-
-        throw error;
-      }
-    });
+      },
+    );
   }
 
   private async handleMergePdf(data: any) {
@@ -803,42 +627,41 @@ export class PdfGenerationProcessor extends WorkerHost {
 
       if (completedCourses.length < 2) return;
 
-      const mergedPdf = await PDFDocument.create();
-
-      for (const course of completedCourses) {
-        try {
-          let key = course.downloadUrl;
-          if (key.startsWith('http')) {
-            const urlObj = new URL(key);
-            const parts = urlObj.pathname.split('/');
-            key = parts.slice(2).join('/');
-          }
-          const pdfBuffer = await this.s3Service.getObject(key);
-          const pdfDoc = await PDFDocument.load(pdfBuffer);
-          const pages = await mergedPdf.copyPages(
-            pdfDoc,
-            pdfDoc.getPageIndices(),
-          );
-          pages.forEach((page) => mergedPdf.addPage(page));
-        } catch (err: any) {
-          this.logger.warn(
-            `Skipping course ${course.courseId} for merge: ${err.message}`,
-          );
-        }
+      // This job is the ONLY merge path (the former inline merge in
+      // handleGeneratePdf was removed), so it must produce every combined
+      // variant the download endpoint serves: student, answer keys and
+      // solutions (GET :id/download-merged?type=student|keys|solutions).
+      const keyPrefix = `materials/${tenant_id}/merged/${material_request_id}`;
+      const mergedUrl = await this.mergeAndUpload(
+        completedCourses,
+        'downloadUrl',
+        `${keyPrefix}/Completo.pdf`,
+      );
+      if (!mergedUrl) {
+        // Every per-course student PDF failed to load: uploading an empty
+        // combined PDF would report success over a broken artifact. Throw so
+        // BullMQ retries the merge instead.
+        throw new Error('No course PDFs could be merged');
       }
-
-      const mergedBuffer = Buffer.from(await mergedPdf.save());
-      const mergedKey = `materials/${tenant_id}/merged/${material_request_id}/Completo.pdf`;
-      const mergedUrl = await this.s3Service.uploadBuffer(
-        mergedKey,
-        mergedBuffer,
-        'application/pdf',
+      // Keys/solutions are optional per course; merge whichever exist so the
+      // combined variants match what per-course generation produced.
+      const mergedKeyUrl = await this.mergeAndUpload(
+        completedCourses,
+        'keyDownloadUrl',
+        `${keyPrefix}/Completo_keys.pdf`,
+      );
+      const mergedSolutionUrl = await this.mergeAndUpload(
+        completedCourses,
+        'solutionDownloadUrl',
+        `${keyPrefix}/Completo_solutions.pdf`,
       );
 
       await this.cls.runWith({ tenantSchema: schemaName } as any, async () => {
         await this.materialDownloadsUseCase.updateMergedDownloadUrl(
           material_request_id,
           mergedUrl,
+          mergedKeyUrl ?? undefined,
+          mergedSolutionUrl ?? undefined,
         );
       });
 
@@ -858,5 +681,49 @@ export class PdfGenerationProcessor extends WorkerHost {
       // the failed queue and retryable without invalidating good output.
       throw error;
     }
+  }
+
+  /**
+   * Merges the PDFs referenced by `urlField` across the given course rows
+   * into one document and uploads it. Returns null when no source could be
+   * merged (field absent on every course, or every fetch failed) so the
+   * caller can distinguish "variant not produced" from a real URL.
+   */
+  private async mergeAndUpload(
+    courses: any[],
+    urlField: string,
+    s3Key: string,
+  ): Promise<string | null> {
+    const sources = courses.filter((c: any) => c[urlField]);
+    if (sources.length === 0) return null;
+
+    const mergedPdf = await PDFDocument.create();
+    let pagesAdded = false;
+    for (const course of sources) {
+      try {
+        let key = course[urlField];
+        if (key.startsWith('http')) {
+          const urlObj = new URL(key);
+          const parts = urlObj.pathname.split('/');
+          key = parts.slice(2).join('/');
+        }
+        const pdfBuffer = await this.s3Service.getObject(key);
+        const pdfDoc = await PDFDocument.load(pdfBuffer);
+        const pages = await mergedPdf.copyPages(
+          pdfDoc,
+          pdfDoc.getPageIndices(),
+        );
+        pages.forEach((page) => mergedPdf.addPage(page));
+        pagesAdded = true;
+      } catch (err: any) {
+        this.logger.warn(
+          `Skipping course ${course.courseId} (${urlField}) for merge: ${err.message}`,
+        );
+      }
+    }
+    if (!pagesAdded) return null;
+
+    const mergedBuffer = Buffer.from(await mergedPdf.save());
+    return this.s3Service.uploadBuffer(s3Key, mergedBuffer, 'application/pdf');
   }
 }

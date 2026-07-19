@@ -21,6 +21,10 @@ describe('GenerateMaterialUseCase', () => {
   let commitShouldFail: boolean;
   /** In-memory stand-in for the single materials row keyed by the natural key. */
   let materialRow: any;
+  /** Number of tenant transactions currently open (0 = outside any tx). */
+  let txDepth: number;
+  /** txDepth observed at the moment each question-bank call was made. */
+  let bankCallDepths: number[];
   /**
    * When set, simulates a concurrent request that inserted the material first:
    * our own `INSERT ... ON CONFLICT DO NOTHING` becomes a no-op and the row
@@ -66,7 +70,10 @@ describe('GenerateMaterialUseCase', () => {
           return { identifiers: [], raw: [] };
         }
         materialRow = { ...insertedValues };
-        return { identifiers: [{ id: materialRow.id }], raw: [{ id: materialRow.id }] };
+        return {
+          identifiers: [{ id: materialRow.id }],
+          raw: [{ id: materialRow.id }],
+        };
       }),
     };
 
@@ -90,7 +97,11 @@ describe('GenerateMaterialUseCase', () => {
           };
         }
         if (entity === Company) {
-          return { id: TENANT_ID, commercialName: 'Academia Real', logoUrl: 'l' };
+          return {
+            id: TENANT_ID,
+            commercialName: 'Academia Real',
+            logoUrl: 'l',
+          };
         }
         if (entity === Syllabus) return { id: 'syllabus-1' };
         // Reflects the current state of the single materials row: null until the
@@ -105,7 +116,10 @@ describe('GenerateMaterialUseCase', () => {
         if (entity === MaterialRequest) return [];
         return [];
       }),
-      create: jest.fn((_entity: any, obj: any) => ({ id: 'generated-id', ...obj })),
+      create: jest.fn((_entity: any, obj: any) => ({
+        id: 'generated-id',
+        ...obj,
+      })),
       save: jest.fn(async (_entity: any, obj?: any) => obj ?? _entity),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       delete: jest.fn().mockResolvedValue({ affected: 0 }),
@@ -117,20 +131,35 @@ describe('GenerateMaterialUseCase', () => {
     );
 
     queue = { add: jest.fn().mockResolvedValue(undefined) };
-    materialsRepo = { getUsedQuestionsInCycle: jest.fn().mockResolvedValue([]) };
+    materialsRepo = {
+      getUsedQuestionsInCycle: jest.fn().mockResolvedValue([]),
+    };
+    txDepth = 0;
+    bankCallDepths = [];
     questionBankService = {
-      getSubtopicQuestionMappings: jest.fn().mockResolvedValue([]),
-      getQuestionsByIds: jest.fn().mockResolvedValue([]),
+      getSubtopicQuestionMappings: jest.fn(async () => {
+        bankCallDepths.push(txDepth);
+        return [];
+      }),
+      getQuestionsByIds: jest.fn(async () => {
+        bankCallDepths.push(txDepth);
+        return [];
+      }),
     };
 
     const tenantService: any = {
       runInTenant: jest.fn(async (cb: any) => {
-        const res = await cb(manager);
-        // Everything the callback did is only durable once runInTenant
-        // resolves; sample the queue exactly at that boundary.
-        addCallsAtCommit = queue.add.mock.calls.length;
-        if (commitShouldFail) throw new Error('transaction rolled back');
-        return res;
+        txDepth++;
+        try {
+          const res = await cb(manager);
+          // Everything the callback did is only durable once runInTenant
+          // resolves; sample the queue exactly at that boundary.
+          addCallsAtCommit = queue.add.mock.calls.length;
+          if (commitShouldFail) throw new Error('transaction rolled back');
+          return res;
+        } finally {
+          txDepth--;
+        }
       }),
     };
 
@@ -220,6 +249,37 @@ describe('GenerateMaterialUseCase', () => {
         ([entity]: any[]) => entity === MaterialRequest,
       );
       expect(created[1].materialType).toBe('BALOTARIO');
+    });
+  });
+
+  describe('question-bank I/O outside the tenant transaction', () => {
+    it('calls the question bank with no tenant transaction open', async () => {
+      await useCase.execute(TENANT_ID, USER_ID, dto());
+
+      // The bank is a second datasource: its lookups must run between the
+      // read tx and the write tx, never while a tenant tx (and its pooled
+      // connection) is held open.
+      expect(
+        questionBankService.getSubtopicQuestionMappings,
+      ).toHaveBeenCalled();
+      expect(bankCallDepths.length).toBeGreaterThan(0);
+      expect(bankCallDepths.every((d) => d === 0)).toBe(true);
+    });
+
+    it('still persists the review slots for auditing after the split', async () => {
+      await useCase.execute(TENANT_ID, USER_ID, dto());
+
+      // 2 slots (questionsQuantity: 2) with an empty bank -> EMPTY slots, in
+      // position order, saved inside the write transaction.
+      const reviewSave = manager.save.mock.calls.find(
+        ([, obj]: any[]) =>
+          Array.isArray(obj) && obj.length > 0 && obj[0].position,
+      );
+      expect(reviewSave).toBeDefined();
+      const slots = reviewSave[1];
+      expect(slots).toHaveLength(2);
+      expect(slots.map((s: any) => s.position)).toEqual([1, 2]);
+      expect(slots.every((s: any) => s.status === 'EMPTY')).toBe(true);
     });
   });
 

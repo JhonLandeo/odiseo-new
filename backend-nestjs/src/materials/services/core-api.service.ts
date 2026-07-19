@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QuestionBankService } from '../../question-bank/question-bank.service';
 import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
-import { InjectEntityManager } from '@nestjs/typeorm';
-import { EntityManager } from 'typeorm';
 import { GcsService } from '../../gcs/gcs.service';
+import { TenantService } from '../../database/tenant.service';
 import { Cycle } from '../../academic-time/entities/cycle.entity';
 
 export interface ExtractedQuestion {
@@ -54,8 +53,7 @@ export class CoreApiService {
     private readonly questionBankService: QuestionBankService,
     private readonly flatQuestionsRepo: FlatQuestionsRepository,
     private readonly gcsService: GcsService,
-    @InjectEntityManager()
-    private readonly defaultEntityManager: EntityManager,
+    private readonly tenantService: TenantService,
   ) {}
 
   /**
@@ -94,11 +92,16 @@ export class CoreApiService {
     const questionIds = filteredQuestions.map((q) => q.id);
     const flatQuestions = await this.flatQuestionsRepo.findByIds(questionIds);
 
-    const cycle = cycleId
-      ? await this.defaultEntityManager.findOne(Cycle, {
-          where: { id: cycleId },
-        })
-      : null;
+    // Cycle lives in the tenant schema; the default EntityManager only sees
+    // `public`, so reading it there resolved universityId to null and degraded
+    // every textOrigin to 'Desconocido'.
+    const cycle =
+      cycleId && tenantId
+        ? await this.tenantService.runInSchema(
+            'tenant_' + tenantId,
+            (manager) => manager.findOne(Cycle, { where: { id: cycleId } }),
+          )
+        : null;
     const universityId = cycle?.universityId;
 
     const results: ExtractedQuestion[] = [];

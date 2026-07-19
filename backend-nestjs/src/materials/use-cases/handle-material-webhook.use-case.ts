@@ -211,7 +211,9 @@ export class HandleMaterialWebhookUseCase {
           this.logger.error(
             `Question-usage ledger write failed for request ${courseReq.materialRequestId} course ${courseReq.courseId}; ` +
               `committing status ${incomingStatus} WITHOUT usage rows — anti-repetition is weakened for this course`,
-            ledgerError instanceof Error ? ledgerError.stack : String(ledgerError),
+            ledgerError instanceof Error
+              ? ledgerError.stack
+              : String(ledgerError),
           );
         }
       }

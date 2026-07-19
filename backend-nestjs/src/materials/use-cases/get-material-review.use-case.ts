@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { In } from 'typeorm';
 import { TenantService } from '../../database/tenant.service';
 import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
 import { GcsService } from '../../gcs/gcs.service';
@@ -46,9 +47,22 @@ export class GetMaterialReviewUseCase {
         order: { position: 'ASC' },
       });
 
-      // Load all topics and subtopics to resolve names in memory
-      const topics = await manager.find(Topic);
-      const subtopics = await manager.find(Subtopic);
+      // Resolve names for only the topics/subtopics the review questions
+      // reference — an unfiltered find() loaded both catalogs whole.
+      const topicIds = [
+        ...new Set(questions.map((q) => q.topicId).filter(Boolean)),
+      ];
+      const subtopicIds = [
+        ...new Set(questions.map((q) => q.subtopicId).filter(Boolean)),
+      ];
+      const topics =
+        topicIds.length > 0
+          ? await manager.find(Topic, { where: { id: In(topicIds) } })
+          : [];
+      const subtopics =
+        subtopicIds.length > 0
+          ? await manager.find(Subtopic, { where: { id: In(subtopicIds) } })
+          : [];
 
       const topicMap = new Map(topics.map((t) => [t.id, t]));
       const subtopicMap = new Map(subtopics.map((s) => [s.id, s]));
@@ -189,6 +203,10 @@ export class GetMaterialReviewUseCase {
         ...new Set(questionsResponse.map((q) => q.courseId).filter(Boolean)),
       ];
       if (template) {
+        const courseDistributions: {
+          courseId: string;
+          dist: SyllabusDistribution;
+        }[] = [];
         for (const courseId of courseIds) {
           const syllabus = await manager.findOne(Syllabus, {
             where: { courseId, cycleId: request.cycleId, isActive: true },
@@ -198,18 +216,51 @@ export class GetMaterialReviewUseCase {
           const distributions = await manager.find(SyllabusDistribution, {
             where: { syllabusId: syllabus.id, weekNumber: request.weekNumber },
           });
-
           for (const dist of distributions) {
-            const topic = topicMap.get(dist.topicId);
-            const subtopic = subtopicMap.get(dist.subtopicId);
-            allowedSyllabusUnits.push({
-              courseId,
-              topicId: dist.topicId,
-              topicName: topic?.name || 'Desconocido',
-              subtopicId: dist.subtopicId,
-              subtopicName: subtopic?.name || 'Desconocido',
-            });
+            courseDistributions.push({ courseId, dist });
           }
+        }
+
+        // The syllabus may reference topics/subtopics no review question
+        // uses; backfill those so the filtered catalog load above still
+        // resolves every distribution name.
+        const missingTopicIds = [
+          ...new Set(
+            courseDistributions
+              .map(({ dist }) => dist.topicId)
+              .filter((id) => id && !topicMap.has(id)),
+          ),
+        ];
+        const missingSubtopicIds = [
+          ...new Set(
+            courseDistributions
+              .map(({ dist }) => dist.subtopicId)
+              .filter((id) => id && !subtopicMap.has(id)),
+          ),
+        ];
+        if (missingTopicIds.length > 0) {
+          const extraTopics = await manager.find(Topic, {
+            where: { id: In(missingTopicIds) },
+          });
+          for (const t of extraTopics) topicMap.set(t.id, t);
+        }
+        if (missingSubtopicIds.length > 0) {
+          const extraSubtopics = await manager.find(Subtopic, {
+            where: { id: In(missingSubtopicIds) },
+          });
+          for (const s of extraSubtopics) subtopicMap.set(s.id, s);
+        }
+
+        for (const { courseId, dist } of courseDistributions) {
+          const topic = topicMap.get(dist.topicId);
+          const subtopic = subtopicMap.get(dist.subtopicId);
+          allowedSyllabusUnits.push({
+            courseId,
+            topicId: dist.topicId,
+            topicName: topic?.name || 'Desconocido',
+            subtopicId: dist.subtopicId,
+            subtopicName: subtopic?.name || 'Desconocido',
+          });
         }
       }
 
