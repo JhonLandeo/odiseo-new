@@ -86,10 +86,6 @@
                  </div>
                  <div>
                    <div class="font-semibold text-slate-900 dark:text-white">{{ tenant.commercialName }}</div>
-                   <div v-if="tenant.adminEmail" class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5 flex items-center gap-1">
-                     <UIcon name="i-heroicons-envelope" class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                     <span>Acceso: <strong class="font-semibold text-slate-600 dark:text-slate-300">{{ tenant.adminEmail }}</strong></span>
-                   </div>
                  </div>
                </td>
               <td class="whitespace-nowrap px-3 py-4 text-sm text-slate-600 dark:text-slate-300 font-mono">

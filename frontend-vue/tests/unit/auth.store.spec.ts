@@ -19,6 +19,7 @@ describe('Auth Store (Spatie RBAC Hydration)', () => {
     // Simular hidratación de login
     authStore.user = {
       id: 'uuid-1',
+      name: 'Admin Colegio',
       email: 'admin@colegio.com',
       companyId: 'uuid-company-A',
       roles: ['super-admin', 'teacher'],
@@ -36,6 +37,7 @@ describe('Auth Store (Spatie RBAC Hydration)', () => {
     
     authStore.user = {
       id: 'uuid-1',
+      name: 'Admin Colegio',
       email: 'admin@colegio.com',
       companyId: 'uuid-company-A',
       roles: ['super-admin'],

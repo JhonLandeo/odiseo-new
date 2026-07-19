@@ -39,7 +39,7 @@ const targetQuestionsQuantity = computed(() => {
   return courseConfig ? courseConfig.questionsQuantity : null;
 });
 
-watch(() => [templates.value, syllabus.value?.templateId, store.activeTemplateId], ([newTemplates, savedTemplateId, activeId]) => {
+watch(() => [templates.value, syllabus.value?.templateId, store.activeTemplateId] as const, ([newTemplates, savedTemplateId, activeId]) => {
   if (activeId && newTemplates.some(t => t.id === activeId)) {
     selectedTemplateId.value = activeId as string;
   } else if (savedTemplateId && newTemplates.some(t => t.id === savedTemplateId)) {
@@ -331,7 +331,7 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
       title: 'Semana con Materiales Generados',
       description: 'Esta semana ya tiene materiales generados. Al modificar la distribución, los materiales existentes podrían quedar desactualizados.',
       color: 'warning',
-      timeout: 5000
+      duration: 5000
     });
   }
 

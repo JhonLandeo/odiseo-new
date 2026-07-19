@@ -60,12 +60,12 @@ async function openPreview() {
         <template #default>
           {{ store.designs.find(d => d.id === selectedId)?.name || 'Sin personalización' }}
         </template>
-        <template #option="{ option }">
+        <template #item="{ item }">
           <div class="flex items-center gap-2">
-            <span class="w-3 h-3 rounded-full" :style="{ background: 'rgb(' + (option.primaryTitleColor || '2, 113, 184') + ')' }" />
-            <span>{{ option.name }}</span>
-            <span v-if="option.cycleCount" class="text-[9px] text-slate-400 dark:text-slate-500">({{ option.cycleCount }} {{ option.cycleCount === 1 ? 'ciclo' : 'ciclos' }})</span>
-            <UBadge v-if="option.isDefault" size="xs" color="indigo" variant="solid">Default</UBadge>
+            <span class="w-3 h-3 rounded-full" :style="{ background: 'rgb(' + (item.primaryTitleColor || '2, 113, 184') + ')' }" />
+            <span>{{ item.name }}</span>
+            <span v-if="item.cycleCount" class="text-[9px] text-slate-400 dark:text-slate-500">({{ item.cycleCount }} {{ item.cycleCount === 1 ? 'ciclo' : 'ciclos' }})</span>
+            <UBadge v-if="item.isDefault" size="xs" color="indigo" variant="solid">Default</UBadge>
           </div>
         </template>
       </USelectMenu>

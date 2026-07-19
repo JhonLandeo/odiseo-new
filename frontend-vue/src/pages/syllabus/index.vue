@@ -193,14 +193,14 @@ async function onToggleSyllabus(syllabusId: string, isActive: boolean) {
     toast.add({
       title: isActive ? 'Sílabo reactivado' : 'Sílabo archivado',
       color: 'success',
-      timeout: 2000
+      duration: 2000
     });
   } catch (e: any) {
     toast.add({
       title: 'Error',
       description: e.message || 'No se pudo actualizar el estado del sílabo',
       color: 'red',
-      timeout: 3000
+      duration: 3000
     });
   }
 }

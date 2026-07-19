@@ -114,6 +114,17 @@ const currentCycleName = computed(() => {
   return cycle ? cycle.name : 'Ciclo'
 })
 
+const availableWeeksOptions = computed(() => {
+  const cycle = props.cycleId
+    ? academicStore.cycles.find(c => c.id === props.cycleId)
+    : null
+  const totalWeeks = cycle?.totalWeeks || 16
+  return Array.from({ length: totalWeeks }, (_, i) => ({
+    label: `Semana ${i + 1}`,
+    value: i + 1,
+  }))
+})
+
 // Prefill form values when opened
 watch(isOpen, async (newVal) => {
   if (newVal) {

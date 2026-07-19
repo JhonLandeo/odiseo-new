@@ -367,7 +367,7 @@ async function onToggleWeek(week: CycleWeek) {
   try {
     await store.toggleWeekVisibility(week.id, !week.isActive)
   } catch (e: any) {
-    toast.add({ title: e.message, color: 'red', timeout: 3000 })
+    toast.add({ title: e.message, color: 'red', duration: 3000 })
   } finally {
     pendingWeeks.value.delete(week.id)
   }
@@ -377,7 +377,7 @@ async function onToggleCycleVisibility(cycle: Cycle) {
   try {
     await store.toggleCycleVisibility(cycle.id, !cycle.isActive)
   } catch (e: any) {
-    toast.add({ title: e.message, color: 'red', timeout: 3000 })
+    toast.add({ title: e.message, color: 'red', duration: 3000 })
   }
 }
 
@@ -393,10 +393,10 @@ async function confirmDeleteCycle() {
   isDeleting.value = true
   try {
     await store.deleteCycle(cycleToDeleteId.value)
-    toast.add({ title: 'Ciclo eliminado con éxito', color: 'success', timeout: 2000 })
+    toast.add({ title: 'Ciclo eliminado con éxito', color: 'success', duration: 2000 })
     isDeleteConfirmOpen.value = false
   } catch (e: any) {
-    toast.add({ title: e.message, color: 'red', timeout: 3000 })
+    toast.add({ title: e.message, color: 'red', duration: 3000 })
   } finally {
     isDeleting.value = false
   }

@@ -18,21 +18,7 @@
       <UButton
         color="primary"
         size="lg"
-        :loading="isLoadingDemo"
-        :disabled="isLoadingDemo"
         class="btn-demo"
-        @click="handleSeedDemo"
-      >
-        <template #leading>
-          <UIcon name="i-heroicons-sparkles" />
-        </template>
-        Cargar datos demo
-      </UButton>
-
-      <UButton
-        color="neutral"
-        variant="ghost"
-        size="lg"
         @click="emit('create')"
       >
         <template #leading>
@@ -41,62 +27,25 @@
         Crear {{ createLabel }}
       </UButton>
     </div>
-
-    <!-- Hint text -->
-    <p class="empty-hint">
-      Los datos demo son temporales. Puedes limpiarlos cuando estés listo para comenzar de verdad.
-    </p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useOnboardingStore } from '../store/onboarding'
-import { useToast } from '#imports'
-
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   title?: string
   description?: string
   icon?: string
   createLabel?: string
 }>(), {
   title: 'Aquí verás tu información',
-  description: 'Carga datos de demostración para explorar la plataforma, o crea tu primer registro manualmente.',
+  description: 'Crea tu primer registro para empezar a trabajar en la plataforma.',
   icon: 'i-heroicons-academic-cap',
   createLabel: 'registro',
 })
 
 const emit = defineEmits<{
   create: []
-  demo_loaded: []
 }>()
-
-const onboardingStore = useOnboardingStore()
-const toast = useToast()
-const isLoadingDemo = ref(false)
-
-async function handleSeedDemo() {
-  isLoadingDemo.value = true
-  try {
-    await onboardingStore.seedDemo()
-    toast.add({
-      title: '¡Datos demo cargados!',
-      description: 'Explora la plataforma con datos de ejemplo. Puedes limpiarlos cuando quieras.',
-      color: 'success',
-      duration: 4000,
-    })
-    emit('demo_loaded')
-  } catch (e: any) {
-    toast.add({
-      title: 'Error al cargar datos demo',
-      description: e.message,
-      color: 'error',
-      duration: 5000,
-    })
-  } finally {
-    isLoadingDemo.value = false
-  }
-}
 </script>
 
 <style scoped>

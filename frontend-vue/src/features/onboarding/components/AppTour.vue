@@ -7,7 +7,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useOnboardingStore } from '../store/onboarding'
-import { driver } from 'driver.js'
+import { driver, type DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import confetti from 'canvas-confetti'
 import { useRoute } from 'vue-router'
@@ -80,8 +80,8 @@ function evaluateTourState() {
 
   openMenuForStep(nextStep.id)
 
-  let steps = []
-  
+  let steps: DriveStep[] = []
+
   if (nextStep.id === 'create_cycle') {
     if (route.path !== '/academic-time') {
       steps = [{

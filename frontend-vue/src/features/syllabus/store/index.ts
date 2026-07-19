@@ -44,7 +44,15 @@ export const useSyllabusStore = defineStore('syllabus', () => {
       });
       syllabus.value = (response as { syllabus: Syllabus }).syllabus;
       if (syllabus.value) {
-        syllabiList.value.push(syllabus.value);
+        // A freshly created syllabus has no distributions yet, so it starts with
+        // zero filled weeks. `totalWeeks` is filled in by the next fetch from the
+        // cycle; the list consumers guard against a 0/undefined value.
+        const created: SyllabusWithProgress = {
+          ...syllabus.value,
+          totalWeeks: 0,
+          filledWeeks: [],
+        };
+        syllabiList.value.push(created);
       }
     } catch (err: unknown) {
       error.value = (err as { data?: { message?: string } })?.data?.message || (err instanceof Error ? err.message : 'Error al crear el sílabo.');
@@ -174,7 +182,7 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     try {
       const authStore = useAuthStore();
       const subdomain = authStore.getSubdomain();
-      const response = await $fetch(`/api/v1/syllabus/cycle/${targetCycleId}/clone-from/${sourceCycleId}`, {
+      const response = await $fetch<{ clonedCount: number }>(`/api/v1/syllabus/cycle/${targetCycleId}/clone-from/${sourceCycleId}`, {
         method: 'POST',
         headers: { 'x-subdomain': subdomain }
       });

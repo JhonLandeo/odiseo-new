@@ -162,7 +162,7 @@ async function handleResetTour() {
       title: 'Tour reiniciado',
       description: 'El recorrido interactivo se ha activado nuevamente.',
       color: 'success',
-      timeout: 4000
+      duration: 4000
     })
   } catch (e: any) {
     toast.add({

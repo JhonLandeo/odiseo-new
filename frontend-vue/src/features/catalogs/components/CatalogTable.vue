@@ -348,7 +348,7 @@ async function onToggleActive(topic: CatalogTopic) {
   try {
     await store.toggleVisibility(topic.id, !topic.isActive)
   } catch (e: any) {
-    toast.add({ title: e.message, color: 'red', timeout: 3000 })
+    toast.add({ title: e.message, color: 'red', duration: 3000 })
   } finally {
     pendingTopics.value.delete(topic.id)
   }

@@ -162,7 +162,7 @@ async function confirmDeleteTemplate() {
   isDeletingTemplate.value = true
   try {
     await store.deleteTemplate(props.cycleId, templateToDeleteId.value)
-    toast.add({ title: 'Plantilla eliminada', color: 'success', timeout: 2000 })
+    toast.add({ title: 'Plantilla eliminada', color: 'success', duration: 2000 })
     isDeleteConfirmOpen.value = false
   } catch (e) {
     console.error(e)
@@ -184,7 +184,7 @@ function handleGenerateSuccess() {
     title: 'Generación iniciada',
     description: 'Revisa el Workspace de Materiales para seguir el progreso.',
     color: 'success',
-    timeout: 3000
+    duration: 3000
   })
 }
 </script>

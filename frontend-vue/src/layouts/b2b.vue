@@ -45,28 +45,28 @@
               <template v-if="item.items && item.items.length > 0">
                 <button
                   :id="item.menuKey ? 'menu-' + item.menuKey : undefined"
-                  :aria-expanded="!!expandedMenus[item.menuKey]"
+                  :aria-expanded="!!isMenuExpanded(item.menuKey)"
                   @click="handleMenuToggle(item.menuKey)"
                   class="
                     w-full flex items-center justify-between px-3 py-2.5 rounded-lg
                     transition-colors duration-200 group outline-none
                     hover:bg-slate-100 dark:hover:bg-[#36364e]
                   "
-                  :class="(expandedMenus[item.menuKey] && isSidebarOpen) ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'"
+                  :class="(isMenuExpanded(item.menuKey) && isSidebarOpen) ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'"
                 >
                   <div class="flex items-center gap-3 overflow-hidden">
-                    <UIcon :name="item.icon" class="w-5 h-5 shrink-0 transition-colors" :class="(expandedMenus[item.menuKey] && isSidebarOpen) ? 'text-indigo-600 dark:text-indigo-400' : 'text-current group-hover:text-indigo-600 dark:group-hover:text-indigo-400'" />
+                    <UIcon :name="item.icon" class="w-5 h-5 shrink-0 transition-colors" :class="(isMenuExpanded(item.menuKey) && isSidebarOpen) ? 'text-indigo-600 dark:text-indigo-400' : 'text-current group-hover:text-indigo-600 dark:group-hover:text-indigo-400'" />
                     <span v-if="isSidebarOpen" class="font-medium text-sm truncate">{{ item.name }}</span>
                   </div>
-                  <UIcon v-if="isSidebarOpen" name="i-heroicons-chevron-down" class="w-4 h-4 shrink-0 transition-transform duration-200" :class="expandedMenus[item.menuKey] ? 'rotate-180' : ''" />
+                  <UIcon v-if="isSidebarOpen" name="i-heroicons-chevron-down" class="w-4 h-4 shrink-0 transition-transform duration-200" :class="isMenuExpanded(item.menuKey) ? 'rotate-180' : ''" />
                 </button>
 
                 <!-- Submenu Dropdown -->
                 <div
                   class="overflow-hidden transition-all duration-300 ease-in-out"
-                  :style="{ maxHeight: (expandedMenus[item.menuKey] && isSidebarOpen) ? '400px' : '0' }"
+                  :style="{ maxHeight: (isMenuExpanded(item.menuKey) && isSidebarOpen) ? '400px' : '0' }"
                 >
-                  <div class="pl-11 pr-3 py-2 space-y-1 relative" :class="(expandedMenus[item.menuKey] && isSidebarOpen) ? 'mt-1' : ''">
+                  <div class="pl-11 pr-3 py-2 space-y-1 relative" :class="(isMenuExpanded(item.menuKey) && isSidebarOpen) ? 'mt-1' : ''">
                     <!-- Connecting Line -->
                     <div class="absolute left-[27px] top-0 bottom-6 w-px border-l border-slate-200 dark:border-slate-700/50"></div>
                     
@@ -280,12 +280,16 @@ function toggleTheme() {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark';
 }
 
-function handleMenuToggle(menuKey: string | null) {
+function handleMenuToggle(menuKey?: string | null) {
   if (!menuKey) return;
   if (!isSidebarOpen.value) {
     isSidebarOpen.value = true;
   }
   expandedMenus.value[menuKey] = !expandedMenus.value[menuKey];
+}
+
+function isMenuExpanded(menuKey?: string | null) {
+  return !!(menuKey && expandedMenus.value[menuKey]);
 }
 
 function isRouteActive(path: string) {

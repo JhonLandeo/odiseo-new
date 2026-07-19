@@ -23,7 +23,7 @@ function openEdit(id: string) {
 
 function handleSaved() {
   view.value = 'list'
-  toast.add({ title: 'Plantilla guardada', color: 'success', timeout: 2000 })
+  toast.add({ title: 'Plantilla guardada', color: 'success', duration: 2000 })
 }
 
 function handleCancelled() {

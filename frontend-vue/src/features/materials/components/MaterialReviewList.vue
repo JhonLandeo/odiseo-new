@@ -404,7 +404,7 @@ const handleApprove = async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <USelectMenu v-model="selectedCourseId" :items="courseFilterOptions" value-key="id" label-key="name"
               size="sm" :ui="{ content: 'z-popover' }">
-              <template #label>
+              <template #default>
                 <span class="truncate">
                   {{courseFilterOptions.find(c => c.id === selectedCourseId)?.name || 'Cursos(Todos)'}}
                 </span>
@@ -413,7 +413,7 @@ const handleApprove = async () => {
 
             <USelectMenu v-model="selectedTopic" :items="topicFilterOptions" value-key="id" label-key="name" size="sm"
               :ui="{ content: 'z-popover' }">
-              <template #label>
+              <template #default>
                 <span class="truncate">{{topicFilterOptions.find(t => t.id === selectedTopic)?.name || 'Temas (Todos)'
                   }}</span>
               </template>
@@ -421,7 +421,7 @@ const handleApprove = async () => {
 
             <USelectMenu v-model="selectedSubtopic" :items="subtopicFilterOptions" value-key="id" label-key="name"
               size="sm" :ui="{ content: 'z-popover' }">
-              <template #label>
+              <template #default>
                 <span class="truncate">
                   {{subtopicFilterOptions.find(s => s.id === selectedSubtopic)?.name || 'Subtemas(Todos)'}}
                 </span>
@@ -430,7 +430,7 @@ const handleApprove = async () => {
 
             <USelectMenu v-model="selectedLevel" :items="levelFilterOptions" value-key="id" label-key="name" size="sm"
               :ui="{ content: 'z-popover' }">
-              <template #label>
+              <template #default>
                 <span class="truncate">
                   {{levelFilterOptions.find(l => l.id === selectedLevel)?.name || 'Niveles(Todos)'}}
                 </span>

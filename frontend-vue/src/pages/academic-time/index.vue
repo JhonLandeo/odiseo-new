@@ -168,7 +168,7 @@ function onSubmitted() {
   toast.add({
     title: selectedCycle.value ? 'Ciclo actualizado con éxito' : 'Ciclo creado con éxito',
     color: 'success',
-    timeout: 2500
+    duration: 2500
   })
   showCreateSlide.value = false
 }
