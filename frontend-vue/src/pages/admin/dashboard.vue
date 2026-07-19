@@ -32,7 +32,7 @@
             class="block w-full appearance-none rounded-xl border border-slate-300 dark:border-slate-600 bg-white/50 dark:bg-slate-800/50 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-700 dark:text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer"
           >
             <option value="all">🌐 Consolidado Global (Todos)</option>
-            <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">🏢 {{ tenant.commercialName }}</option>
+            <option v-for="tenant in tenantsLite" :key="tenant.id" :value="tenant.id">🏢 {{ tenant.commercialName }}</option>
           </select>
           <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
             <UIcon name="i-heroicons-chevron-up-down" class="w-4 h-4" />
@@ -136,14 +136,16 @@ const { metrics, loading, error } = storeToRefs(store)
 const selectedTenantId = ref('all')
 
 const tenantsStore = useAdminTenantsStore()
-const { tenants } = storeToRefs(tenantsStore)
+const { tenantsLite } = storeToRefs(tenantsStore)
 
 const loadMetrics = () => {
   store.fetchMetrics(selectedTenantId.value)
 }
 
 onMounted(() => {
-  tenantsStore.fetchTenants()
+  // The full active-tenant set, not a page: this filter must offer every
+  // tenant regardless of how many exist (see tenants.store.ts tenantsLite).
+  tenantsStore.fetchTenantsLite()
   loadMetrics()
 })
 </script>

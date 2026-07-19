@@ -11,6 +11,7 @@ function createService(company: any = { id: TENANT_ID }) {
   const mockManager = { query: jest.fn() };
   const companyRepository = {
     find: jest.fn().mockResolvedValue([]),
+    findAndCount: jest.fn().mockResolvedValue([[], 0]),
     findOne: jest.fn().mockResolvedValue(company),
     create: jest.fn((data: any) => ({ ...data })),
     save: jest.fn((entity: any) =>
@@ -405,14 +406,21 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
 describe('TenantsAdminService.findAll', () => {
   afterEach(() => jest.clearAllMocks());
 
+  // `total` is the fixture's full tenant-table count, independent of how many
+  // rows `findAndCount` actually hands back for the page (mirrors Postgres:
+  // COUNT(*) OVER() ignores LIMIT/OFFSET). Callers pass however many `ids`
+  // they want as the page; `total` defaults to that same length unless a test
+  // needs to simulate a bigger table behind a smaller page.
   function withCompanies(
     ids: string[],
     queryImpl: (sql: string) => Promise<any>,
+    total = ids.length,
   ) {
     const created = createService();
-    created.companyRepository.find.mockResolvedValue(
+    created.companyRepository.findAndCount.mockResolvedValue([
       ids.map((id) => ({ id, subdomain: `sub-${id}` })),
-    );
+      total,
+    ]);
     created.mockManager.query.mockImplementation(queryImpl);
     return created;
   }
@@ -422,8 +430,8 @@ describe('TenantsAdminService.findAll', () => {
 
     const result = await service.findAll();
 
-    expect(result).toHaveLength(1);
-    expect(result[0].hasActiveSuperadmin).toBe(true);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].hasActiveSuperadmin).toBe(true);
   });
 
   // The schema name is interpolated into SQL, and identifiers cannot be
@@ -454,8 +462,8 @@ describe('TenantsAdminService.findAll', () => {
 
     const result = await service.findAll();
 
-    expect(result).toHaveLength(3);
-    expect(result.map((r: any) => r.hasActiveSuperadmin)).toEqual([
+    expect(result.data).toHaveLength(3);
+    expect(result.data.map((r: any) => r.hasActiveSuperadmin)).toEqual([
       true,
       false,
       true,
@@ -482,6 +490,123 @@ describe('TenantsAdminService.findAll', () => {
 
     expect(maxInFlight).toBeLessThanOrEqual(4);
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  // Server-side pagination: the O(N) fix. Without a page/pageSize argument
+  // the call must still be bounded (page 1, the default page size) rather
+  // than falling back to loading the whole table.
+  it('defaults to page 1 and the default page size when called with no arguments', async () => {
+    const { service, companyRepository } = withCompanies(
+      [TENANT_ID],
+      async () => [],
+    );
+
+    const result = await service.findAll();
+
+    expect(companyRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 25 }),
+    );
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(25);
+  });
+
+  it('honors an explicit page and pageSize via skip/take', async () => {
+    const { service, companyRepository } = withCompanies(
+      [TENANT_ID],
+      async () => [],
+    );
+
+    const result = await service.findAll(3, 10);
+
+    // page 3 at pageSize 10 skips the first two full pages (20 rows).
+    expect(companyRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 20, take: 10 }),
+    );
+    expect(result.page).toBe(3);
+    expect(result.pageSize).toBe(10);
+  });
+
+  it('reports the full table count as total, not just the page length', async () => {
+    const ids = ['c1', 'c2'];
+    const { service } = withCompanies(ids, async () => [], 47);
+
+    const result = await service.findAll(1, 2);
+
+    expect(result.data).toHaveLength(2);
+    expect(result.total).toBe(47);
+  });
+
+  it('clamps pageSize to the hard cap when the caller asks for more', async () => {
+    const { service, companyRepository } = withCompanies(
+      [TENANT_ID],
+      async () => [],
+    );
+
+    const result = await service.findAll(1, 10_000);
+
+    expect(companyRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 100 }),
+    );
+    expect(result.pageSize).toBe(100);
+  });
+
+  // This is what actually kills the O(N) latency the audit flagged: with a
+  // tenant table far larger than one page, the per-tenant Super Admin probe
+  // fan-out must only run over the page TypeORM returned, never the whole
+  // table's `total` count.
+  it('probes the schema fan-out only for the returned page, not every tenant in the table', async () => {
+    const pageIds = ['c1', 'c2', 'c3'];
+    const { service, mockManager } = withCompanies(
+      pageIds,
+      async () => [],
+      500, // total tenants in the table, far larger than the page
+    );
+
+    await service.findAll(1, 3);
+
+    expect(mockManager.query).toHaveBeenCalledTimes(pageIds.length);
+  });
+
+  // Postgres gives no ordering guarantee without ORDER BY: an unordered
+  // skip/take can hand the same tenant back on two pages, or none, as rows
+  // move. createdAt alone can tie (bulk-seeded companies), so id must be the
+  // tiebreaker for the sort to be fully deterministic across page requests.
+  it('orders by createdAt then id so paging is stable across requests', async () => {
+    const { service, companyRepository } = withCompanies(
+      [TENANT_ID],
+      async () => [],
+    );
+
+    await service.findAll();
+
+    expect(companyRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ order: { createdAt: 'ASC', id: 'ASC' } }),
+    );
+  });
+});
+
+describe('TenantsAdminService.findAllLite', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  // UI selectors (the dashboard's tenant filter) need every active tenant,
+  // not a page, and have no use for the per-tenant schema probe — this must
+  // skip both the pagination cap and the fan-out that finding it requires.
+  it('returns every active tenant with no pagination and no schema fan-out', async () => {
+    const { service, companyRepository, mockManager } = createService();
+    companyRepository.find.mockResolvedValue([
+      { id: 'c1', commercialName: 'Colegio Uno' },
+      { id: 'c2', commercialName: 'Colegio Dos' },
+    ]);
+
+    const result = await service.findAllLite();
+
+    expect(companyRepository.find).toHaveBeenCalledWith({
+      select: ['id', 'commercialName'],
+      where: { isActive: true },
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+    expect(result).toHaveLength(2);
+    expect(mockManager.query).not.toHaveBeenCalled();
   });
 });
 

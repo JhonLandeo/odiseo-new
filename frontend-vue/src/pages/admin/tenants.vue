@@ -130,6 +130,34 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Pager -->
+      <div
+        v-if="!(loading || isFirstLoad) && tenants.length > 0"
+        class="flex items-center justify-between gap-4 border-t border-slate-200 dark:border-slate-700/50 px-6 py-4"
+      >
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          Página {{ page }} de {{ totalPages }}
+        </p>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            :disabled="page <= 1"
+            @click="goToPage(page - 1)"
+            class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            Anterior
+          </button>
+          <button
+            type="button"
+            :disabled="page >= totalPages"
+            @click="goToPage(page + 1)"
+            class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            Siguiente
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Create Modal (Premium Style) -->
@@ -345,7 +373,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAdminTenantsStore } from '@/stores/admin/tenants'
 import { useAdminSubscriptionsStore } from '@/stores/admin/subscriptions'
@@ -357,7 +385,14 @@ definePageMeta({
 })
 
 const tenantsStore = useAdminTenantsStore()
-const { tenants, loading, error } = storeToRefs(tenantsStore)
+const { tenants, loading, error, total, page, pageSize } = storeToRefs(tenantsStore)
+
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+
+const goToPage = async (targetPage: number) => {
+  if (targetPage < 1 || targetPage > totalPages.value) return
+  await tenantsStore.fetchTenants({ page: targetPage, pageSize: pageSize.value })
+}
 
 const subscriptionsStore = useAdminSubscriptionsStore()
 const { plans: subscriptionPlans } = storeToRefs(subscriptionsStore)

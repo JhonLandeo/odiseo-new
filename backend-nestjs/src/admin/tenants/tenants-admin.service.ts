@@ -24,6 +24,20 @@ import { TENANT_MIGRATIONS } from '../../database/tenant-migrations';
 // Name of the tenant's system-default admin role (matches the provisioning seed).
 const SUPER_ADMIN_ROLE_NAME = 'Super Administrador';
 
+// findAll() pagination: bounds both the page size returned to the caller and
+// (critically) the number of per-tenant schema probes the fan-out issues —
+// the fan-out runs over the PAGE's companies, not the whole table, which is
+// what actually keeps findAll() O(pageSize) instead of O(total tenants).
+export const DEFAULT_TENANTS_PAGE_SIZE = 25;
+export const MAX_TENANTS_PAGE_SIZE = 100;
+
+export interface PaginatedTenants {
+  data: any[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 @Injectable()
 export class TenantsAdminService {
   private readonly logger = new Logger(TenantsAdminService.name);
@@ -37,15 +51,50 @@ export class TenantsAdminService {
     private readonly authService: AuthService,
   ) {}
 
-  async findAll(): Promise<any[]> {
-    const companies = await this.companyRepository.find({
+  /**
+   * Minimal id+name projection of every active tenant, for UI selectors
+   * (e.g. the dashboard's tenant filter) that need the full set, not a page,
+   * and have no use for `hasActiveSuperadmin` — so this skips both the
+   * pagination cap and the per-tenant schema fan-out that finding it would
+   * otherwise require. Ordered the same way as findAll for consistency.
+   */
+  async findAllLite(): Promise<Pick<Company, 'id' | 'commercialName'>[]> {
+    return this.companyRepository.find({
+      select: ['id', 'commercialName'],
+      where: { isActive: true },
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+  }
+
+  async findAll(
+    page = 1,
+    pageSize = DEFAULT_TENANTS_PAGE_SIZE,
+  ): Promise<PaginatedTenants> {
+    const safePage = Number.isInteger(page) && page >= 1 ? page : 1;
+    const safePageSize =
+      Number.isInteger(pageSize) && pageSize >= 1
+        ? Math.min(pageSize, MAX_TENANTS_PAGE_SIZE)
+        : DEFAULT_TENANTS_PAGE_SIZE;
+
+    const [companies, total] = await this.companyRepository.findAndCount({
       relations: ['subscriptionPlan'],
+      // Company has no default entity-level ordering, and Postgres makes no
+      // ordering guarantee without ORDER BY: an unordered skip/take can
+      // return a tenant on two pages or on none as the underlying rows move.
+      // createdAt is not unique on its own (bulk-seeded companies can share a
+      // timestamp), so id breaks ties and makes the sort fully deterministic.
+      order: { createdAt: 'ASC', id: 'ASC' },
+      skip: (safePage - 1) * safePageSize,
+      take: safePageSize,
     });
 
     // Bounded fan-out, one worker pool for every tenant schema: see
-    // SCHEMA_FANOUT_CONCURRENCY. A single tenant whose schema is broken must
-    // not blank out the listing for every other tenant, so per-tenant query
-    // failures degrade to hasActiveSuperadmin: false with a warning.
+    // SCHEMA_FANOUT_CONCURRENCY. Pagination above already bounds `companies`
+    // to at most `safePageSize` rows, so this fan-out — the O(N) latency the
+    // audit flagged — now runs over the page, not the whole tenant table. A
+    // single tenant whose schema is broken must not blank out the listing for
+    // every other tenant, so per-tenant query failures degrade to
+    // hasActiveSuperadmin: false with a warning.
     const result = await mapWithConcurrency(
       companies,
       SCHEMA_FANOUT_CONCURRENCY,
@@ -86,7 +135,7 @@ export class TenantsAdminService {
       },
     );
 
-    return result;
+    return { data: result, total, page: safePage, pageSize: safePageSize };
   }
 
   async create(data: {
