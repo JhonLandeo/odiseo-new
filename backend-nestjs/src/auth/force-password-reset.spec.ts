@@ -83,6 +83,37 @@ describe('AC-016 force password reset — wiring', () => {
     });
   });
 
+  // A schema provisioned before 0004 could already hold more than one
+  // onboarding_progress row; the singleton UNIQUE index would then fail and
+  // roll back the migration. 0004 must collapse duplicates first.
+  describe('tenant migration 0004 — onboarding singleton dedup', () => {
+    const sql = () =>
+      TENANT_MIGRATIONS.find(
+        (m) => m.id === '0004_tenant_integrity_constraints',
+      )!.up('tenant_x');
+
+    it('deletes duplicate onboarding rows keeping the earliest (created_at ASC, id ASC)', () => {
+      const body = sql();
+      expect(body).toMatch(/DELETE FROM "tenant_x"\.onboarding_progress/i);
+      expect(body).toMatch(
+        /WHERE id NOT IN \(\s*SELECT id FROM "tenant_x"\.onboarding_progress\s*ORDER BY created_at ASC, id ASC\s*LIMIT 1\s*\)/i,
+      );
+    });
+
+    it('dedups before creating the singleton unique index, or the index would fail', () => {
+      const body = sql();
+      const deletePos = body.search(
+        /DELETE FROM "tenant_x"\.onboarding_progress/i,
+      );
+      const indexPos = body.search(
+        /CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_singleton"/i,
+      );
+      expect(deletePos).toBeGreaterThanOrEqual(0);
+      expect(indexPos).toBeGreaterThanOrEqual(0);
+      expect(deletePos).toBeLessThan(indexPos);
+    });
+  });
+
   describe('super admin seed', () => {
     // The seed picks the password, so the human who receives it must replace it.
     it('inserts the super admin already held for a password change', async () => {

@@ -326,6 +326,19 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         DROP CONSTRAINT IF EXISTS chk_onboarding_progress_singleton;
       ALTER TABLE "${schema}".onboarding_progress
         ADD CONSTRAINT chk_onboarding_progress_singleton CHECK (singleton);
+      -- A schema provisioned before this migration could already hold more than
+      -- one row (the old advisory-lock upsert had no unique constraint to lean
+      -- on). The UNIQUE index below would then fail and roll back the whole
+      -- migration, bricking provisioning. Collapse to a single row first,
+      -- keeping the earliest by (created_at ASC, id ASC) — the exact row
+      -- OnboardingService already resolves to on read. Idempotent: a single-row
+      -- or empty table deletes nothing.
+      DELETE FROM "${schema}".onboarding_progress
+      WHERE id NOT IN (
+        SELECT id FROM "${schema}".onboarding_progress
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+      );
       CREATE UNIQUE INDEX IF NOT EXISTS "uq_onboarding_progress_singleton"
         ON "${schema}".onboarding_progress (singleton);
 
