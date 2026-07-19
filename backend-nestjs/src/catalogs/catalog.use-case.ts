@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { ClsService } from 'nestjs-cls';
@@ -117,6 +117,15 @@ export class CatalogUseCase {
     topicId: string,
     isActive: boolean,
   ): Promise<void> {
+    // Reject an unknown topic with a 404 instead of letting the visibility
+    // upsert hit the FK and surface as a 500. The existence check runs in the
+    // same request tenant context as the upsert below.
+    const courseId =
+      await this.catalogRepository.findCourseIdByTopicId(topicId);
+    if (courseId === null) {
+      throw new NotFoundException(`Topic ${topicId} not found`);
+    }
+
     await this.catalogRepository.updateTopicLocalVisibility(topicId, isActive);
 
     // A single write retires EVERY cached variant for this tenant — course

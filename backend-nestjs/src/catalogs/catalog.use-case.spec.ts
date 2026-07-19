@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { CatalogUseCase } from './catalog.use-case';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -132,6 +133,10 @@ describe('CatalogUseCase', () => {
   it('debería aislar la actualización local en el repositorio e invalidar caché', async () => {
     await useCase.updateTopicVisibility('topic-1', false);
 
+    // The topic must be looked up before writing so a bad id fails as a 404.
+    expect(mockCatalogRepository.findCourseIdByTopicId).toHaveBeenCalledWith(
+      'topic-1',
+    );
     expect(
       mockCatalogRepository.updateTopicLocalVisibility,
     ).toHaveBeenCalledWith('topic-1', false);
@@ -171,5 +176,23 @@ describe('CatalogUseCase', () => {
 
     // Same search term, different namespace => the old entry is unreachable.
     expect(keyAfter).not.toBe(keyBefore);
+  });
+
+  it('lanza NotFound y no escribe ni invalida caché cuando el topic no existe', async () => {
+    mockCatalogRepository.findCourseIdByTopicId.mockResolvedValue(null);
+
+    await expect(
+      useCase.updateTopicVisibility('missing-topic', true),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(
+      mockCatalogRepository.updateTopicLocalVisibility,
+    ).not.toHaveBeenCalled();
+    // No cache-version bump for a rejected write.
+    expect(mockCacheManager.set).not.toHaveBeenCalledWith(
+      'catalogs:version:tenant_test',
+      expect.any(Number),
+      0,
+    );
   });
 });
