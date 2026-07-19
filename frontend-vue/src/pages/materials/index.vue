@@ -321,8 +321,9 @@ definePageMeta({
 
 // TODO(materials-live-progress): the dead WebSocket client that pushed
 // `material.generation.*` toasts was removed (the backend never exposed a
-// gateway). Status changes are only reflected after a manual refresh; wire
-// polling here — or reconnect a real gateway — when live progress is needed.
+// gateway). Status changes are picked up by the 8s poll in onMounted below,
+// not instantly — there is still no live toast when a generation finishes
+// or fails; reconnect a real gateway if that immediate notification is needed.
 
 const materials = ref<any[]>([]);
 const isInitialLoading = ref(true);

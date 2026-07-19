@@ -166,7 +166,7 @@ async function confirmDeleteTemplate() {
     isDeleteConfirmOpen.value = false
   } catch (e) {
     console.error(e)
-    toast.add({ title: 'Error al eliminar', description: 'Ocurrió un problema, inténtalo de nuevo.', color: 'red' })
+    toast.add({ title: 'Error al eliminar', description: 'Ocurrió un problema, inténtalo de nuevo.', color: 'error' })
   } finally {
     isDeletingTemplate.value = false
   }

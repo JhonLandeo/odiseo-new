@@ -48,6 +48,10 @@ const open = (targetId: string) => {
   isOpen.value = true;
 };
 
+const close = () => {
+  isOpen.value = false;
+};
+
 const confirmClone = async () => {
   if (isConfirmDisabled.value || !targetCycleId.value) return;
   try {
@@ -84,7 +88,7 @@ defineExpose({ open });
 
           <UAlert 
             v-if="store.syllabiList.length > 0"
-            color="amber" 
+            color="warning" 
             variant="subtle" 
             icon="i-heroicons-exclamation-triangle" 
             title="Existen sílabos configurados" 
@@ -111,7 +115,7 @@ defineExpose({ open });
           </div>
           
           <div class="flex justify-end gap-2 mt-6">
-            <UButton color="gray" variant="ghost" class="btn-premium-secondary" @click="isOpen = false">Cancelar</UButton>
+            <UButton color="neutral" variant="ghost" class="btn-premium-secondary" @click="close">Cancelar</UButton>
             <UButton color="neutral" variant="ghost" class="btn-premium-primary" @click="confirmClone" :loading="store.loading" :disabled="isConfirmDisabled">Confirmar Clonación</UButton>
           </div>
         </div>

@@ -11,7 +11,7 @@
           placeholder="Buscar cursos, temas o subtemas..."
           icon="i-heroicons-magnifying-glass"
           size="md"
-          color="gray"
+          color="neutral"
           variant="outline"
           class="w-full"
           id="catalog-search-input"
@@ -45,7 +45,7 @@
         <!-- Acciones Rápidas -->
         <UButton
           size="sm"
-          color="gray"
+          color="neutral"
           variant="ghost"
           class="btn-premium-secondary"
           icon="i-heroicons-arrows-pointing-out"
@@ -56,7 +56,7 @@
 
         <UButton
           size="sm"
-          color="gray"
+          color="neutral"
           variant="ghost"
           class="btn-premium-secondary"
           :icon="isAllSubtopicsExpanded ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
@@ -161,7 +161,7 @@
                   <!-- Botón Ojo Visible pero Sutil -->
                   <UButton
                     size="xs"
-                    color="gray"
+                    color="neutral"
                     variant="ghost"
                     :icon="topic.isActive ? 'i-heroicons-eye' : 'i-heroicons-eye-slash'"
                     class="btn-premium-secondary transition-all hover:scale-105"
@@ -348,7 +348,7 @@ async function onToggleActive(topic: CatalogTopic) {
   try {
     await store.toggleVisibility(topic.id, !topic.isActive)
   } catch (e: any) {
-    toast.add({ title: e.message, color: 'red', duration: 3000 })
+    toast.add({ title: e.message, color: 'error', duration: 3000 })
   } finally {
     pendingTopics.value.delete(topic.id)
   }

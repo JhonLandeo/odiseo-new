@@ -158,7 +158,7 @@ function formatDate(dateString: string) {
       <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-6">
         Para comenzar a generar material de estudio, necesitas configurar tu primer Ciclo Académico.
       </p>
-      <UButton color="primary" @click="router.push('/academic-time')">Ir a Ciclos Académicos</UButton>
+      <UButton color="primary" @click="() => { router.push('/academic-time') }">Ir a Ciclos Académicos</UButton>
     </div>
 
     <template v-else>

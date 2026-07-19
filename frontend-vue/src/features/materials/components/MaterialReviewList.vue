@@ -394,7 +394,7 @@ const handleApprove = async () => {
               placeholder="Buscar código o palabra clave..." class="w-full sm:w-72" size="sm"
               :ui="{ icon: { trailing: { pointer: '' } } }">
               <template #trailing>
-                <UButton v-show="searchQuery !== ''" color="gray" variant="link" icon="i-heroicons-x-mark-20-solid"
+                <UButton v-show="searchQuery !== ''" color="neutral" variant="link" icon="i-heroicons-x-mark-20-solid"
                   :padded="false" @click="searchQuery = ''" />
               </template>
             </UInput>

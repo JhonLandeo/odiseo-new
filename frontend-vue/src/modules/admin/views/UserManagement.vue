@@ -148,14 +148,14 @@ const saveRoles = async () => {
       localUser.roles = rolesStore.roles.filter(r => selectedRoles.value.includes(r.id))
     }
     closeModal();
-    toast.add({ title: 'Roles actualizados', description: 'Los roles del usuario fueron guardados.', color: 'green' });
+    toast.add({ title: 'Roles actualizados', description: 'Los roles del usuario fueron guardados.', color: 'success' });
   } catch (err: any) {
     // El backend puede rechazar con un motivo concreto (por ejemplo un 403 por
     // permisos insuficientes). Ese mensaje es lo útil; el genérico es el respaldo.
     toast.add({
       title: 'Error al asignar roles',
       description: rolesStore.error || err?.data?.message || err?.message || 'Ocurrió un error',
-      color: 'red'
+      color: 'error'
     });
   }
 };

@@ -562,7 +562,7 @@ async function saveTemplate() {
       await store.createTemplate(cycleId.value, payload)
     }
     
-    toast.add({ title: 'Cambios guardados exitosamente', color: 'green' })
+    toast.add({ title: 'Cambios guardados exitosamente', color: 'success' })
     // Redirigir de vuelta a la lista
     router.push(`/academic-time/cycles/${cycleId.value}/materials`)
   } catch (e: any) {
@@ -571,7 +571,7 @@ async function saveTemplate() {
     toast.add({ 
       title: 'Error al guardar', 
       description: Array.isArray(errorMsg) ? errorMsg.join(', ') : errorMsg,
-      color: 'red'
+      color: 'error'
     })
   } finally {
     isSaving.value = false

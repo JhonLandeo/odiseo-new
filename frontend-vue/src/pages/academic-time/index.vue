@@ -25,7 +25,7 @@
       <!-- Buscador -->
       <div class="flex-1 max-w-md relative">
         <UInput v-model="searchQuery" placeholder="Buscar ciclo..." icon="i-heroicons-magnifying-glass" size="md"
-          color="gray" variant="outline" class="w-full" id="cycle-search-input"
+          color="neutral" variant="outline" class="w-full" id="cycle-search-input"
           :ui="{ icon: { trailing: { pointer: '' } } }">
           <template #trailing>
             <div
@@ -38,7 +38,7 @@
 
       <!-- Acciones de Matriz -->
       <div class="flex items-center gap-3">
-        <UButton size="sm" color="gray" variant="ghost" class="btn-premium-secondary"
+        <UButton size="sm" color="neutral" variant="ghost" class="btn-premium-secondary"
           icon="i-heroicons-arrows-pointing-out" @click="toggleAllCycles">
           {{ isAllCyclesExpanded ? 'Colapsar Semanas' : 'Expandir Semanas' }}
         </UButton>

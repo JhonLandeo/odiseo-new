@@ -65,11 +65,11 @@ async function openPreview() {
             <span class="w-3 h-3 rounded-full" :style="{ background: 'rgb(' + (item.primaryTitleColor || '2, 113, 184') + ')' }" />
             <span>{{ item.name }}</span>
             <span v-if="item.cycleCount" class="text-[9px] text-slate-400 dark:text-slate-500">({{ item.cycleCount }} {{ item.cycleCount === 1 ? 'ciclo' : 'ciclos' }})</span>
-            <UBadge v-if="item.isDefault" size="xs" color="indigo" variant="solid">Default</UBadge>
+            <UBadge v-if="item.isDefault" size="xs" color="primary" variant="solid">Default</UBadge>
           </div>
         </template>
       </USelectMenu>
-      <UButton v-if="selectedId" color="gray" variant="ghost" icon="i-heroicons-eye"
+      <UButton v-if="selectedId" color="neutral" variant="ghost" icon="i-heroicons-eye"
         @click="openPreview" :disabled="loadingPreview" size="sm" />
     </div>
 
@@ -84,7 +84,7 @@ async function openPreview() {
           <div class="bg-white dark:bg-[#1a1a24] rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col pointer-events-auto">
             <div class="flex items-center justify-between px-6 pt-4 pb-2">
               <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">Vista Previa (Diseño Seleccionado)</h3>
-              <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showPreview = false" />
+              <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="showPreview = false" />
             </div>
             <div class="overflow-y-auto flex-1 px-6 pb-6">
               <PdfDesignPreview :html="previewHtml" :loading="loadingPreview" />

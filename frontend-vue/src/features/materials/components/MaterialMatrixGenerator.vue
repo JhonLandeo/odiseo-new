@@ -476,7 +476,7 @@ defineExpose({ isOpen, openWithContext });
                     plantilla de
                     preguntas para este ciclo académico.
                   </p>
-                  <UButton color="amber" variant="solid" icon="i-heroicons-cog-6-tooth"
+                  <UButton color="warning" variant="solid" icon="i-heroicons-cog-6-tooth"
                     class="mt-6 font-bold shadow-md shadow-amber-500/20" size="md" @click="goToTemplateConfig">
                     Configurar Plantillas Ahora
                   </UButton>

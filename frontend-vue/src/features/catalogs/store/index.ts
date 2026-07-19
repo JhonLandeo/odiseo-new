@@ -115,35 +115,3 @@ export const useCatalogsStore = defineStore('catalogs', () => {
 
   return { courses, allTopics, lastSyncedAt, isLoading, hasFetched, error, fetchCourses, fetchCourseTopics, toggleVisibility }
 })
-
-// --- Mock data for development ---
-function getMockData(): CatalogCourse[] {
-  return [
-    {
-      id: 'c1', name: 'Matemáticas',
-      topics: [
-        { id: 't1', name: 'Álgebra Lineal', isActive: true,
-          subtopics: [
-            { id: 's1', name: 'Matrices' },
-            { id: 's2', name: 'Vectores' },
-          ]
-        },
-        { id: 't2', name: 'Cálculo Diferencial', isActive: true, subtopics: [] },
-        { id: 't3', name: 'Geometría del Espacio', isActive: false, subtopics: [] },
-      ]
-    },
-    {
-      id: 'c2', name: 'Ciencias',
-      topics: [
-        { id: 't4', name: 'Física Cuántica', isActive: true, subtopics: [] },
-        { id: 't5', name: 'Química Orgánica', isActive: true, subtopics: [] },
-      ]
-    },
-    {
-      id: 'c3', name: 'Lenguaje',
-      topics: [
-        { id: 't6', name: 'Comprensión Lectora', isActive: true, subtopics: [] },
-      ]
-    }
-  ]
-}

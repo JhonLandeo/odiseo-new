@@ -237,6 +237,75 @@ describe('Forced password change (AC-016)', () => {
     });
   });
 
+  describe('admin route subdomain guard', () => {
+    it('redirige antes de renderizar /admin/* a un usuario autenticado fuera de odiseo', async () => {
+      const authStore = useAuthStore();
+      authStore.user = buildUser({ permissions: [PERMISSIONS.VIEW_SYLLABUS] }) as any;
+      authStore.isAuthenticated = true;
+      authStore.isInitialized = true;
+      vi.spyOn(authStore, 'getSubdomain').mockReturnValue('colegio');
+
+      await (authMiddleware as any)({ path: '/admin/dashboard', meta: {} });
+
+      // Falls back to the tenant's own landing route (LANDING_ROUTES), the
+      // same target resolveLandingPath already uses elsewhere.
+      expect(navigateTo).toHaveBeenCalledWith('/syllabus');
+    });
+
+    it('redirige la raíz /admin sin necesitar un subpath', async () => {
+      const authStore = useAuthStore();
+      authStore.user = buildUser({ permissions: [] }) as any;
+      authStore.isAuthenticated = true;
+      authStore.isInitialized = true;
+      vi.spyOn(authStore, 'getSubdomain').mockReturnValue('colegio');
+
+      await (authMiddleware as any)({ path: '/admin', meta: {} });
+
+      // No LANDING_ROUTES entry matches empty permissions, so resolveLandingPath
+      // returns null and the guard falls back to '/' — same fallback the
+      // change-password redirect already uses for this case.
+      expect(navigateTo).toHaveBeenCalledWith('/');
+    });
+
+    it('no afecta a un administrador legítimo del subdominio odiseo', async () => {
+      const authStore = useAuthStore();
+      authStore.user = buildUser({ permissions: [] }) as any;
+      authStore.isAuthenticated = true;
+      authStore.isInitialized = true;
+      vi.spyOn(authStore, 'getSubdomain').mockReturnValue('odiseo');
+
+      await (authMiddleware as any)({ path: '/admin/tenants', meta: {} });
+
+      expect(navigateTo).not.toHaveBeenCalled();
+      expect(abortNavigation).not.toHaveBeenCalled();
+    });
+
+    it('no molesta a un usuario no autenticado (el flujo de login sigue igual)', async () => {
+      const authStore = useAuthStore();
+      authStore.isAuthenticated = false;
+      authStore.isInitialized = true;
+
+      await (authMiddleware as any)({ path: '/admin/dashboard', meta: {} });
+
+      expect(navigateTo).toHaveBeenCalledWith('/login');
+    });
+
+    it('sigue respetando meta.permissions en subrutas admin ya cubiertas', async () => {
+      const authStore = useAuthStore();
+      authStore.user = buildUser({ permissions: [] }) as any;
+      authStore.isAuthenticated = true;
+      authStore.isInitialized = true;
+      vi.spyOn(authStore, 'getSubdomain').mockReturnValue('odiseo');
+
+      await (authMiddleware as any)({
+        path: '/admin/tenants',
+        meta: { permissions: [PERMISSIONS.VIEW_CATALOGS] },
+      });
+
+      expect(abortNavigation).toHaveBeenCalled();
+    });
+  });
+
   describe('403 PASSWORD_CHANGE_REQUIRED detection', () => {
     it('reconoce el 403 con el código del backend', () => {
       expect(

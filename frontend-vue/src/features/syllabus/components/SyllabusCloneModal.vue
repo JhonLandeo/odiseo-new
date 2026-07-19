@@ -112,7 +112,7 @@ defineExpose({ isOpen, courseId });
           <h3 class="text-lg font-medium mb-4">Clonar Sílabo Individual</h3>
           <UAlert 
             v-if="store.distributions.length > 0"
-            color="amber" 
+            color="warning" 
             variant="subtle" 
             icon="i-heroicons-exclamation-triangle" 
             title="Existen datos previos" 
@@ -145,7 +145,7 @@ defineExpose({ isOpen, courseId });
           </UFormField>
           
           <div class="flex justify-end gap-2 mt-6">
-            <UButton color="gray" variant="ghost" class="btn-premium-secondary" @click="isOpen = false">Cancelar</UButton>
+            <UButton color="neutral" variant="ghost" class="btn-premium-secondary" @click="isOpen = false">Cancelar</UButton>
             <UButton color="neutral" variant="ghost" class="btn-premium-primary" @click="confirmClone" :loading="store.loading" :disabled="!sourceId">Confirmar Clonación</UButton>
           </div>
         </div>

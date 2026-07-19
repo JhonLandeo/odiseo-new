@@ -25,7 +25,7 @@
               </div>
               <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100">Centro de Ayuda</h3>
             </div>
-            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="isOpen = false" />
+            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isOpen = false" />
           </div>
 
           <div class="space-y-4">
@@ -82,7 +82,7 @@
         <div class="p-6">
           <div class="flex items-center justify-between mb-6">
             <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100">Flujo Principal de Odiseo</h3>
-            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showDiagram = false" />
+            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="showDiagram = false" />
           </div>
           
           <div class="bg-slate-50 dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800">

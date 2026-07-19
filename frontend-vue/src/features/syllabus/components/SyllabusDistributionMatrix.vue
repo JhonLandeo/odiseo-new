@@ -34,8 +34,9 @@ const selectedTemplate = computed(() => {
 });
 
 const targetQuestionsQuantity = computed(() => {
-  if (!selectedTemplate.value || !syllabus.value?.courseId) return null;
-  const courseConfig = selectedTemplate.value.courses?.find(c => c.courseId === syllabus.value.courseId);
+  const currentSyllabus = syllabus.value;
+  if (!selectedTemplate.value || !currentSyllabus?.courseId) return null;
+  const courseConfig = selectedTemplate.value.courses?.find(c => c.courseId === currentSyllabus.courseId);
   return courseConfig ? courseConfig.questionsQuantity : null;
 });
 
@@ -309,6 +310,9 @@ const getColTotal = (weekNumber: number) => {
 const grandTotalQuestionCount = computed(() => store.distributions.reduce((sum, d) => sum + Number(d.questionCount), 0));
 
 const updateCell = async (row: RowData, weekNumber: number, newValueStr: string) => {
+  const currentSyllabus = syllabus.value;
+  if (!currentSyllabus) return;
+
   const dist = store.distributions.find(d => d.topicId === row.topicId && d.subtopicId === row.subtopicId && d.weekNumber === weekNumber);
   const newValue = newValueStr.trim() !== '' ? Number(newValueStr) : null;
 
@@ -319,7 +323,7 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
       description: targetQuestionsQuantity.value !== null
         ? `La cantidad de preguntas debe estar entre 1 y ${targetQuestionsQuantity.value} (límite de la plantilla "${selectedTemplate.value?.name}")`
         : 'La cantidad de preguntas debe estar entre 1 y 100',
-      color: 'red'
+      color: 'error'
     });
     return;
   }
@@ -340,11 +344,11 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
 
   try {
     if (dist && newValue !== null) {
-      await store.updateDistributionQuestionCount(dist.id, syllabus.value.id, newValue);
+      await store.updateDistributionQuestionCount(dist.id, currentSyllabus.id, newValue);
     } else if (dist && newValue === null) {
-      await store.deleteDistribution(dist.id, syllabus.value.id);
+      await store.deleteDistribution(dist.id, currentSyllabus.id);
     } else if (!dist && newValue !== null) {
-      await store.addDistribution(syllabus.value.id, {
+      await store.addDistribution(currentSyllabus.id, {
         weekNumber,
         topicId: row.topicId,
         subtopicId: row.subtopicId,
@@ -353,7 +357,7 @@ const updateCell = async (row: RowData, weekNumber: number, newValueStr: string)
       });
     }
   } catch (e: any) {
-    toast.add({ title: 'Error de Guardado', description: e.message || 'No se pudo guardar la cantidad de preguntas', color: 'red' });
+    toast.add({ title: 'Error de Guardado', description: e.message || 'No se pudo guardar la cantidad de preguntas', color: 'error' });
   } finally {
     savingCells.value.delete(cellKey);
   }
@@ -519,7 +523,7 @@ const formatWeekStatus = (weekNumber: number) => {
         <div class="flex flex-1 items-center gap-4 flex-wrap">
           <div class="w-full max-w-xs relative">
             <UInput v-model="matrixSearchQuery" placeholder="Filtrar por tema o subtema..." icon="i-heroicons-funnel"
-              size="sm" color="gray" variant="outline" class="w-full" />
+              size="sm" color="neutral" variant="outline" class="w-full" />
           </div>
 
           <div class="flex items-center gap-2 shrink-0">
@@ -600,7 +604,7 @@ const formatWeekStatus = (weekNumber: number) => {
                     <div class="topic-accent" />
                     <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">{{
                       group.topicName }}</span>
-                    <UBadge v-if="!group.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                    <UBadge v-if="!group.topicIsActive" color="error" variant="subtle" size="xs">Inactivo</UBadge>
                     <button @click.stop="confirmRemove = { type: 'topic', data: group }"
                       class="w-5 h-5 flex items-center justify-center rounded text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all shrink-0"
                       title="Quitar todo el tema">
@@ -634,7 +638,7 @@ const formatWeekStatus = (weekNumber: number) => {
                       <span class="text-xs text-slate-700 dark:text-slate-300 line-clamp-1" :title="row.subtopicName">
                         {{ row.subtopicName }}
                       </span>
-                      <UBadge v-if="!row.topicIsActive" color="red" variant="subtle" size="xs">Inactivo</UBadge>
+                      <UBadge v-if="!row.topicIsActive" color="error" variant="subtle" size="xs">Inactivo</UBadge>
                       <button @click.stop="confirmRemove = { type: 'row', data: row }"
                         class="w-4 h-4 flex items-center justify-center rounded text-rose-500 hover:text-rose-600 dark:text-rose-400 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all shrink-0"
                         title="Quitar subtema">
@@ -719,7 +723,7 @@ const formatWeekStatus = (weekNumber: number) => {
       </div>
     </div>
 
-    <SyllabusSubtopicSlideOver ref="slideOverRef" :courseId="syllabus?.courseId"
+    <SyllabusSubtopicSlideOver ref="slideOverRef" :courseId="syllabus?.courseId ?? ''"
       :existingKeys="matrixRows.map(r => `${r.topicId}|${r.subtopicId}`)" @add-subtopics="onAddSubtopics" />
 
     <Transition name="backdrop-fade">
@@ -762,7 +766,7 @@ const formatWeekStatus = (weekNumber: number) => {
           <div class="flex justify-end gap-3">
             <UButton color="neutral" variant="soft" size="sm" @click="confirmRemove = null; confirmClearWeek = null">
               Cancelar</UButton>
-            <UButton color="red" size="sm" @click="() => {
+            <UButton color="error" size="sm" @click="() => {
               if (confirmClearWeek) {
                 clearWeek(confirmClearWeek);
                 confirmClearWeek = null;

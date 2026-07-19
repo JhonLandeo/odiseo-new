@@ -136,14 +136,14 @@ const saveRole = async () => {
       await rolesStore.createRole(formData.value);
     }
     emit('saved');
-    toast.add({ title: 'Rol guardado', color: 'green' });
+    toast.add({ title: 'Rol guardado', color: 'success' });
   } catch (err: any) {
     // `assertCanGrant` responde 403 con el detalle de los permisos que el actor
     // no posee: ese texto tiene que llegar al usuario, no un genérico.
     toast.add({
       title: 'Error al guardar el rol',
       description: rolesStore.error || err?.data?.message || err?.message || 'Ocurrió un error',
-      color: 'red'
+      color: 'error'
     });
   }
 };

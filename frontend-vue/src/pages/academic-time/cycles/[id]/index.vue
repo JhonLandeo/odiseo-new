@@ -92,7 +92,7 @@
                 <!-- Header Actions -->
                 <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-[#1a1a28]/50">
                   <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Gestión de Sílabos</h3>
-                  <UButton color="white" variant="solid" icon="i-heroicons-document-duplicate" size="sm" @click="openCycleCloneModal" class="shadow-sm">Clonar desde otro ciclo</UButton>
+                  <UButton color="neutral" variant="solid" icon="i-heroicons-document-duplicate" size="sm" @click="openCycleCloneModal" class="shadow-sm">Clonar desde otro ciclo</UButton>
                 </div>
                 <!-- Empty state: no templates configured -->
                 <div v-if="templateCourseIds.size === 0" class="flex flex-col items-center justify-center py-16 px-6 text-center">

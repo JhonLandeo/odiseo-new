@@ -60,7 +60,7 @@ const toast = useToast()
     <div class="px-8 py-6 max-w-full space-y-6 bg-slate-50/50 dark:bg-[#0f1117] min-h-screen">
       <div class="sticky top-0 z-30 bg-white dark:bg-[#1e1e2d] -mt-6 -mx-8 px-8 pt-5 pb-4 flex items-center justify-between border-b border-slate-200/50 dark:border-slate-700/30">
         <div class="flex items-center gap-3">
-          <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" @click="goBack" size="sm" />
+          <UButton color="neutral" variant="ghost" icon="i-heroicons-arrow-left" @click="goBack" size="sm" />
           <span class="text-sm font-bold text-slate-700 dark:text-slate-300">
             {{ editingId ? 'Editar plantilla' : 'Nueva plantilla' }}
           </span>

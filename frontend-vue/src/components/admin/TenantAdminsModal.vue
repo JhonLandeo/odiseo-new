@@ -191,18 +191,18 @@ const handleSubmit = async () => {
         name: form.value.name,
         is_active: form.value.isActive
       })
-      toast.add({ title: 'Actualizado', description: 'Administrador actualizado con éxito.', color: 'green' })
+      toast.add({ title: 'Actualizado', description: 'Administrador actualizado con éxito.', color: 'success' })
     } else {
       await adminsStore.createAdmin(props.tenantId, {
         name: form.value.name,
         email: form.value.email,
         password: form.value.password
       })
-      toast.add({ title: 'Creado', description: 'Administrador creado con éxito.', color: 'green' })
+      toast.add({ title: 'Creado', description: 'Administrador creado con éxito.', color: 'success' })
     }
     resetForm()
   } catch (e: any) {
-    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'red' })
+    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'error' })
   }
 }
 
@@ -213,10 +213,10 @@ const handlePasswordChange = async () => {
     await adminsStore.changePassword(props.tenantId, editingId.value, {
       password: passwordForm.value.password
     })
-    toast.add({ title: 'Contraseña Actualizada', description: 'La contraseña fue cambiada.', color: 'green' })
+    toast.add({ title: 'Contraseña Actualizada', description: 'La contraseña fue cambiada.', color: 'success' })
     passwordForm.value.password = ''
   } catch (e: any) {
-    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'red' })
+    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'error' })
   }
 }
 
@@ -226,10 +226,10 @@ const confirmDelete = async (id: string) => {
   
   try {
     await adminsStore.deleteAdmin(props.tenantId, id)
-    toast.add({ title: 'Eliminado', description: 'Administrador eliminado.', color: 'green' })
+    toast.add({ title: 'Eliminado', description: 'Administrador eliminado.', color: 'success' })
     if (editingId.value === id) resetForm()
   } catch (e: any) {
-    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'red' })
+    toast.add({ title: 'Error', description: adminsStore.error || 'Ocurrió un error', color: 'error' })
   }
 }
 </script>

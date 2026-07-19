@@ -18,7 +18,7 @@ export const useSyllabusStore = defineStore('syllabus', () => {
     try {
       const api = useApi();
       const response = await api(`/api/v1/syllabus/cycle/${cycleId}`);
-      syllabiList.value = response as Syllabus[];
+      syllabiList.value = response as SyllabusWithProgress[];
       hasFetched.value = true;
     } catch (err: unknown) {
       error.value = err instanceof Error ? err.message : 'Error al obtener los sílabos del ciclo.';

@@ -199,7 +199,7 @@ async function onToggleSyllabus(syllabusId: string, isActive: boolean) {
     toast.add({
       title: 'Error',
       description: e.message || 'No se pudo actualizar el estado del sílabo',
-      color: 'red',
+      color: 'error',
       duration: 3000
     });
   }
@@ -333,7 +333,7 @@ function getGeneralWeekStyle(item: SyllabusWithProgress, week: number) {
         <USelectMenu v-model="selectedCycleId" :items="cycleItems" value-key="id" label-key="name"
           placeholder="Seleccionar ciclo..." class="w-56" :search-input="false" />
 
-        <UButton v-if="!store.syllabus" color="gray" variant="ghost" icon="i-heroicons-document-duplicate" size="md"
+        <UButton v-if="!store.syllabus" color="neutral" variant="ghost" icon="i-heroicons-document-duplicate" size="md"
           class="btn-premium-secondary" @click="openCycleCloneModal()">
           Clonar Ciclo
         </UButton>
@@ -369,7 +369,7 @@ function getGeneralWeekStyle(item: SyllabusWithProgress, week: number) {
         class="sticky top-[6rem] z-20 bg-white dark:bg-[#2b2b3f] border border-slate-200 dark:border-slate-700/50 p-4 rounded-2xl shadow-md flex flex-col sm:flex-row items-center gap-4 transition-all">
         <div class="flex-1 w-full max-w-md relative">
           <UInput v-model="searchQuery" placeholder="Buscar por curso..." icon="i-heroicons-magnifying-glass" size="md"
-            color="gray" variant="outline" class="w-full" id="syllabus-search-input"
+            color="neutral" variant="outline" class="w-full" id="syllabus-search-input"
             :ui="{ icon: { trailing: { pointer: '' } } }">
             <template #trailing>
               <div

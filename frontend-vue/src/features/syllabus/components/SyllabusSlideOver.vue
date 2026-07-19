@@ -99,7 +99,7 @@ defineExpose({ isOpen, form });
           </p>
         </div>
 
-        <UAlert v-if="store.error" color="red" variant="subtle" icon="i-heroicons-exclamation-triangle" :title="store.error" />
+        <UAlert v-if="store.error" color="error" variant="subtle" icon="i-heroicons-exclamation-triangle" :title="store.error" />
       </div>
 
       <div class="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1e1e2d] flex justify-end gap-3 shrink-0">

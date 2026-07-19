@@ -128,7 +128,7 @@ async function handleDelete(templateId: string) {
     toast.add({ title: 'Plantilla eliminada', color: 'success' })
   } catch (e) {
     console.error(e)
-    toast.add({ title: 'Error al eliminar', description: 'Inténtalo de nuevo más tarde.', color: 'red' })
+    toast.add({ title: 'Error al eliminar', description: 'Inténtalo de nuevo más tarde.', color: 'error' })
   }
 }
 </script>

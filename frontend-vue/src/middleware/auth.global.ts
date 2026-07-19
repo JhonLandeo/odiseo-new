@@ -91,6 +91,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return navigateTo('/login');
   }
 
+  // Admin routes are gated to the platform subdomain itself. Without this,
+  // an authenticated non-'odiseo' tenant user passes the check above (they
+  // ARE authenticated) and the full admin layout mounts — onMounted calls
+  // fire and only then does the backend 403 them. Redirect before any admin
+  // page or its meta.roles/meta.permissions gates ever run.
+  if ((to.path === '/admin' || to.path.startsWith('/admin/')) && authStore.getSubdomain() !== 'odiseo') {
+    return navigateTo(resolveLandingPath(authStore) ?? '/');
+  }
+
   // Role-based Access Control (RBAC) check
   const requiredRoles = to.meta.roles as string[] | undefined;
   if (requiredRoles && Array.isArray(requiredRoles)) {

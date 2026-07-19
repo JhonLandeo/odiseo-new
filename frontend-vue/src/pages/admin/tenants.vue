@@ -463,7 +463,7 @@ const handleCreate = async () => {
       taxId: '',
       logoUrl: ''
     }
-    toast.add({ title: 'Empresa registrada', description: 'La empresa y su administrador fueron creados exitosamente.', color: 'green' })
+    toast.add({ title: 'Empresa registrada', description: 'La empresa y su administrador fueron creados exitosamente.', color: 'success' })
   } catch (e) {
     // Error is handled in store
   }
@@ -497,7 +497,7 @@ const handleEditSubmit = async () => {
       logoUrl: editForm.value.logoUrl
     })
     isEditModalOpen.value = false
-    toast.add({ title: 'Empresa actualizada', description: 'Los cambios fueron guardados exitosamente.', color: 'green' })
+    toast.add({ title: 'Empresa actualizada', description: 'Los cambios fueron guardados exitosamente.', color: 'success' })
   } catch (e) {
     // Error is handled in store
   }
@@ -512,7 +512,7 @@ const handleSuspendSubmit = async () => {
   if (!tenantToSuspend.value) return
   try {
     await tenantsStore.updateTenantStatus(tenantToSuspend.value, 'SUSPENDED')
-    toast.add({ title: 'Empresa suspendida', description: 'El tenant ha sido desactivado temporalmente.', color: 'red' })
+    toast.add({ title: 'Empresa suspendida', description: 'El tenant ha sido desactivado temporalmente.', color: 'error' })
   } catch (e) {
     // Error is handled in store
   } finally {
@@ -524,7 +524,7 @@ const handleSuspendSubmit = async () => {
 const handleActivate = async (id: string) => {
   try {
     await tenantsStore.updateTenantStatus(id, 'ACTIVE')
-    toast.add({ title: 'Empresa activada', description: 'El tenant ha sido reactivado exitosamente.', color: 'green' })
+    toast.add({ title: 'Empresa activada', description: 'El tenant ha sido reactivado exitosamente.', color: 'success' })
   } catch (e) {
     // Error is handled in store
   }

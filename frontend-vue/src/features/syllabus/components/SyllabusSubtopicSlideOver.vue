@@ -8,7 +8,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'add-subtopics', selected: { topicId: string; subtopicId: string; topicName: string; subtopicName: string }[]): void;
+  (e: 'add-subtopics', selected: { topicId: string; subtopicId: string; topicName: string; subtopicName: string; topicIsActive: boolean }[]): void;
 }>();
 
 const catalogsStore = useCatalogsStore();
@@ -85,14 +85,16 @@ const addSelected = () => {
           topicId: topic.id,
           subtopicId: subtopic.id,
           topicName: topic.name,
-          subtopicName: subtopic.name
+          subtopicName: subtopic.name,
+          topicIsActive: topic.isActive !== false
         });
       } else if (!sId) {
         itemsToAdd.push({
           topicId: topic.id,
           subtopicId: '',
           topicName: topic.name,
-          subtopicName: ''
+          subtopicName: '',
+          topicIsActive: topic.isActive !== false
         });
       }
     }
@@ -154,7 +156,7 @@ defineExpose({ open, close });
                     <UIcon name="i-heroicons-check" class="w-3 h-3" />
                   </div>
                   <span class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ sub.name }}</span>
-                  <UBadge color="emerald" variant="subtle" size="xs">Agregado</UBadge>
+                  <UBadge color="success" variant="subtle" size="xs">Agregado</UBadge>
                 </template>
                 <template v-else>
                   <UCheckbox :model-value="isSelected(topic.id, sub.id)" @update:model-value="toggleSubtopic(topic.id, sub.id)" @click.stop />
@@ -172,7 +174,7 @@ defineExpose({ open, close });
                     <UIcon name="i-heroicons-check" class="w-3 h-3" />
                   </div>
                   <span class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">Sin subtemas (General)</span>
-                  <UBadge color="emerald" variant="subtle" size="xs">Agregado</UBadge>
+                  <UBadge color="success" variant="subtle" size="xs">Agregado</UBadge>
                 </template>
                 <template v-else>
                   <UCheckbox :model-value="isSelected(topic.id, '')" @update:model-value="toggleSubtopic(topic.id, '')" @click.stop />
