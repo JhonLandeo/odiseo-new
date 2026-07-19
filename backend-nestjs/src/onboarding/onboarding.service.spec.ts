@@ -1,4 +1,12 @@
-import { OnboardingService } from './onboarding.service';
+import { OnboardingService, OnboardingStep } from './onboarding.service';
+
+/** Canonical step order the service maps and reports in. */
+const ORDERED_STEPS: OnboardingStep[] = [
+  'create_cycle',
+  'create_pdf_template',
+  'setup_syllabus',
+  'generate_material',
+];
 
 function createService() {
   const manager = { query: jest.fn() };
@@ -118,6 +126,58 @@ describe('OnboardingService', () => {
       expect(result.progressPercentage).toBe(100);
       expect(result.isDismissed).toBe(true);
     });
+
+    // Behavioural table over EXISTS combinations: percentage, stepsCompleted
+    // ordering, and per-step booleans must all follow from the mocked rows.
+    // Catches a real regression in the derivation math that string-matching
+    // the SQL cannot see.
+    const flagsFor = (completed: OnboardingStep[]): Record<string, boolean> => ({
+      create_cycle: completed.includes('create_cycle'),
+      create_pdf_template: completed.includes('create_pdf_template'),
+      setup_syllabus: completed.includes('setup_syllabus'),
+      generate_material: completed.includes('generate_material'),
+    });
+
+    it.each<[string, OnboardingStep[], number]>([
+      ['0/4 — none', [], 0],
+      ['1/4 — last only', ['generate_material'], 25],
+      ['2/4 — first two', ['create_cycle', 'create_pdf_template'], 50],
+      [
+        '3/4 — skipping the second',
+        ['create_cycle', 'setup_syllabus', 'generate_material'],
+        75,
+      ],
+      [
+        '4/4 — all',
+        [
+          'create_cycle',
+          'create_pdf_template',
+          'setup_syllabus',
+          'generate_material',
+        ],
+        100,
+      ],
+    ])(
+      'derives %s into the right percentage, steps, and per-step booleans',
+      async (_label, completed, expectedPct) => {
+        const { service, manager } = createService();
+        mockProgressQueries(manager, [], flagsFor(completed));
+
+        const result = await service.getProgress();
+
+        // Percentage.
+        expect(result.progressPercentage).toBe(expectedPct);
+        // stepsCompleted preserves the canonical step order, not the input order.
+        expect(result.stepsCompleted).toEqual(
+          ORDERED_STEPS.filter((id) => completed.includes(id)),
+        );
+        // Per-step booleans line up with the same set, in canonical order.
+        expect(result.availableSteps.map((s) => s.id)).toEqual(ORDERED_STEPS);
+        expect(result.availableSteps.map((s) => s.completed)).toEqual(
+          ORDERED_STEPS.map((id) => completed.includes(id)),
+        );
+      },
+    );
 
     // C1 — the read side must pick the same row every time.
     it('reads the dismissal flag from a deterministically ordered row', async () => {
