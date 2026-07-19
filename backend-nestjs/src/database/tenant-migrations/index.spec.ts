@@ -7,9 +7,8 @@ describe('tenant migration 0008 — FK join indexes', () => {
   const migration = () =>
     TENANT_MIGRATIONS.find((m) => m.id === '0008_fk_join_indexes');
 
-  it('appends 0008 as the last migration, directly after 0007', () => {
+  it('keeps 0008 directly after 0007', () => {
     const ids = TENANT_MIGRATIONS.map((m) => m.id);
-    expect(ids[ids.length - 1]).toBe('0008_fk_join_indexes');
     expect(ids.indexOf('0008_fk_join_indexes')).toBe(
       ids.indexOf('0007_onboarding_progress_per_user') + 1,
     );
@@ -47,5 +46,58 @@ describe('tenant migration 0008 — FK join indexes', () => {
     for (const name of names) {
       expect(name.length).toBeLessThanOrEqual(63);
     }
+  });
+});
+
+// 0009 turns the anti-repetition ledger's natural key — one row per
+// (material_request_id, course_id, question_id) — into a real unique index,
+// after collapsing any pre-existing duplicates (keep earliest, the 0004
+// precedent). It is the conflict target for the writer's orIgnore insert.
+describe('tenant migration 0009 — material_question_usage natural key', () => {
+  const migration = () =>
+    TENANT_MIGRATIONS.find(
+      (m) => m.id === '0009_material_question_usage_natural_key',
+    );
+
+  it('appends 0009 as the last migration, directly after 0008', () => {
+    const ids = TENANT_MIGRATIONS.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe(
+      '0009_material_question_usage_natural_key',
+    );
+    expect(ids.indexOf('0009_material_question_usage_natural_key')).toBe(
+      ids.indexOf('0008_fk_join_indexes') + 1,
+    );
+  });
+
+  it('dedups existing rows BEFORE creating the unique index, keeping the earliest', () => {
+    const sql = migration()!.up('tenant_x');
+    const deleteAt = sql.indexOf(
+      'DELETE FROM "tenant_x".material_question_usage',
+    );
+    const createAt = sql.indexOf('CREATE UNIQUE INDEX');
+    expect(deleteAt).toBeGreaterThanOrEqual(0);
+    expect(createAt).toBeGreaterThan(deleteAt);
+    // Earliest-first tiebreak, matching the 0004 dedup precedent.
+    expect(sql).toMatch(/used_at ASC,\s*id ASC/);
+    expect(sql).toMatch(
+      /DISTINCT ON \(material_request_id, course_id, question_id\)/,
+    );
+  });
+
+  it('creates the unique natural-key index idempotently over the request/course/question triple', () => {
+    const sql = migration()!.up('tenant_x');
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS "uq_material_question_usage_request_course_question"\s+ON "tenant_x"\.material_question_usage \(material_request_id, course_id, question_id\)/,
+    );
+  });
+
+  it('keeps the index name unprefixed and within the 63-char identifier limit', () => {
+    const sql = migration()!.up('tenant_x');
+    const names = [
+      ...sql.matchAll(/CREATE UNIQUE INDEX IF NOT EXISTS "([^"]+)"/g),
+    ].map((m) => m[1]);
+    expect(names).toHaveLength(1);
+    expect(names[0]).not.toContain('tenant_x');
+    expect(names[0].length).toBeLessThanOrEqual(63);
   });
 });

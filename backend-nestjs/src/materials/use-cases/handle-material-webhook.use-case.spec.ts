@@ -1,11 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
-import { HandleMaterialWebhookUseCase } from './handle-material-webhook.use-case';
+import {
+  HandleMaterialWebhookUseCase,
+  QuestionUsageRecord,
+} from './handle-material-webhook.use-case';
 import {
   MaterialRequestCourse,
   CourseMaterialStatus,
 } from '../entities/material-request-course.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestStatus } from '../entities/material-status.enum';
+import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const REQUEST_ID = 'req-1';
@@ -45,6 +49,20 @@ function buildHarness(
       materialId: null as string | null,
     },
     lockCaptured: undefined as any,
+    insertedUsages: [] as any[],
+  };
+
+  // Insert-builder stub for the usage ledger write; the chain mirrors
+  // manager.createQueryBuilder().insert().into().values().orIgnore().execute().
+  const insertBuilder: any = {
+    insert: jest.fn(() => insertBuilder),
+    into: jest.fn(() => insertBuilder),
+    values: jest.fn((rows: any[]) => {
+      state.insertedUsages.push(...rows);
+      return insertBuilder;
+    }),
+    orIgnore: jest.fn(() => insertBuilder),
+    execute: jest.fn().mockResolvedValue({}),
   };
 
   const manager = {
@@ -76,11 +94,17 @@ function buildHarness(
       // Material updates are irrelevant to these assertions.
       return { affected: 1 };
     }),
+    delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    createQueryBuilder: jest.fn(() => insertBuilder),
+    // Raw SQL surface used only for the usage-ledger savepoint commands.
+    query: jest.fn().mockResolvedValue(undefined),
   };
 
   const queue = { add: jest.fn().mockResolvedValue(undefined) };
   const cls = {
-    get: jest.fn((key: string) => (key === 'companyId' ? TENANT_ID : undefined)),
+    get: jest.fn((key: string) =>
+      key === 'companyId' ? TENANT_ID : undefined,
+    ),
   };
   const eventEmitter = { emit: jest.fn() };
   const tenantService = {
@@ -94,7 +118,16 @@ function buildHarness(
     eventEmitter as any,
   );
 
-  return { useCase, manager, queue, cls, eventEmitter, tenantService, state };
+  return {
+    useCase,
+    manager,
+    queue,
+    cls,
+    eventEmitter,
+    tenantService,
+    state,
+    insertBuilder,
+  };
 }
 
 describe('HandleMaterialWebhookUseCase', () => {
@@ -209,6 +242,121 @@ describe('HandleMaterialWebhookUseCase', () => {
       // course is already success-terminal so it is ignored outright.
       await useCase.execute({ job_id: 'c2', status: 'completed' } as any);
       expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('atomic anti-repetition ledger', () => {
+    const usages: QuestionUsageRecord[] = [
+      {
+        cycleId: 'cycle-1',
+        questionId: 'q-1',
+        topicId: 't-1',
+        subtopicId: 's-1',
+        positionInPdf: 1,
+        wasReplacement: false,
+      },
+      {
+        cycleId: 'cycle-1',
+        questionId: 'q-2',
+        topicId: 't-1',
+        subtopicId: 's-2',
+        positionInPdf: 2,
+        wasReplacement: true,
+      },
+    ];
+
+    it('writes the usage rows on the SAME transaction manager as the completed status', async () => {
+      const { useCase, manager, state, insertBuilder } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute(
+        { job_id: 'c1', status: 'completed' } as any,
+        usages,
+      );
+
+      // Idempotent rewrite scoped to THIS request+course, keyed off the course
+      // row loaded inside the transaction (not caller-supplied ids).
+      expect(manager.delete).toHaveBeenCalledWith(MaterialQuestionUsage, {
+        materialRequestId: REQUEST_ID,
+        courseId: 'course-x',
+      });
+      // ON CONFLICT DO NOTHING: a raised 23505 would poison the tenant tx.
+      expect(insertBuilder.orIgnore).toHaveBeenCalled();
+      expect(state.insertedUsages).toEqual([
+        expect.objectContaining({
+          materialRequestId: REQUEST_ID,
+          courseId: 'course-x',
+          questionId: 'q-1',
+          positionInPdf: 1,
+          wasReplacement: false,
+        }),
+        expect.objectContaining({
+          materialRequestId: REQUEST_ID,
+          courseId: 'course-x',
+          questionId: 'q-2',
+          positionInPdf: 2,
+          wasReplacement: true,
+        }),
+      ]);
+      expect(state.courses.get('c1')!.status).toBe(
+        CourseMaterialStatus.COMPLETED,
+      );
+    });
+
+    it('commits the completed status even when the ledger insert fails, rolling back to the savepoint', async () => {
+      const { useCase, manager, state, insertBuilder } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+      insertBuilder.execute.mockRejectedValueOnce(
+        new Error('FK violation: topic_id not present'),
+      );
+
+      await useCase.execute(
+        { job_id: 'c1', status: 'completed' } as any,
+        usages,
+      );
+
+      // The ledger failure must NOT sink the status of a PDF that already
+      // exists in S3: roll back to the savepoint, keep COMPLETED.
+      expect(manager.query).toHaveBeenCalledWith('SAVEPOINT usage_ledger');
+      expect(manager.query).toHaveBeenCalledWith(
+        'ROLLBACK TO SAVEPOINT usage_ledger',
+      );
+      expect(state.courses.get('c1')!.status).toBe(
+        CourseMaterialStatus.COMPLETED,
+      );
+    });
+
+    it('does not rewrite the ledger when the callback is an ignored duplicate', async () => {
+      const { useCase, manager, state } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.COMPLETED }],
+        MaterialRequestStatus.COMPLETED,
+      );
+
+      await useCase.execute(
+        { job_id: 'c1', status: 'completed' } as any,
+        usages,
+      );
+
+      // The first delivery already committed status + ledger atomically; a
+      // redelivery must not touch either.
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(state.insertedUsages).toEqual([]);
+    });
+
+    it('never writes usage rows for a non-success status', async () => {
+      const { useCase, manager, state } = buildHarness(
+        [{ id: 'c1', status: CourseMaterialStatus.PROCESSING }],
+        MaterialRequestStatus.PROCESSING,
+      );
+
+      await useCase.execute({ job_id: 'c1', status: 'failed' } as any, usages);
+
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(state.insertedUsages).toEqual([]);
     });
   });
 

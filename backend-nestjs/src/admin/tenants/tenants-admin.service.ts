@@ -15,15 +15,14 @@ import { TenantService } from '../../database/tenant.service';
 import { TenantsService } from '../../tenants/tenants.service';
 import { AuthService } from '../../auth/auth.service';
 import { assertValidSchema } from '../../database/schema-name.util';
-import { mapWithConcurrency } from '../../common/utils/map-with-concurrency.util';
+import {
+  mapWithConcurrency,
+  SCHEMA_FANOUT_CONCURRENCY,
+} from '../../common/utils/map-with-concurrency.util';
+import { TENANT_MIGRATIONS } from '../../database/tenant-migrations';
 
 // Name of the tenant's system-default admin role (matches the provisioning seed).
 const SUPER_ADMIN_ROLE_NAME = 'Super Administrador';
-
-// Upper bound on simultaneous per-tenant-schema queries. The pool holds 20
-// connections shared with request traffic; fanning out one query per tenant
-// with Promise.all would let a platform listing starve everything else.
-const SCHEMA_FANOUT_CONCURRENCY = 4;
 
 @Injectable()
 export class TenantsAdminService {
@@ -194,6 +193,33 @@ export class TenantsAdminService {
           `El esquema del tenant ${company.subdomain} nunca fue aprovisionado; se requiere re-aprovisionarlo antes de activarlo.`,
         );
       }
+
+      // Existence is not enough: provisioning can crash right after CREATE
+      // SCHEMA, leaving an empty or half-built schema. The migration runner
+      // is the seeding authority and its per-schema `_tenant_migrations`
+      // marker table is the guarantee we can check — the initial migration
+      // (which creates every base table) commits atomically with its marker
+      // row, so "marker table present AND initial migration recorded" proves
+      // the base structure exists. Later delta migrations are the operator
+      // CLI's job and must not block recovery here.
+      const markerTable = await this.companyRepository.manager.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = '_tenant_migrations'`,
+        [schemaName],
+      );
+      let seeded = markerTable.length > 0;
+      if (seeded) {
+        const initialMigration = await this.companyRepository.manager.query(
+          `SELECT 1 FROM "${schemaName}"._tenant_migrations WHERE id = $1`,
+          [TENANT_MIGRATIONS[0].id],
+        );
+        seeded = initialMigration.length > 0;
+      }
+      if (!seeded) {
+        throw new ConflictException(
+          `El esquema del tenant ${company.subdomain} existe pero su aprovisionamiento quedó incompleto; se requiere re-aprovisionarlo antes de activarlo.`,
+        );
+      }
+
       company.isActive = true;
     }
 

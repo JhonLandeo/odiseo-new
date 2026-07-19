@@ -10,9 +10,26 @@ import {
 import { MaterialRequest } from '../entities/material-request.entity';
 import { MaterialRequestStatus } from '../entities/material-status.enum';
 import { Material } from '../entities/material.entity';
+import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
 import { ClsService } from 'nestjs-cls';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MATERIALS_JOB_OPTIONS } from '../constants/materials-queue.constants';
+
+/**
+ * One question placed in the generated PDF of the course this callback is
+ * about. `materialRequestId` and `courseId` are NOT part of this shape on
+ * purpose: both are derived from the course row loaded inside the transaction,
+ * so the ledger can never be written against a different course than the one
+ * whose status is being transitioned.
+ */
+export interface QuestionUsageRecord {
+  cycleId: string;
+  questionId: string;
+  topicId: string;
+  subtopicId: string;
+  positionInPdf: number;
+  wasReplacement: boolean;
+}
 
 @Injectable()
 export class HandleMaterialWebhookUseCase {
@@ -54,7 +71,10 @@ export class HandleMaterialWebhookUseCase {
     }
   }
 
-  async execute(statusData: WebhookStatusRequestDto): Promise<void> {
+  async execute(
+    statusData: WebhookStatusRequestDto,
+    questionUsages?: QuestionUsageRecord[],
+  ): Promise<void> {
     if (!statusData.job_id || !statusData.status) {
       throw new BadRequestException('job_id and status are required');
     }
@@ -128,6 +148,73 @@ export class HandleMaterialWebhookUseCase {
       this.logger.log(
         `MaterialRequestCourse ${courseReq.id} updated to ${incomingStatus}`,
       );
+
+      // --- Anti-repetition ledger, atomic with the terminal status ---------
+      //
+      // The usage rows and the success status must commit TOGETHER. They used
+      // to be written by the processor in a separate transaction after this
+      // one committed, so a crash in between left a COMPLETED course whose
+      // questions were never recorded — silently weakening anti-repetition
+      // for every later generation in the cycle. Writing them here, on the
+      // same transaction manager, makes "COMPLETED with no usage rows"
+      // unrepresentable.
+      //
+      // Delete-then-insert keeps the write idempotent for a regenerated
+      // course (a retry that finally succeeds replaces the prior attempt's
+      // rows). The insert uses ON CONFLICT DO NOTHING (orIgnore) against the
+      // unique index uq_material_question_usage_request_course_question
+      // (tenant migration 0009): a raised 23505 inside runInTenant would
+      // poison the whole transaction, so a duplicate question in the payload
+      // must degrade to a silent no-op instead.
+      //
+      // The ledger write runs under a savepoint: an unexpected failure here
+      // (FK/NOT NULL violation, deadlock, statement timeout — anything the
+      // orIgnore does not cover) must not roll back the COMPLETED status of a
+      // PDF that already exists in S3. Sinking the status would make the
+      // processor's catch report the course FAILED with no download URL, and
+      // a deterministic payload defect would pin it there through every
+      // BullMQ retry. Rolling back to the savepoint keeps the status commit
+      // and degrades to a loudly-logged missing ledger instead.
+      if (
+        questionUsages &&
+        questionUsages.length > 0 &&
+        (incomingStatus === CourseMaterialStatus.COMPLETED ||
+          incomingStatus === CourseMaterialStatus.COMPLETED_WITH_WARNINGS)
+      ) {
+        await manager.query('SAVEPOINT usage_ledger');
+        try {
+          await manager.delete(MaterialQuestionUsage, {
+            materialRequestId: courseReq.materialRequestId,
+            courseId: courseReq.courseId,
+          });
+          await manager
+            .createQueryBuilder()
+            .insert()
+            .into(MaterialQuestionUsage)
+            .values(
+              questionUsages.map((usage) => ({
+                materialRequestId: courseReq.materialRequestId,
+                courseId: courseReq.courseId,
+                cycleId: usage.cycleId,
+                questionId: usage.questionId,
+                topicId: usage.topicId,
+                subtopicId: usage.subtopicId,
+                positionInPdf: usage.positionInPdf,
+                wasReplacement: usage.wasReplacement,
+              })),
+            )
+            .orIgnore()
+            .execute();
+          await manager.query('RELEASE SAVEPOINT usage_ledger');
+        } catch (ledgerError) {
+          await manager.query('ROLLBACK TO SAVEPOINT usage_ledger');
+          this.logger.error(
+            `Question-usage ledger write failed for request ${courseReq.materialRequestId} course ${courseReq.courseId}; ` +
+              `committing status ${incomingStatus} WITHOUT usage rows — anti-repetition is weakened for this course`,
+            ledgerError instanceof Error ? ledgerError.stack : String(ledgerError),
+          );
+        }
+      }
 
       // --- Serialize the parent roll-up with a pessimistic write lock ------
       //
@@ -225,7 +312,11 @@ export class HandleMaterialWebhookUseCase {
           previousParentStatus === MaterialRequestStatus.COMPLETED ||
           previousParentStatus === MaterialRequestStatus.REVIEW_REQUIRED;
 
-        if (!hasFailed && siblingCourses.length >= 2 && !parentAlreadyFinalized) {
+        if (
+          !hasFailed &&
+          siblingCourses.length >= 2 &&
+          !parentAlreadyFinalized
+        ) {
           const request = await manager.findOne(MaterialRequest, {
             where: { id: courseReq.materialRequestId },
           });

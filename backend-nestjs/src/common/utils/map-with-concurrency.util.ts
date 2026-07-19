@@ -12,6 +12,16 @@
  * A task rejection propagates and rejects the whole map; callers that want
  * per-item tolerance catch inside the task.
  */
+/**
+ * Upper bound on simultaneous per-tenant-schema queries for platform-level
+ * fan-outs (admin listings, aggregate dashboards). The pool holds 20
+ * connections shared with request traffic; fanning out one transaction per
+ * tenant with Promise.all would let a single platform read starve everything
+ * else. Lives next to `mapWithConcurrency` because every schema fan-out pairs
+ * the two.
+ */
+export const SCHEMA_FANOUT_CONCURRENCY = 4;
+
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,

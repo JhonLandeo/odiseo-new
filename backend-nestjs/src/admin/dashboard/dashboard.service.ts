@@ -3,18 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConsumptionMetric } from './entities/consumption-metric.entity';
 import { TenantService } from '../../database/tenant.service';
-import { mapWithConcurrency } from '../../common/utils/map-with-concurrency.util';
+import {
+  mapWithConcurrency,
+  SCHEMA_FANOUT_CONCURRENCY,
+} from '../../common/utils/map-with-concurrency.util';
 
 interface TenantMetrics {
   activeUsers: number;
   questionsUsed: number;
 }
-
-// Upper bound on simultaneous per-tenant-schema queries. The pool holds 20
-// connections shared with request traffic; fanning out one transaction per
-// tenant with Promise.all would let a platform dashboard read starve
-// everything else.
-const SCHEMA_FANOUT_CONCURRENCY = 4;
 
 @Injectable()
 export class DashboardService {
@@ -106,7 +103,7 @@ export class DashboardService {
    */
   private async collectTenantMetrics(
     schema: string,
-    range: { start?: Date; end?: Date },
+    range: { start?: Date; endExclusive?: Date },
   ): Promise<TenantMetrics> {
     return this.tenantService.runInSchema(schema, async (manager) => {
       const users = await manager.query(
@@ -119,9 +116,9 @@ export class DashboardService {
         params.push(range.start);
         conditions.push(`used_at >= $${params.length}`);
       }
-      if (range.end) {
-        params.push(range.end);
-        conditions.push(`used_at <= $${params.length}`);
+      if (range.endExclusive) {
+        params.push(range.endExclusive);
+        conditions.push(`used_at < $${params.length}`);
       }
       const where =
         conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
@@ -143,7 +140,7 @@ export class DashboardService {
   private parseDateRange(
     startDate?: string,
     endDate?: string,
-  ): { start?: Date; end?: Date } {
+  ): { start?: Date; endExclusive?: Date } {
     const parse = (label: string, value?: string): Date | undefined => {
       if (!value) return undefined;
       const parsed = new Date(value);
@@ -153,9 +150,18 @@ export class DashboardService {
       return parsed;
     };
 
+    const end = parse('end_date', endDate);
+
     return {
       start: parse('start_date', startDate),
-      end: parse('end_date', endDate),
+      // end_date is inclusive of its ENTIRE final day. A date-only string
+      // parses to midnight UTC, so filtering `used_at <= end` silently
+      // dropped every row of the last day; the canonical fix is an exclusive
+      // upper bound of end_date + 1 day (`used_at < end + 1d`).
+      endExclusive:
+        end === undefined
+          ? undefined
+          : new Date(end.getTime() + 24 * 60 * 60 * 1000),
     };
   }
 }

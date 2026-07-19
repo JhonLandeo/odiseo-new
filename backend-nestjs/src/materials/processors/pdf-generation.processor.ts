@@ -29,7 +29,6 @@ import {
 import { Topic } from '../../catalogs/entities/topic.entity';
 import { Question } from '../../question-bank/entities/question.entity';
 import { TenantService } from '../../database/tenant.service';
-import { MaterialQuestionUsage } from '../entities/material-question-usage.entity';
 import { Cycle } from '../../academic-time/entities/cycle.entity';
 import { GcsService } from '../../gcs/gcs.service';
 import { FlatQuestionsRepository } from '../../question-bank/flat-questions.repository';
@@ -164,6 +163,9 @@ export class PdfGenerationProcessor extends WorkerHost {
         const courseId = dist.course_id;
         let allQuestions: ExtractedQuestion[] = [];
         const missingDesglose: string[] = [];
+        // Question ids the curation flow swapped in (MaterialReviewQuestion
+        // status REPLACED); their usage rows are flagged was_replacement.
+        const replacedQuestionIds = new Set<string>();
 
         try {
           // Try to load curated review questions first
@@ -268,6 +270,9 @@ export class PdfGenerationProcessor extends WorkerHost {
                       },
                       textOrigin: textOrigin || 'Desconocido',
                     });
+                    if (mrq.status === ReviewQuestionStatus.REPLACED) {
+                      replacedQuestionIds.add(String(q.question_id));
+                    }
                   } else {
                     missingDesglose.push(
                       `Falta reactivo con ID ${mrq.questionId} en posición ${mrq.position}`,
@@ -381,47 +386,34 @@ export class PdfGenerationProcessor extends WorkerHost {
               : CourseMaterialStatus.COMPLETED;
 
           if (dist.course_request_id) {
-            await this.handleMaterialWebhookUseCase.execute({
-              job_id: dist.course_request_id,
-              status:
-                status === CourseMaterialStatus.COMPLETED
-                  ? 'completed'
-                  : 'completed_with_warnings',
-              download_url: downloadUrl,
-              key_download_url: keyDownloadUrl,
-              solution_download_url: solutionDownloadUrl,
-              error_message:
-                missingDesglose.length > 0
-                  ? missingDesglose.join(', ')
-                  : undefined,
-            });
-          }
-
-          // Save question usages (idempotent: a job retry re-generates this
-          // course, so clear prior usages for this request+course before
-          // re-inserting to avoid duplicating the anti-repetition ledger).
-          if (allQuestions.length > 0) {
-            await this.tenantService.runInSchema(
-              schemaName,
-              async (manager) => {
-                await manager.delete(MaterialQuestionUsage, {
-                  materialRequestId: material_request_id,
-                  courseId,
-                });
-                const usages = allQuestions.map((q, idx) => {
-                  const u = new MaterialQuestionUsage();
-                  u.materialRequestId = material_request_id;
-                  u.cycleId = cycle_id;
-                  u.questionId = q.id;
-                  u.courseId = courseId;
-                  u.topicId = q.topicId;
-                  u.subtopicId = q.subtopicId;
-                  u.positionInPdf = idx + 1;
-                  u.wasReplacement = false;
-                  return u;
-                });
-                await manager.save(MaterialQuestionUsage, usages);
+            // The usage records travel WITH the completion callback so the
+            // webhook use case commits the course's terminal status and its
+            // anti-repetition ledger in one tenant transaction. Writing them
+            // here in a separate transaction (the previous shape) let a crash
+            // in between leave a COMPLETED course with no usage rows.
+            await this.handleMaterialWebhookUseCase.execute(
+              {
+                job_id: dist.course_request_id,
+                status:
+                  status === CourseMaterialStatus.COMPLETED
+                    ? 'completed'
+                    : 'completed_with_warnings',
+                download_url: downloadUrl,
+                key_download_url: keyDownloadUrl,
+                solution_download_url: solutionDownloadUrl,
+                error_message:
+                  missingDesglose.length > 0
+                    ? missingDesglose.join(', ')
+                    : undefined,
               },
+              allQuestions.map((q, idx) => ({
+                cycleId: cycle_id,
+                questionId: q.id,
+                topicId: q.topicId,
+                subtopicId: q.subtopicId,
+                positionInPdf: idx + 1,
+                wasReplacement: replacedQuestionIds.has(q.id),
+              })),
             );
           }
 
@@ -563,6 +555,9 @@ export class PdfGenerationProcessor extends WorkerHost {
       const courseId = dist.course_id;
       let allQuestions: ExtractedQuestion[] = [];
       const missingDesglose: string[] = [];
+      // See handleGeneratePdf: REPLACED review questions are flagged in the
+      // usage ledger as was_replacement.
+      const replacedQuestionIds = new Set<string>();
 
       try {
         // Try to load curated review questions first
@@ -660,6 +655,9 @@ export class PdfGenerationProcessor extends WorkerHost {
                     },
                     textOrigin: textOrigin || 'Desconocido',
                   });
+                  if (mrq.status === ReviewQuestionStatus.REPLACED) {
+                    replacedQuestionIds.add(String(q.question_id));
+                  }
                 } else {
                   missingDesglose.push(
                     `Falta reactivo con ID ${mrq.questionId} en posición ${mrq.position}`,
@@ -739,41 +737,30 @@ export class PdfGenerationProcessor extends WorkerHost {
             : CourseMaterialStatus.COMPLETED;
 
         if (dist.course_request_id) {
-          await this.handleMaterialWebhookUseCase.execute({
-            job_id: dist.course_request_id,
-            status:
-              status === CourseMaterialStatus.COMPLETED
-                ? 'completed'
-                : 'completed_with_warnings',
-            download_url: downloadUrl,
-            error_message:
-              missingDesglose.length > 0
-                ? missingDesglose.join(', ')
-                : undefined,
-          });
-        }
-
-        // Save question usages (idempotent — see handleGeneratePdf).
-        if (allQuestions.length > 0) {
-          await this.tenantService.runInSchema(schemaName, async (manager) => {
-            await manager.delete(MaterialQuestionUsage, {
-              materialRequestId: material_request_id,
-              courseId,
-            });
-            const usages = allQuestions.map((q, idx) => {
-              const u = new MaterialQuestionUsage();
-              u.materialRequestId = material_request_id;
-              u.cycleId = cycle_id;
-              u.questionId = q.id;
-              u.courseId = courseId;
-              u.topicId = q.topicId;
-              u.subtopicId = q.subtopicId;
-              u.positionInPdf = idx + 1;
-              u.wasReplacement = false;
-              return u;
-            });
-            await manager.save(MaterialQuestionUsage, usages);
-          });
+          // Usage records ride along with the completion callback so status
+          // and anti-repetition ledger commit atomically — see handleGeneratePdf.
+          await this.handleMaterialWebhookUseCase.execute(
+            {
+              job_id: dist.course_request_id,
+              status:
+                status === CourseMaterialStatus.COMPLETED
+                  ? 'completed'
+                  : 'completed_with_warnings',
+              download_url: downloadUrl,
+              error_message:
+                missingDesglose.length > 0
+                  ? missingDesglose.join(', ')
+                  : undefined,
+            },
+            allQuestions.map((q, idx) => ({
+              cycleId: cycle_id,
+              questionId: q.id,
+              topicId: q.topicId,
+              subtopicId: q.subtopicId,
+              positionInPdf: idx + 1,
+              wasReplacement: replacedQuestionIds.has(q.id),
+            })),
+          );
         }
 
         return { course_id: courseId, download_url: downloadUrl, status };

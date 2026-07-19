@@ -308,7 +308,7 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
       isActive: false,
     });
 
-  it('reactivates a deactivated tenant whose schema exists', async () => {
+  it('reactivates a deactivated tenant whose schema exists AND is seeded', async () => {
     const { service, mockManager, tenantsService } = deactivated();
     mockManager.query.mockResolvedValue([{ 1: 1 }]);
 
@@ -317,6 +317,17 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
     expect(mockManager.query).toHaveBeenCalledWith(
       expect.stringContaining('information_schema.schemata'),
       [`tenant_${TENANT_ID}`],
+    );
+    // Existence alone is not proof of provisioning: the probe must also verify
+    // the migration runner's marker (the initial migration commits atomically
+    // with its `_tenant_migrations` row).
+    expect(mockManager.query).toHaveBeenCalledWith(
+      expect.stringContaining('information_schema.tables'),
+      [`tenant_${TENANT_ID}`],
+    );
+    expect(mockManager.query).toHaveBeenCalledWith(
+      expect.stringContaining('_tenant_migrations'),
+      ['0001_initial_tenant_schema'],
     );
     expect(saved.isActive).toBe(true);
     expect(tenantsService.invalidateSubdomainCache).toHaveBeenCalledWith(
@@ -331,6 +342,38 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
     await expect(service.updateStatus(TENANT_ID, 'ACTIVE')).rejects.toThrow(
       ConflictException,
     );
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  // Provisioning can crash right after CREATE SCHEMA: the schema exists but
+  // holds no tables. Activating it would 500 every request of the tenant.
+  it('refuses to activate a tenant whose schema exists but was never seeded', async () => {
+    const { service, mockManager, companyRepository } = deactivated();
+    mockManager.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('information_schema.schemata')) return [{ 1: 1 }];
+      if (sql.includes('information_schema.tables')) return []; // no marker table
+      return [{ 1: 1 }];
+    });
+
+    await expect(service.updateStatus(TENANT_ID, 'ACTIVE')).rejects.toThrow(
+      /aprovisionamiento quedó incompleto/,
+    );
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to activate when the marker table exists but the initial migration never committed', async () => {
+    const { service, mockManager, companyRepository } = deactivated();
+    mockManager.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('information_schema.schemata')) return [{ 1: 1 }];
+      if (sql.includes('information_schema.tables')) return [{ 1: 1 }];
+      // The `_tenant_migrations` id lookup finds nothing: the runner created
+      // its marker table, then crashed before migration 0001 committed.
+      return [];
+    });
+
+    await expect(
+      service.updateStatus(TENANT_ID, 'ACTIVE'),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(companyRepository.save).not.toHaveBeenCalled();
   });
 

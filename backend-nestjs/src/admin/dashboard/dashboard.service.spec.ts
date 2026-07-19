@@ -118,10 +118,28 @@ describe('DashboardService.getMetrics', () => {
       q.sql.includes('material_question_usage'),
     );
     expect(usage?.sql).toMatch(/used_at >= \$1/);
-    expect(usage?.sql).toMatch(/used_at <= \$2/);
+    expect(usage?.sql).toMatch(/used_at < \$2/);
     expect(usage?.params).toEqual([
       new Date('2026-01-01'),
+      new Date('2026-02-01'),
+    ]);
+  });
+
+  // end_date parses to midnight, so `used_at <= end` silently excluded every
+  // row of the final day. The range must cover the WHOLE last day via an
+  // exclusive bound of end_date + 1 day.
+  it('includes the entire final day of the range', async () => {
+    const { service, schemaQueries } = createService({ companyIds: ['c1'] });
+
+    await service.getMetrics('c1', '2026-01-31', '2026-01-31');
+
+    const usage = schemaQueries.find((q) =>
+      q.sql.includes('material_question_usage'),
+    );
+    expect(usage?.sql).not.toMatch(/used_at <= /);
+    expect(usage?.params).toEqual([
       new Date('2026-01-31'),
+      new Date('2026-02-01'),
     ]);
   });
 

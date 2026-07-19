@@ -537,4 +537,36 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ON "${schema}".cycle_material_template_courses (template_id);
     `,
   },
+  {
+    // material_question_usage (material_request_id, course_id, question_id) is
+    // the table's natural key: the anti-repetition ledger records each question
+    // AT MOST ONCE per generated course of a request (the writer clears exactly
+    // that scope before re-inserting on a regeneration). Only application code
+    // enforced it, so a duplicated question in a generation payload — or a
+    // crash-retry interleaving — could double-count usage and skew both the
+    // exclusion list and the dashboard's questions_used metric. The index also
+    // gives the writer's INSERT ... ON CONFLICT DO NOTHING (orIgnore) its
+    // conflict target; a raised 23505 would poison the surrounding runInTenant
+    // transaction. NOT (cycle_id, course_id, question_id): a new version of a
+    // request in the same cycle/week legitimately re-uses questions of its
+    // predecessor, so per-cycle uniqueness would be wrong.
+    //
+    // Rows that already violate the key are collapsed FIRST, keeping the
+    // earliest by (used_at ASC, id ASC) — the 0004 dedup precedent — because a
+    // failing CREATE UNIQUE INDEX would roll back the whole migration and brick
+    // provisioning. Name is unprefixed, following 0004/0006/0008 (63-char
+    // identifier limit).
+    id: '0009_material_question_usage_natural_key',
+    up: (schema: string) => `
+      DELETE FROM "${schema}".material_question_usage
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (material_request_id, course_id, question_id) id
+        FROM "${schema}".material_question_usage
+        ORDER BY material_request_id, course_id, question_id,
+                 used_at ASC, id ASC
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_material_question_usage_request_course_question"
+        ON "${schema}".material_question_usage (material_request_id, course_id, question_id);
+    `,
+  },
 ];

@@ -8,6 +8,16 @@ import {
 
 @Entity('material_question_usage')
 @Index(['cycleId', 'courseId', 'questionId']) // Índice compuesto para validación anti-repetición rápida
+// Natural key: each question is recorded at most once per generated course of a
+// request. Enforced in tenant schemas by migration 0009 (same name); declared
+// here so the entity and the physical constraint never drift.
+@Index(
+  'uq_material_question_usage_request_course_question',
+  ['materialRequestId', 'courseId', 'questionId'],
+  {
+    unique: true,
+  },
+)
 export class MaterialQuestionUsage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
