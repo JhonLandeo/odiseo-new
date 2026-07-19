@@ -860,6 +860,16 @@ export class PdfGenerationProcessor extends WorkerHost {
       this.logger.error(
         `Merge failed for request ${material_request_id}: ${error.message}`,
       );
+
+      // Rethrow so BullMQ marks THIS merge-pdf job failed and retries it
+      // (attempts: 3). merge-pdf is a separate job from the per-course
+      // generation, so retrying re-runs only the merge, not the PDFs.
+      //
+      // We deliberately do NOT flip the material to FAILED: the per-course
+      // PDFs already exist and are downloadable; only the optional combined
+      // "Completo.pdf" is missing. Rethrowing keeps that failure visible in
+      // the failed queue and retryable without invalidating good output.
+      throw error;
     }
   }
 }
