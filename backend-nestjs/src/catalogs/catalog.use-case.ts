@@ -1,11 +1,28 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { ClsService } from 'nestjs-cls';
 import { ICatalogRepository } from './repositories/i-catalog.repository';
+import { withTimeout } from '../common/utils/with-timeout.util';
 
 @Injectable()
 export class CatalogUseCase {
+  private readonly logger = new Logger(CatalogUseCase.name);
+
+  /**
+   * Upper bound on each catalog cache round-trip (version read/write, entry
+   * read/write). Same rationale as AuthService.CACHE_TIMEOUT_MS /
+   * TenantsService.CACHE_TIMEOUT_MS: this Cache is a Keyv/KeyvRedis client
+   * with no command timeout of its own, and getCourses/getCourseTopics sit on
+   * a request path — a hung Redis must degrade to the uncached repository
+   * lookup instead of hanging the request. Configurable so an operator can
+   * widen it without a redeploy.
+   */
+  private static readonly CACHE_TIMEOUT_MS = ((): number => {
+    const parsed = Number(process.env.CATALOG_CACHE_TIMEOUT_MS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000;
+  })();
+
   constructor(
     @Inject(ICatalogRepository)
     private readonly catalogRepository: ICatalogRepository,
@@ -41,22 +58,51 @@ export class CatalogUseCase {
    * entries can never be read again — they simply age out.
    */
   private async getCacheVersion(tenantId: string): Promise<number> {
-    const version = await this.cacheManager.get<number>(
-      `catalogs:version:${tenantId}`,
-    );
-    return version ?? 0;
+    // Bounded and best-effort, like AuthService/TenantsService's cache reads:
+    // a hung or broken Redis must degrade this to version 0 (the same value
+    // an ordinary cache miss already returns below) rather than hang the
+    // request or throw.
+    try {
+      const version = await withTimeout(
+        () => this.cacheManager.get<number>(`catalogs:version:${tenantId}`),
+        'catalog cache version read',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+      return version ?? 0;
+    } catch (error) {
+      this.logger.warn(
+        `Catalog cache version read bypassed for tenant ${tenantId}, using version 0: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return 0;
+    }
   }
 
   /** Bumps a single tenant's cache-namespace version. See getCacheVersion. */
   private async bumpCacheVersion(tenantId: string): Promise<void> {
-    await this.cacheManager.set(
-      `catalogs:version:${tenantId}`,
-      Date.now(),
-      // ttl 0 == never expires (Keyv maps 0 to undefined). The version must
-      // outlive the entries it guards; if the store drops it anyway, the
-      // timestamp scheme keeps that safe (see getCacheVersion).
-      0,
-    );
+    try {
+      await withTimeout(
+        () =>
+          this.cacheManager.set(
+            `catalogs:version:${tenantId}`,
+            Date.now(),
+            // ttl 0 == never expires (Keyv maps 0 to undefined). The version
+            // must outlive the entries it guards; if the store drops it
+            // anyway, the timestamp scheme keeps that safe (see
+            // getCacheVersion).
+            0,
+          ),
+        'catalog cache version write',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Catalog cache version write bypassed for tenant ${tenantId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   /**
@@ -95,7 +141,23 @@ export class CatalogUseCase {
     const version = await this.getCacheVersion(tenantId);
     const cacheKey = `catalogs:${version}:courses:${tenantId}:${search || 'all'}`;
 
-    const cached = await this.cacheManager.get<any>(cacheKey);
+    // Bounded and best-effort: a hung or broken Redis must degrade to the
+    // uncached repository lookup below, not hang this request.
+    let cached: any;
+    try {
+      cached = await withTimeout(
+        () => this.cacheManager.get<any>(cacheKey),
+        'catalog courses cache read',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Catalog courses cache read bypassed for tenant ${tenantId}, querying the repository: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      cached = undefined;
+    }
     if (cached) return cached;
 
     const courses = await this.catalogRepository.getCourses(search);
@@ -128,7 +190,19 @@ export class CatalogUseCase {
         : null,
     };
 
-    await this.cacheManager.set(cacheKey, result);
+    try {
+      await withTimeout(
+        () => this.cacheManager.set(cacheKey, result),
+        'catalog courses cache write',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Catalog courses cache write bypassed for tenant ${tenantId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
     return result;
   }
 
@@ -137,7 +211,22 @@ export class CatalogUseCase {
     const version = await this.getCacheVersion(tenantId);
     const cacheKey = `catalogs:${version}:topics:${tenantId}:${courseId}:${search || 'all'}`;
 
-    const cached = await this.cacheManager.get<any[]>(cacheKey);
+    // Bounded and best-effort — same convention as getCourses above.
+    let cached: any[] | undefined;
+    try {
+      cached = await withTimeout(
+        () => this.cacheManager.get<any[]>(cacheKey),
+        'catalog course topics cache read',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Catalog course topics cache read bypassed for tenant ${tenantId}, querying the repository: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      cached = undefined;
+    }
     if (cached) return cached;
 
     const topics = await this.catalogRepository.getCourseTopics(
@@ -145,7 +234,19 @@ export class CatalogUseCase {
       search,
     );
 
-    await this.cacheManager.set(cacheKey, topics);
+    try {
+      await withTimeout(
+        () => this.cacheManager.set(cacheKey, topics),
+        'catalog course topics cache write',
+        CatalogUseCase.CACHE_TIMEOUT_MS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Catalog course topics cache write bypassed for tenant ${tenantId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
     return topics;
   }
 

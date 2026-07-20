@@ -17,6 +17,7 @@ import {
   findEffectivePermissions,
   flattenPermissions,
 } from '../admin/roles/permissions/flattened-permissions.query';
+import { withTimeout } from '../common/utils/with-timeout.util';
 import * as bcrypt from 'bcrypt';
 
 /**
@@ -273,9 +274,10 @@ export class AuthService {
     // lookup, keeping the authenticated API up rather than hanging it.
     let cached: CachedAuthState | null | undefined;
     try {
-      cached = await this.withCacheTimeout(
+      cached = await withTimeout(
         () => this.cacheManager.get<CachedAuthState>(cacheKey),
         'permission cache read',
+        AuthService.CACHE_TIMEOUT_MS,
       );
     } catch (error) {
       // One warn per bypass: enough to surface a Redis problem, not so much that
@@ -334,9 +336,10 @@ export class AuthService {
     // never hang or fail a request that already has its answer from Postgres.
     // The next request simply misses the cache and recomputes.
     try {
-      await this.withCacheTimeout(
+      await withTimeout(
         () => this.cacheManager.set(cacheKey, state, 60 * 1000),
         'permission cache write',
+        AuthService.CACHE_TIMEOUT_MS,
       );
     } catch (error) {
       this.logger.warn(
@@ -388,36 +391,6 @@ export class AuthService {
       state,
       expiresAt: Date.now() + AuthService.LOCAL_CACHE_TTL_MS,
     });
-  }
-
-  /**
-   * Races a cache operation against a timer so a hung Redis client cannot stall
-   * the caller. Rejects on timeout; the callers above catch that and any cache
-   * error and fall back to Postgres. The timer is always cleared in the finally,
-   * so a settled operation never leaves a pending handle on the event loop.
-   */
-  private async withCacheTimeout<T>(
-    operation: () => Promise<T>,
-    label: string,
-  ): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `${label} timed out after ${AuthService.CACHE_TIMEOUT_MS}ms`,
-            ),
-          ),
-        AuthService.CACHE_TIMEOUT_MS,
-      );
-    });
-
-    try {
-      return await Promise.race([operation(), timeout]);
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   /**
@@ -535,9 +508,10 @@ export class AuthService {
     this.localAuthStateCache.delete(cacheKey);
 
     try {
-      await this.withCacheTimeout(
+      await withTimeout(
         () => this.cacheManager.del(cacheKey),
         'permission cache invalidation',
+        AuthService.CACHE_TIMEOUT_MS,
       );
     } catch (error) {
       this.logger.warn(

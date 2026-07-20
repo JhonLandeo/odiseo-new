@@ -50,6 +50,15 @@ export class AcademicTimeRepositoryImpl implements IAcademicTimeRepository {
         await manager.save(CycleWeek, week);
       } catch (error) {
         if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          // Expected, not a problem — see the doc comment above. Logged at
+          // debug so an operator investigating "why does this cycle have
+          // fewer weeks than requested" has a trace to find, without this
+          // routine, race-losing skip showing up as warn/error noise.
+          this.logger.debug(
+            `Skipped week ${week.weekNumber} for cycle ${week.cycleId}: ` +
+              `already persisted by a concurrent write (unique_violation on ` +
+              `uq_cycle_weeks_cycle_week_live).`,
+          );
           continue;
         }
         throw error;

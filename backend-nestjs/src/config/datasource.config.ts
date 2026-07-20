@@ -23,6 +23,10 @@ export const dataSourceOptions: DataSourceOptions = {
     join(__dirname, '../catalogs/entities/topic.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/subtopic.entity{.ts,.js}'),
     join(__dirname, '../catalogs/entities/catalog-sync-state.entity{.ts,.js}'),
+    join(
+      __dirname,
+      '../catalogs/entities/topic-id-space-reconciliation-state.entity{.ts,.js}',
+    ),
   ],
   // Directorio para crear migraciones.
   //

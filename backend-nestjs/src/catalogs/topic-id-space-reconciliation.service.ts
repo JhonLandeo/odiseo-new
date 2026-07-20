@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
+import { ICatalogRepository } from './repositories/i-catalog.repository';
 
 export interface TopicIdSpaceOverlapResult {
   totalCoreTopics: number;
@@ -65,6 +66,8 @@ export class TopicIdSpaceReconciliationService {
     private readonly defaultManager: EntityManager,
     @InjectEntityManager('questionsConnection')
     private readonly questionsManager: EntityManager,
+    @Inject(ICatalogRepository)
+    private readonly catalogRepository: ICatalogRepository,
   ) {}
 
   /**
@@ -72,6 +75,13 @@ export class TopicIdSpaceReconciliationService {
    * `Logger.error` (a data-integrity/security finding, not a mere warning)
    * with the actual counts. Never throws on a low ratio — this is an
    * observability check, not a request-path gate, and must not crash the app.
+   *
+   * The result is also persisted durably (see
+   * `ICatalogRepository.recordTopicIdSpaceReconciliation`) so "when did this
+   * last run, and did it pass?" is answerable without grepping logs — mirrors
+   * `CatalogCronService`'s `CatalogSyncState` bookkeeping. That write is
+   * best-effort: a persistence failure must never mask the check's own
+   * result or suppress the `Logger.error` alert above.
    */
   async checkOverlap(): Promise<TopicIdSpaceOverlapResult> {
     const [coreTopicRows, bankTopicRows] = await Promise.all([
@@ -96,7 +106,10 @@ export class TopicIdSpaceReconciliationService {
     const overlapRatio =
       totalCoreTopics === 0 ? 1 : overlappingTopics / totalCoreTopics;
 
-    if (overlapRatio < TopicIdSpaceReconciliationService.MIN_OVERLAP_RATIO) {
+    const passed =
+      overlapRatio >= TopicIdSpaceReconciliationService.MIN_OVERLAP_RATIO;
+
+    if (!passed) {
       this.logger.error(
         `Topic id-space overlap between public.topics (default connection) ` +
           `and odiseo.topic (questionsConnection) is ` +
@@ -110,6 +123,34 @@ export class TopicIdSpaceReconciliationService {
       );
     }
 
+    await this.persistResult({
+      outcome: passed ? 'PASS' : 'FAIL',
+      overlapRatio,
+      totalCoreTopics,
+      overlappingTopics,
+    });
+
     return { totalCoreTopics, overlappingTopics, overlapRatio };
+  }
+
+  /**
+   * Bookkeeping write, never allowed to break the check itself or hide the
+   * `Logger.error` alert above — same convention as
+   * `CatalogCronService.safely`.
+   */
+  private async persistResult(record: {
+    outcome: 'PASS' | 'FAIL';
+    overlapRatio: number;
+    totalCoreTopics: number;
+    overlappingTopics: number;
+  }): Promise<void> {
+    try {
+      await this.catalogRepository.recordTopicIdSpaceReconciliation(record);
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to persist topic id-space reconciliation result: ${error.message}`,
+        error.stack,
+      );
+    }
   }
 }

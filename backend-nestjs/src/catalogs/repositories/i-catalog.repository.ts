@@ -1,7 +1,16 @@
 import { Course } from '../entities/course.entity';
 import { CatalogSyncState } from '../entities/catalog-sync-state.entity';
+import type { TopicIdSpaceReconciliationOutcome } from '../entities/topic-id-space-reconciliation-state.entity';
 
 export const ICatalogRepository = Symbol('ICatalogRepository');
+
+/** Result of a single topic id-space reconciliation run, to be persisted. */
+export interface TopicIdSpaceReconciliationRecord {
+  outcome: TopicIdSpaceReconciliationOutcome;
+  overlapRatio: number;
+  totalCoreTopics: number;
+  overlappingTopics: number;
+}
 
 export interface ICatalogRepository {
   /**
@@ -57,4 +66,12 @@ export interface ICatalogRepository {
 
   /** Durable sync state, or null if no sync has ever run. */
   getSyncState(): Promise<CatalogSyncState | null>;
+
+  /**
+   * Persists the outcome of a topic id-space reconciliation run. Upserts the
+   * single singleton row — see `TopicIdSpaceReconciliationState`.
+   */
+  recordTopicIdSpaceReconciliation(
+    record: TopicIdSpaceReconciliationRecord,
+  ): Promise<void>;
 }

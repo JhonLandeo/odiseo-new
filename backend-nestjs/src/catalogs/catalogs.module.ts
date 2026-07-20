@@ -13,6 +13,7 @@ import { Course } from './entities/course.entity';
 import { Topic } from './entities/topic.entity';
 import { Subtopic } from './entities/subtopic.entity';
 import { CatalogSyncState } from './entities/catalog-sync-state.entity';
+import { TopicIdSpaceReconciliationState } from './entities/topic-id-space-reconciliation-state.entity';
 import { CatalogCronService } from './catalog.cron';
 import { TopicIdSpaceReconciliationService } from './topic-id-space-reconciliation.service';
 import { TopicIdSpaceCronService } from './topic-id-space.cron';
@@ -31,7 +32,13 @@ const providers: any[] = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Course, Topic, Subtopic, CatalogSyncState]),
+    TypeOrmModule.forFeature([
+      Course,
+      Topic,
+      Subtopic,
+      CatalogSyncState,
+      TopicIdSpaceReconciliationState,
+    ]),
     ConfigModule,
     // Redis-backed, mirroring AuthModule. With the previous in-process store
     // every replica cached and invalidated independently: toggling a topic's

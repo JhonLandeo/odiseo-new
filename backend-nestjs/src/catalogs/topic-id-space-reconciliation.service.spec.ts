@@ -8,11 +8,15 @@ describe('TopicIdSpaceReconciliationService', () => {
     const questionsManager = {
       query: jest.fn().mockResolvedValue(bankIds.map((id) => ({ id }))),
     };
+    const catalogRepository = {
+      recordTopicIdSpaceReconciliation: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new TopicIdSpaceReconciliationService(
       defaultManager as any,
       questionsManager as any,
+      catalogRepository as any,
     );
-    return { service, defaultManager, questionsManager };
+    return { service, defaultManager, questionsManager, catalogRepository };
   };
 
   afterEach(() => {
@@ -104,5 +108,84 @@ describe('TopicIdSpaceReconciliationService', () => {
       overlapRatio: 1,
     });
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  // Durable persistence: a failing ratio previously only reached
+  // Logger.error, unanswerable outside log retention.
+  describe('persisting the reconciliation result', () => {
+    it('records a PASS with the actual ratio and counts when the check succeeds', async () => {
+      const { service, catalogRepository } = makeService(
+        ['1', '2', '3', '4'],
+        ['1', '2', '3', '4'],
+      );
+
+      await service.checkOverlap();
+
+      expect(
+        catalogRepository.recordTopicIdSpaceReconciliation,
+      ).toHaveBeenCalledWith({
+        outcome: 'PASS',
+        overlapRatio: 1,
+        totalCoreTopics: 4,
+        overlappingTopics: 4,
+      });
+    });
+
+    it('records a FAIL with the actual ratio and counts when the check fails', async () => {
+      const coreIds = Array.from({ length: 10 }, (_, i) => String(i + 1));
+      const bankIds = coreIds.slice(0, 8);
+      const { service, catalogRepository } = makeService(coreIds, bankIds);
+
+      await service.checkOverlap();
+
+      expect(
+        catalogRepository.recordTopicIdSpaceReconciliation,
+      ).toHaveBeenCalledWith({
+        outcome: 'FAIL',
+        overlapRatio: 0.8,
+        totalCoreTopics: 10,
+        overlappingTopics: 8,
+      });
+    });
+
+    it('does not let a persistence failure break the check or mask its result', async () => {
+      const { service, catalogRepository } = makeService(
+        ['1', '2', '3', '4'],
+        ['1', '2', '3', '4'],
+      );
+      catalogRepository.recordTopicIdSpaceReconciliation.mockRejectedValue(
+        new Error('connection refused'),
+      );
+      const errorSpy = jest.spyOn(service['logger'], 'error');
+
+      const result = await service.checkOverlap();
+
+      expect(result).toEqual({
+        totalCoreTopics: 4,
+        overlappingTopics: 4,
+        overlapRatio: 1,
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Failed to persist topic id-space reconciliation result',
+        ),
+        expect.anything(),
+      );
+    });
+
+    it('does not suppress the below-threshold Logger.error alert when persistence also fails', async () => {
+      const coreIds = ['1', '2', '3'];
+      const { service, catalogRepository } = makeService(coreIds, []);
+      catalogRepository.recordTopicIdSpaceReconciliation.mockRejectedValue(
+        new Error('connection refused'),
+      );
+      const errorSpy = jest.spyOn(service['logger'], 'error');
+
+      await service.checkOverlap();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('below the'),
+      );
+    });
   });
 });

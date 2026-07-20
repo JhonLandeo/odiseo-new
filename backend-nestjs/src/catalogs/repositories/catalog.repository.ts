@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
-import { ICatalogRepository } from './i-catalog.repository';
+import {
+  ICatalogRepository,
+  TopicIdSpaceReconciliationRecord,
+} from './i-catalog.repository';
 import { Course } from '../entities/course.entity';
 import { Topic } from '../entities/topic.entity';
 import { Subtopic } from '../entities/subtopic.entity';
@@ -9,6 +12,7 @@ import {
   CatalogSyncState,
   CORE_API_SYNC_SOURCE,
 } from '../entities/catalog-sync-state.entity';
+import { TOPIC_ID_SPACE_RECONCILIATION_STATE_ID } from '../entities/topic-id-space-reconciliation-state.entity';
 import { validateCatalogPayload } from '../dto/catalog-payload.dto';
 import { TenantService } from '../../database/tenant.service';
 
@@ -266,5 +270,30 @@ export class CatalogRepositoryImpl implements ICatalogRepository {
       lastError: row.last_error,
       updatedAt: row.updated_at,
     };
+  }
+
+  async recordTopicIdSpaceReconciliation(
+    record: TopicIdSpaceReconciliationRecord,
+  ): Promise<void> {
+    await this.defaultManager.query(
+      `INSERT INTO public.topic_id_space_reconciliation_state
+         (id, last_checked_at, last_overlap_ratio, last_outcome,
+          last_core_topics_count, last_overlapping_topics_count, updated_at)
+       VALUES ($1, now(), $2, $3, $4, $5, now())
+       ON CONFLICT (id) DO UPDATE
+       SET last_checked_at = now(),
+           last_overlap_ratio = EXCLUDED.last_overlap_ratio,
+           last_outcome = EXCLUDED.last_outcome,
+           last_core_topics_count = EXCLUDED.last_core_topics_count,
+           last_overlapping_topics_count = EXCLUDED.last_overlapping_topics_count,
+           updated_at = now()`,
+      [
+        TOPIC_ID_SPACE_RECONCILIATION_STATE_ID,
+        record.overlapRatio,
+        record.outcome,
+        record.totalCoreTopics,
+        record.overlappingTopics,
+      ],
+    );
   }
 }

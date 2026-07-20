@@ -228,4 +228,80 @@ describe('CatalogUseCase', () => {
       0,
     );
   });
+
+  // The withTimeout adoption's whole point: a hung Redis must degrade, not
+  // hang the request. AuthService/TenantsService already prove their own
+  // call sites this way; this proves catalog.use-case.ts's newly-wrapped
+  // calls genuinely degrade too, not just that withTimeout itself works.
+  describe('when the cache hangs', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('getCourses degrades to the repository instead of hanging', async () => {
+      mockCacheManager.get = jest.fn().mockReturnValue(new Promise(() => {}));
+
+      const pending = useCase.getCourses();
+      // getCourses races TWO sequential reads against the same hung mock
+      // (the version read, then the content read) — each bound at 1000ms
+      // and awaited one after the other, not in parallel.
+      await jest.advanceTimersByTimeAsync(2000);
+      const result = await pending;
+
+      expect(result.courses).toHaveLength(1);
+      expect(mockCatalogRepository.getCourses).toHaveBeenCalled();
+    });
+
+    it('getCourseTopics degrades to the repository instead of hanging', async () => {
+      mockCacheManager.get = jest.fn().mockReturnValue(new Promise(() => {}));
+
+      const pending = useCase.getCourseTopics('course-1');
+      // Same two-sequential-races shape as getCourses above (version read,
+      // then content read), so 2000ms — not the sibling AuthService/
+      // TenantsService tests' single-race 1000ms.
+      await jest.advanceTimersByTimeAsync(2000);
+      const result = await pending;
+
+      expect(result).toHaveLength(2);
+      expect(mockCatalogRepository.getCourseTopics).toHaveBeenCalled();
+    });
+
+    it('getCacheVersion (via getCourses) degrades to version 0 instead of hanging', async () => {
+      // getCourses calls getCacheVersion first; a hung version read must not
+      // block it, and must produce the same cache key an ordinary miss would
+      // (version 0), not throw or wait forever. 2000ms because this still
+      // goes through getCourses' own two sequential races (version, then
+      // content) even though only the first is what this test cares about.
+      mockCacheManager.get = jest.fn().mockReturnValue(new Promise(() => {}));
+
+      const pending = useCase.getCourses();
+      await jest.advanceTimersByTimeAsync(2000);
+      await pending;
+
+      expect(mockCacheManager.get).toHaveBeenCalledWith(
+        'catalogs:version:tenant_test',
+      );
+      // The claim in the comment above, actually checked: the content read
+      // and the eventual write both used version 0's cache key, not a
+      // hung/undefined one.
+      expect(mockCacheManager.get).toHaveBeenCalledWith(
+        'catalogs:0:courses:tenant_test:all',
+      );
+      expect(mockCacheManager.set).toHaveBeenCalledWith(
+        'catalogs:0:courses:tenant_test:all',
+        expect.anything(),
+      );
+    });
+
+    it('bumpCacheVersion (via updateTopicVisibility) does not throw when the write hangs', async () => {
+      mockCacheManager.set = jest.fn().mockReturnValue(new Promise(() => {}));
+
+      const pending = useCase.updateTopicVisibility('topic-1', true);
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toBeUndefined();
+      expect(
+        mockCatalogRepository.updateTopicLocalVisibility,
+      ).toHaveBeenCalled();
+    });
+  });
 });

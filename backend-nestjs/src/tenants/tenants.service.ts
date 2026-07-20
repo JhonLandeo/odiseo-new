@@ -4,6 +4,7 @@ import type { Cache } from 'cache-manager';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Company } from './entities/tenant.entity';
+import { withTimeout } from '../common/utils/with-timeout.util';
 
 @Injectable()
 export class TenantsService {
@@ -58,9 +59,10 @@ export class TenantsService {
 
     let cached: Company | null | undefined;
     try {
-      cached = await this.withCacheTimeout(
+      cached = await withTimeout(
         () => this.cacheManager.get<Company>(cacheKey),
         'company lookup cache read',
+        TenantsService.CACHE_TIMEOUT_MS,
       );
     } catch (error) {
       this.logger.warn(
@@ -78,7 +80,7 @@ export class TenantsService {
 
     if (company) {
       try {
-        await this.withCacheTimeout(
+        await withTimeout(
           () =>
             this.cacheManager.set(
               cacheKey,
@@ -86,6 +88,7 @@ export class TenantsService {
               TenantsService.CACHE_TTL_MS,
             ),
           'company lookup cache write',
+          TenantsService.CACHE_TIMEOUT_MS,
         );
       } catch (error) {
         this.logger.warn(
@@ -108,9 +111,10 @@ export class TenantsService {
    */
   async invalidateSubdomainCache(subdomain: string): Promise<void> {
     try {
-      await this.withCacheTimeout(
+      await withTimeout(
         () => this.cacheManager.del(this.subdomainCacheKey(subdomain)),
         'company lookup cache invalidation',
+        TenantsService.CACHE_TIMEOUT_MS,
       );
     } catch (error) {
       this.logger.warn(
@@ -123,36 +127,6 @@ export class TenantsService {
 
   private subdomainCacheKey(subdomain: string): string {
     return `company:subdomain:${subdomain}`;
-  }
-
-  /**
-   * Races a cache operation against a timer so a hung Redis client cannot
-   * stall tenant resolution. Same pattern as AuthService.withCacheTimeout: the
-   * callers catch the rejection and fall back to Postgres, and the timer is
-   * always cleared so a settled operation never leaks a handle.
-   */
-  private async withCacheTimeout<T>(
-    operation: () => Promise<T>,
-    label: string,
-  ): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `${label} timed out after ${TenantsService.CACHE_TIMEOUT_MS}ms`,
-            ),
-          ),
-        TenantsService.CACHE_TIMEOUT_MS,
-      );
-    });
-
-    try {
-      return await Promise.race([operation(), timeout]);
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   /**

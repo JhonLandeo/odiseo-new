@@ -60,6 +60,7 @@ export const envValidationSchema = Joi.object({
   AUTH_STATE_CACHE_TIMEOUT_MS: Joi.number().integer().positive().optional(),
   COMPANY_LOOKUP_CACHE_TTL_MS: Joi.number().integer().positive().optional(),
   COMPANY_LOOKUP_CACHE_TIMEOUT_MS: Joi.number().integer().positive().optional(),
+  CATALOG_CACHE_TIMEOUT_MS: Joi.number().integer().positive().optional(),
   GOOGLE_CLOUD_KEY_FILE: Joi.string().optional(),
   GCS_SIGNED_URL_TIMEOUT_MS: Joi.number().integer().positive().default(5000),
   DB_QUESTIONS_BASE: Joi.string().optional(),
