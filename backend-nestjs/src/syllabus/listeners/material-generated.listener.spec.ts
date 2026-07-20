@@ -7,8 +7,11 @@ import { Syllabus } from '../entities/syllabus.entity';
  * reconciliation sweep relies on to tell "recovered" apart from "found
  * nothing to recover" (a silently-missed no-op would otherwise be
  * mis-logged as a success while the row keeps re-matching every tick).
- * `handleMaterialGeneratedEvent`'s retry loop is covered elsewhere; it never
- * inspects this return value.
+ *
+ * `handleMaterialGeneratedEvent`'s own retry/backoff loop (attempt counting,
+ * delay, give-up after MAX_ATTEMPTS) is NOT covered by this file or any
+ * other spec in the repo — it never inspects this return value, and adding
+ * that coverage is out of scope for the return-value change this file tests.
  */
 function build(options: {
   syllabus?: { id: string } | null;
