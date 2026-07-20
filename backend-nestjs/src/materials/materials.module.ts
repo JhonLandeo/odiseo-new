@@ -30,6 +30,7 @@ import { BullBoardModule } from '@bull-board/nestjs';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { QuestionBankModule } from '../question-bank/question-bank.module';
 import { WebhookAuthGuard } from './guards/webhook-auth.guard';
+import { SyllabusModule } from '../syllabus/syllabus.module';
 
 // Invariant: heavy compute (headless-browser PDF render) must run outside the
 // process that serves HTTP. When PROCESS_ROLE=api, the queue processor is NOT
@@ -43,6 +44,9 @@ const queueProcessors = isApiOnly ? [] : [PdfGenerationProcessor];
   imports: [
     AwsModule,
     QuestionBankModule,
+    // MaterialGeneratedListener.markWeekGenerated: reused as-is by
+    // MaterialsCron's reconciliation sweep instead of duplicating its UPDATE.
+    SyllabusModule,
     MulterModule.register({ dest: './uploads' }),
     BullModule.registerQueue({
       name: 'materials-queue',

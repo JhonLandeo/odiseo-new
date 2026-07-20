@@ -32,6 +32,9 @@ import { CatalogsModule } from '../catalogs/catalogs.module';
     },
     MaterialGeneratedListener,
   ],
-  exports: [I_SYLLABUS_REPOSITORY],
+  // MaterialGeneratedListener is also called directly by MaterialsCron's
+  // reconciliation sweep (materials.module.ts imports SyllabusModule for
+  // this), so it must be resolvable outside this module too.
+  exports: [I_SYLLABUS_REPOSITORY, MaterialGeneratedListener],
 })
 export class SyllabusModule {}
