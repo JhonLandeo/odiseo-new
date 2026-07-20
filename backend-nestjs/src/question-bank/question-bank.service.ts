@@ -7,6 +7,7 @@ import {
   QuestionSelectionStrategy,
   SelectionRequest,
 } from './strategies/question-selection.strategy';
+import { QuestionDifficultyLevel } from './constants/question-levels.constant';
 
 @Injectable()
 export class QuestionBankService {
@@ -26,7 +27,7 @@ export class QuestionBankService {
     subtopicId: string,
     limit: number,
     excludeIds: string[] = [],
-    difficulty?: 'EASY' | 'MEDIUM' | 'HARD' | string,
+    difficulty?: QuestionDifficultyLevel | string,
   ): Promise<Question[]> {
     this.logger.debug(
       `Buscando ${limit} preguntas para el subtema ${subtopicId} con dificultad ${difficulty || 'CUALQUIERA'}`,

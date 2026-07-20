@@ -1,8 +1,14 @@
 import { Question } from '../entities/question.entity';
-import { getLevelIdsForDifficulty } from '../constants/question-levels.constant';
+import {
+  getLevelIdsForDifficulty,
+  QuestionDifficultyLevel,
+} from '../constants/question-levels.constant';
 
 export interface SelectionRequest {
-  expectedLevel?: string;
+  // Widened with `| string` on purpose, mirroring QuestionBankService's
+  // `difficulty` parameter: callers may pass raw/synonym input (see
+  // `getLevelIdsForDifficulty`), not only the normalized labels.
+  expectedLevel?: QuestionDifficultyLevel | string;
 }
 
 export class QuestionSelectionStrategy {

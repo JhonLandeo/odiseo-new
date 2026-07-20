@@ -27,6 +27,10 @@ export const dataSourceOptions: DataSourceOptions = {
       __dirname,
       '../catalogs/entities/topic-id-space-reconciliation-state.entity{.ts,.js}',
     ),
+    join(
+      __dirname,
+      '../question-bank/entities/question-level-reconciliation-state.entity{.ts,.js}',
+    ),
   ],
   // Directorio para crear migraciones.
   //
