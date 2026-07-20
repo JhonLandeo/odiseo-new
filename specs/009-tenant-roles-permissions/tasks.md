@@ -53,8 +53,8 @@ description: "Task list for Tenant Roles & Permissions implementation"
 - [x] T007 [P] [US1] Create Role and RoleInheritance TypeORM entities in `backend-nestjs/src/admin/roles/entities/role.entity.ts`
 - [x] T008 [US1] Implement RolesService for CRUD and hierarchy in `backend-nestjs/src/admin/roles/services/roles.service.ts`
 - [x] T009 [US1] Implement RolesController matching API contracts 1-4 in `backend-nestjs/src/admin/roles/controllers/roles.controller.ts`
-- [x] T010 [P] [US1] Create Vue Pinia store for roles in `frontend-vue/src/modules/admin/store/roles.store.ts`
-- [x] T011 [US1] Create RolesList and RoleEditor Vue components in `frontend-vue/src/modules/admin/views/RolesList.vue` and `RoleEditor.vue`
+- [x] T010 [P] [US1] Create Vue Pinia store for roles in `frontend-vue/src/features/admin/store/roles.store.ts`
+- [x] T011 [US1] Create RolesList and RoleEditor Vue components in `frontend-vue/src/features/admin/components/RolesList.vue` and `RoleEditor.vue`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. Roles can be created, updated, deleted, and inherited.
 
@@ -71,7 +71,7 @@ description: "Task list for Tenant Roles & Permissions implementation"
 - [x] T012 [P] [US2] Create UserRole TypeORM entity in `backend-nestjs/src/admin/roles/entities/user-role.entity.ts`
 - [x] T013 [US2] Implement user role assignment endpoint in `backend-nestjs/src/admin/roles/controllers/user-roles.controller.ts`
 - [x] T014 [P] [US2] Update auth service to flatten roles into JWT upon login in `backend-nestjs/src/core/auth/auth.service.ts`
-- [x] T015 [US2] Implement role assignment UI in `frontend-vue/src/modules/admin/views/UserManagement.vue`
+- [x] T015 [US2] Implement role assignment UI in `frontend-vue/src/features/admin/components/UserManagement.vue`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently. Users can now securely log in with inherited permissions.
 
@@ -86,7 +86,7 @@ description: "Task list for Tenant Roles & Permissions implementation"
 ### Implementation for User Story 3
 
 - [x] T016 [P] [US3] Implement permissions list endpoint in `backend-nestjs/src/admin/roles/controllers/permissions.controller.ts`
-- [x] T017 [US3] Integrate grouped permission checkboxes into `frontend-vue/src/modules/admin/views/RoleEditor.vue`
+- [x] T017 [US3] Integrate grouped permission checkboxes into `frontend-vue/src/features/admin/components/RoleEditor.vue`
 
 **Checkpoint**: All user stories should now be independently functional.
 
@@ -132,7 +132,7 @@ description: "Task list for Tenant Roles & Permissions implementation"
 ```bash
 # Launch Models and Frontend Stores concurrently:
 Task T007: "Create Role and RoleInheritance TypeORM entities in backend-nestjs/src/admin/roles/entities/role.entity.ts"
-Task T010: "Create Vue Pinia store for roles in frontend-vue/src/modules/admin/store/roles.store.ts"
+Task T010: "Create Vue Pinia store for roles in frontend-vue/src/features/admin/store/roles.store.ts"
 ```
 
 ---

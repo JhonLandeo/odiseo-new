@@ -46,7 +46,7 @@
 - [x] T006 [P] [US1] Create Tenant entity in `backend-nestjs/src/admin/tenants/entities/tenant.entity.ts`
 - [x] T007 [US1] Implement TenantsService in `backend-nestjs/src/admin/tenants/tenants.service.ts` (Integrate with SchemaService)
 - [x] T008 [US1] Implement TenantsController (`GET`, `POST`, `PATCH /status`) in `backend-nestjs/src/admin/tenants/tenants.controller.ts`
-- [x] T009 [P] [US1] Create Pinia store for Tenants in `frontend-vue/src/stores/admin/tenants.ts`
+- [x] T009 [P] [US1] Create Pinia store for Tenants in `frontend-vue/src/features/admin/store/tenants.ts`
 - [x] T010 [US1] Implement TenantsView in `frontend-vue/src/views/admin/TenantsView.vue`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
@@ -63,7 +63,7 @@
 
 - [x] T011 [P] [US2] Implement SubscriptionsService in `backend-nestjs/src/admin/subscriptions/subscriptions.service.ts`
 - [x] T012 [US2] Implement SubscriptionsController (`GET`, `POST`) in `backend-nestjs/src/admin/subscriptions/subscriptions.controller.ts`
-- [x] T013 [P] [US2] Create Pinia store for Subscriptions in `frontend-vue/src/stores/admin/subscriptions.ts`
+- [x] T013 [P] [US2] Create Pinia store for Subscriptions in `frontend-vue/src/features/admin/store/subscriptions.ts`
 - [x] T014 [US2] Implement SubscriptionsView in `frontend-vue/src/views/admin/SubscriptionsView.vue`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
@@ -81,7 +81,7 @@
 - [x] T015 [P] [US3] Create ConsumptionMetric entity in `backend-nestjs/src/admin/dashboard/entities/consumption-metric.entity.ts`
 - [x] T016 [US3] Implement DashboardService in `backend-nestjs/src/admin/dashboard/dashboard.service.ts`
 - [x] T017 [US3] Implement DashboardController (`GET /metrics`) in `backend-nestjs/src/admin/dashboard/dashboard.controller.ts`
-- [x] T018 [P] [US3] Create Pinia store for Dashboard in `frontend-vue/src/stores/admin/dashboard.ts`
+- [x] T018 [P] [US3] Create Pinia store for Dashboard in `frontend-vue/src/features/admin/store/dashboard.ts`
 - [x] T019 [US3] Implement DashboardView in `frontend-vue/src/views/admin/DashboardView.vue`
 
 **Checkpoint**: All user stories should now be independently functional
