@@ -6,12 +6,15 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { DatabaseModule } from './database/database.module';
-import { ClsModule } from 'nestjs-cls';
-import { ConfigModule } from '@nestjs/config';
+import { ClsModule, ClsService } from 'nestjs-cls';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   envValidationSchema,
   envValidationOptions,
 } from './config/env.validation';
+import { LoggerModule } from 'nestjs-pino';
+import { setupCorrelationId } from './common/logging/correlation-id.setup';
+import { createPinoLoggerParams } from './common/logging/pino-logger.options';
 import { BullModule } from '@nestjs/bullmq';
 import { TenantMiddleware } from './database/tenant.middleware';
 import { CatalogsModule } from './catalogs/catalogs.module';
@@ -32,6 +35,7 @@ import { PasswordResetGuard } from './common/guards/password-reset.guard';
 import { QueueDashboardAuthMiddleware } from './common/middleware/queue-dashboard-auth.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { HealthModule } from './health/health.module';
+import { MetricsModule } from './observability/metrics.module';
 
 @Module({
   imports: [
@@ -64,9 +68,22 @@ import { HealthModule } from './health/health.module';
     // cross-replica exclusion, so the lock is provided once at the root.
     LockingModule,
     EventEmitterModule.forRoot(),
+    // `setup` runs from inside the CLS context nestjs-cls's own middleware
+    // already opened (see cls.middleware.ts), before `next()` is called — so
+    // everything registered after this module in `imports` (LoggerModule
+    // included) sees the correlation id it sets. That ordering dependency is
+    // exactly why LoggerModule.forRootAsync is declared immediately below:
+    // pino-http's middleware must be registered (app.use()'d) AFTER this
+    // one, otherwise its request-completion listener would be attached
+    // outside this CLS context and `mixin` would never see the id.
     ClsModule.forRoot({
       global: true,
-      middleware: { mount: true },
+      middleware: { mount: true, setup: setupCorrelationId },
+    }),
+    // Must import AFTER ClsModule — see the comment above.
+    LoggerModule.forRootAsync({
+      inject: [ClsService, ConfigService],
+      useFactory: createPinoLoggerParams,
     }),
     DatabaseModule,
     AuthModule,
@@ -78,6 +95,7 @@ import { HealthModule } from './health/health.module';
     QuestionBankModule,
     OnboardingModule,
     HealthModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [

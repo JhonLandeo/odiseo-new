@@ -56,6 +56,11 @@ export class TenantMiddleware implements NestMiddleware {
     // or without the global 'api' prefix depending on how it is mounted.
     '/api/health',
     '/health',
+    // Prometheus scrape endpoint. Excluded from setGlobalPrefix in main.ts
+    // (like '/queues'), so it is reachable at the bare path only — no
+    // '/api/metrics' variant exists to also list here. A scraper carries no
+    // subdomain/tenant session, and the endpoint touches no tenant schema.
+    '/metrics',
   ];
 
   constructor(

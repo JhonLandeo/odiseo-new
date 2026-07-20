@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import * as express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -8,7 +9,26 @@ import compression from 'compression';
 import { createCorsOriginValidator } from './common/cors/cors-origin.util';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // `bufferLogs: true` queues every log emitted during bootstrap (before
+  // `app.useLogger` below attaches the real, pino-backed logger) instead of
+  // dropping it — otherwise everything logged while the DI container is
+  // still assembling (including this file's own `Logger.log` calls above the
+  // `useLogger` line) would be lost. If `NestFactory.create` itself throws
+  // (a bootstrap-time crash), Nest flushes that buffer through its DEFAULT
+  // console logger, not pino — `useLogger` never got the chance to attach —
+  // so a startup failure prints one unstructured console line while every
+  // other log in the system is JSON. Accepted: fully avoiding it would mean
+  // configuring pino before the DI container exists at all, which is a much
+  // bigger change for a narrow, already-loud (the process exits) window.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  // From this line on, every `new Logger(ClassName.name)` call site across
+  // the app (~40+ of them, unchanged) — plus the `Logger.log` calls in this
+  // file — emit through nestjs-pino instead of Nest's default console
+  // logger. `app.get(PinoLogger)` resolves nestjs-pino's own `Logger` class
+  // (aliased on import — @nestjs/common already owns the name `Logger` in
+  // this file), which LoggerModule.forRootAsync registered in app.module.ts.
+  app.useLogger(app.get(PinoLogger));
 
   // Security headers. Applied before any route so every response (API and the
   // /queues dashboard) carries them.
@@ -57,8 +77,12 @@ async function bootstrap() {
   });
 
   // Global Prefix
+  // 'metrics' is excluded for the same reason 'queues' is: a Prometheus
+  // scrape config defaults to `metrics_path: /metrics`, so the route needs to
+  // sit outside the versioned /api surface rather than repointing every
+  // deploy's scrape config to /api/metrics.
   app.setGlobalPrefix('api', {
-    exclude: ['queues', 'queues/(.*)'],
+    exclude: ['queues', 'queues/(.*)', 'metrics'],
   });
 
   // Validation Pipes

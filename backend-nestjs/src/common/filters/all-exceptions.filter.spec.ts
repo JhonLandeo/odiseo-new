@@ -115,5 +115,71 @@ describe('AllExceptionsFilter', () => {
       });
       expect(body).not.toHaveProperty('stack');
     });
+
+    // pino's redact only strips structured object key paths (see
+    // pino-logger.options.ts) — it has no visibility into this filter's
+    // free-text log message, which is exactly where a driver/client error's
+    // OWN text can embed a real credential.
+    it('scrubs a credential embedded in the error message AND stack before logging it', () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      // V8's default Error.stack starts with "${name}: ${message}", so the
+      // same secret is present in BOTH logger.error arguments — both must be
+      // scrubbed, not just the message.
+      filter.catch(
+        new Error(
+          'connection to postgres://dbuser:sup3rSecret@db.internal:5432/odiseo failed',
+        ),
+        host,
+      );
+
+      const [loggedMessage, loggedStack] = errorSpy.mock.calls[0] as [
+        string,
+        string,
+      ];
+      expect(loggedMessage).not.toContain('sup3rSecret');
+      expect(loggedMessage).toContain('[REDACTED]');
+      expect(loggedStack).not.toContain('sup3rSecret');
+      expect(loggedStack).toContain('[REDACTED]');
+    });
+
+    it('scrubs a Bearer token embedded in the error message AND stack before logging it', () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      filter.catch(
+        new Error('upstream rejected Authorization: Bearer abc123.def456-ghi'),
+        host,
+      );
+
+      const [loggedMessage, loggedStack] = errorSpy.mock.calls[0] as [
+        string,
+        string,
+      ];
+      expect(loggedMessage).not.toContain('abc123.def456-ghi');
+      expect(loggedMessage).toContain('Bearer [REDACTED]');
+      expect(loggedStack).not.toContain('abc123.def456-ghi');
+      expect(loggedStack).toContain('Bearer [REDACTED]');
+    });
+
+    it('scrubs a password=... pattern embedded in the error message AND stack before logging it', () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      filter.catch(new Error('connection to db failed: password=secret'), host);
+
+      const [loggedMessage, loggedStack] = errorSpy.mock.calls[0] as [
+        string,
+        string,
+      ];
+      expect(loggedMessage).not.toContain('=secret');
+      expect(loggedMessage).toContain('password=[REDACTED]');
+      expect(loggedStack).not.toContain('=secret');
+      expect(loggedStack).toContain('password=[REDACTED]');
+    });
   });
 });

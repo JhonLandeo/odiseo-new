@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { scrubSecrets } from '../logging/scrub-secrets.util';
 
 /**
  * Global exception filter — safe error normalization.
@@ -59,13 +60,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const isProduction = process.env.NODE_ENV === 'production';
     const error = exception instanceof Error ? exception : undefined;
 
-    // Path + method only — no bodies, headers, or cookies — so nothing secret
-    // reaches the log line.
+    // No bodies, headers, or cookies are interpolated here — but this IS a
+    // free-text string, and pino's redact (see pino-logger.options.ts) only
+    // strips structured object key paths, not substrings inside a message.
+    // A driver/client error's OWN text can still embed a real credential (a
+    // connection URL's user:pass@host, an echoed Bearer token) — scrubSecrets
+    // is a narrow, pattern-based pass over exactly that residual risk, not a
+    // general guarantee that nothing secret can ever appear here.
     this.logger.error(
-      `Unhandled exception on ${request.method} ${request.url}: ${
-        error ? `${error.name}: ${error.message}` : String(exception)
-      }`,
-      error?.stack,
+      scrubSecrets(
+        `Unhandled exception on ${request.method} ${request.url}: ${
+          error ? `${error.name}: ${error.message}` : String(exception)
+        }`,
+      ),
+      error?.stack ? scrubSecrets(error.stack) : undefined,
     );
 
     const payload: Record<string, unknown> = {

@@ -65,6 +65,12 @@ export const envValidationSchema = Joi.object({
   GCS_SIGNED_URL_TIMEOUT_MS: Joi.number().integer().positive().default(5000),
   DB_QUESTIONS_BASE: Joi.string().optional(),
   DB_QUESTIONS_NAME: Joi.string().optional(),
+  // Pino log level. Constrained to pino's own level names so a typo fails
+  // fast at boot instead of silently falling back to 'info' deep inside
+  // pino's own (unvalidated) level parsing.
+  LOG_LEVEL: Joi.string()
+    .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
+    .default('info'),
   // Required in production: an unset value defaults to registering the
   // PDF-generation processor (heavy headless-browser work) inside whatever
   // process boots, silently defeating the API/worker compute-isolation
