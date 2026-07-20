@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const api = vi.fn();
 vi.mock('@/composables/useApi', () => ({ useApi: () => api }));
 
-import { useAdminTenantsStore } from '../../src/stores/admin/tenants';
+import { useAdminTenantsStore } from '../../src/features/admin/store/tenants';
 
 function buildTenant(overrides: Record<string, unknown> = {}) {
   return {

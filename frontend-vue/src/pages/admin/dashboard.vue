@@ -124,8 +124,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useAdminDashboardStore } from '@/stores/admin/dashboard'
-import { useAdminTenantsStore } from '@/stores/admin/tenants'
+import { useAdminDashboardStore } from '@/features/admin/store/dashboard'
+import { useAdminTenantsStore } from '@/features/admin/store/tenants'
 
 definePageMeta({
   layout: 'admin',

@@ -123,7 +123,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useTenantAdminsStore, type TenantAdmin } from '@/stores/admin/tenant-admins'
+import { useTenantAdminsStore, type TenantAdmin } from '@/features/admin/store/tenant-admins'
 import { useToast } from '#imports'
 
 const props = defineProps<{

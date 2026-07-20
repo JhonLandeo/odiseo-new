@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const api = vi.fn();
 vi.mock('@/composables/useApi', () => ({ useApi: () => api }));
 
-import { useRolesStore } from '../../src/modules/admin/store/roles.store';
+import { useRolesStore } from '../../src/features/admin/store/roles.store';
 
 /** Shape returned by a real `$fetch` rejection: status plus parsed body. */
 function fetchError(status: number, data?: Record<string, unknown>) {

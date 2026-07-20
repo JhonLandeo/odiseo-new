@@ -145,7 +145,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useAdminSubscriptionsStore } from '@/stores/admin/subscriptions'
+import { useAdminSubscriptionsStore } from '@/features/admin/store/subscriptions'
 
 definePageMeta({
   layout: 'admin',

@@ -375,10 +375,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useAdminTenantsStore } from '@/stores/admin/tenants'
-import { useAdminSubscriptionsStore } from '@/stores/admin/subscriptions'
+import { useAdminTenantsStore } from '@/features/admin/store/tenants'
+import { useAdminSubscriptionsStore } from '@/features/admin/store/subscriptions'
 import { useToast } from '#imports'
-import TenantAdminsModal from '@/components/admin/TenantAdminsModal.vue'
+import TenantAdminsModal from '@/features/admin/components/TenantAdminsModal.vue'
 
 definePageMeta({
   layout: 'admin',

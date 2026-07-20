@@ -28,7 +28,7 @@ export const useRolesStore = defineStore('roles', () => {
   // 4xx y expone el cuerpo del error en `e.data`, así que un 403 de
   // `assertCanGrant` ("no puedes otorgar permisos que no tienes") llega al catch
   // con su mensaje real. El error se guarda en el store Y se relanza, igual que
-  // en `stores/admin/tenants.ts`, para que la vista pueda mostrarlo al usuario.
+  // en `features/admin/store/tenants.ts`, para que la vista pueda mostrarlo al usuario.
 
   async function createRole(payload: CreateRoleDto) {
     loading.value = true;
