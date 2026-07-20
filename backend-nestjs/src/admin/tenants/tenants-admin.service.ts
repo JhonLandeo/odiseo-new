@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Company } from '../../tenants/entities/tenant.entity';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { TenantProvisioningEvent } from './events/tenant-provisioning.event';
+import { TENANT_PROVISIONING_JOB_OPTIONS } from './constants/tenant-provisioning-queue.constants';
 import { TenantService } from '../../database/tenant.service';
 import { TenantsService } from '../../tenants/tenants.service';
 import { AuthService } from '../../auth/auth.service';
@@ -45,7 +46,8 @@ export class TenantsAdminService {
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
-    private readonly eventEmitter: EventEmitter2,
+    @InjectQueue('tenant-provisioning-queue')
+    private readonly tenantProvisioningQueue: Queue,
     private readonly tenantService: TenantService,
     private readonly tenantsService: TenantsService,
     private readonly authService: AuthService,
@@ -162,7 +164,7 @@ export class TenantsAdminService {
     // isActive starts FALSE: provisioning is asynchronous, and
     // TenantsService.findBySubdomain — which feeds TenantMiddleware — filters
     // on isActive, so an active row would resolve tenant requests to a schema
-    // that does not exist yet. The provisioning listener flips isActive on
+    // that does not exist yet. TenantProvisioningProcessor flips isActive on
     // only after the schema is created and seeded (and suspends on failure),
     // so the company becomes serviceable exactly when its schema does.
     const company = this.companyRepository.create({
@@ -193,14 +195,71 @@ export class TenantsAdminService {
       throw error;
     }
 
-    // Emit the provisioning event to handle schema creation asynchronously
+    // Durably enqueue provisioning instead of emitting an in-process event:
+    // queue.add() persists the job to Redis synchronously before resolving,
+    // so once this call returns the job survives an API-process crash —
+    // unlike the EventEmitter2 event this replaced, which was lost forever if
+    // the process died between emit() and the listener finishing.
+    //
+    // The company row above already committed, so a failure HERE (Redis
+    // unreachable) must not leave it stranded ACTIVE/isActive:false with no
+    // job ever queued and no visible signal — that would be a silent orphan
+    // indistinguishable from "provisioning is in flight". Mark it SUSPENDED
+    // immediately (the same terminal state the processor reaches after
+    // exhausting retries) so `updateStatus()` — the existing recovery path —
+    // can re-enqueue it, and rethrow so the caller sees the create as failed
+    // rather than a false-success 201 for a tenant that will never resolve.
     const schemaName = `tenant_${savedCompany.id}`;
-    this.eventEmitter.emit(
-      'tenant.provisioning.started',
-      new TenantProvisioningEvent(schemaName, savedCompany.id),
-    );
+    try {
+      await this.tenantProvisioningQueue.add(
+        'provision',
+        { schemaName, companyId: savedCompany.id },
+        TENANT_PROVISIONING_JOB_OPTIONS,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue provisioning for tenant ${savedCompany.id}; marking SUSPENDED for recovery via updateStatus(): ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      await this.companyRepository.update(savedCompany.id, {
+        isActive: false,
+        status: 'SUSPENDED',
+      });
+      throw error;
+    }
 
     return savedCompany;
+  }
+
+  /**
+   * Re-enqueues provisioning for a tenant found unresolvable during
+   * reactivation (schema missing, or present but never fully seeded). Both
+   * `createTenantSchema` and the migration runner are idempotent, so running
+   * this job again is always safe regardless of how far the prior attempt
+   * got. Best-effort: if the queue itself is unreachable, log and return
+   * false so the caller can tell the operator the requeue itself failed,
+   * rather than reporting a re-enqueue that never happened.
+   */
+  private async requeueProvisioning(
+    companyId: string,
+    schemaName: string,
+  ): Promise<boolean> {
+    try {
+      await this.tenantProvisioningQueue.add(
+        'provision',
+        { schemaName, companyId },
+        TENANT_PROVISIONING_JOB_OPTIONS,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to re-enqueue provisioning for tenant ${companyId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return false;
+    }
   }
 
   // Postgres unique_violation. TypeORM surfaces the driver error either
@@ -227,9 +286,11 @@ export class TenantsAdminService {
 
     // isActive is the serviceability gate findBySubdomain filters on, and this
     // endpoint is the only recovery path for a tenant that never got activated
-    // (failed provisioning, or a crash before the listener's activation
-    // write). Reactivate only if the schema really exists; otherwise refuse —
-    // a 200 would leave the company ACTIVE on paper but unresolvable forever.
+    // (a provisioning job that was never queued, never picked up by a worker,
+    // or exhausted its retries). Reactivate only if the schema really exists;
+    // otherwise re-enqueue provisioning and tell the caller to retry shortly
+    // rather than silently 200 an ACTIVE company that stays unresolvable, or
+    // dead-end with a 409 the operator has no way to act on.
     if (status === 'ACTIVE' && !company.isActive) {
       const schemaName = `tenant_${company.id}`;
       assertValidSchema(schemaName);
@@ -238,8 +299,14 @@ export class TenantsAdminService {
         [schemaName],
       );
       if (schemas.length === 0) {
+        const requeued = await this.requeueProvisioning(
+          company.id,
+          schemaName,
+        );
         throw new ConflictException(
-          `El esquema del tenant ${company.subdomain} nunca fue aprovisionado; se requiere re-aprovisionarlo antes de activarlo.`,
+          requeued
+            ? `El esquema del tenant ${company.subdomain} nunca fue aprovisionado; se reencoló el aprovisionamiento, reintente activarlo en unos minutos.`
+            : `El esquema del tenant ${company.subdomain} nunca fue aprovisionado y el reencolado también falló; contacte soporte o reintente más tarde.`,
         );
       }
 
@@ -264,8 +331,18 @@ export class TenantsAdminService {
         seeded = initialMigration.length > 0;
       }
       if (!seeded) {
+        // Re-enqueueing is safe here too: createTenantSchema is CREATE SCHEMA
+        // IF NOT EXISTS, and the migration runner tracks applied migrations
+        // per schema and only re-applies what's missing — a half-built
+        // schema resumes from wherever it stopped, not from scratch.
+        const requeued = await this.requeueProvisioning(
+          company.id,
+          schemaName,
+        );
         throw new ConflictException(
-          `El esquema del tenant ${company.subdomain} existe pero su aprovisionamiento quedó incompleto; se requiere re-aprovisionarlo antes de activarlo.`,
+          requeued
+            ? `El esquema del tenant ${company.subdomain} existe pero su aprovisionamiento quedó incompleto; se reencoló el aprovisionamiento, reintente activarlo en unos minutos.`
+            : `El esquema del tenant ${company.subdomain} existe pero su aprovisionamiento quedó incompleto y el reencolado también falló; contacte soporte o reintente más tarde.`,
         );
       }
 

@@ -40,6 +40,47 @@ export class AuthService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000;
   })();
 
+  /**
+   * TTL for the per-process local cache tier consulted below, between a Redis
+   * miss/error and the Postgres fallback. Deliberately SHORT — far shorter
+   * than the 60s Redis TTL — because this tier is a stampede-damper, not a
+   * source of truth: its only job is to stop many near-simultaneous requests
+   * for the SAME (userId, companyId) from each opening their own
+   * runInSchema transaction, whether that burst comes from a sustained Redis
+   * outage (many requests for the same hot users, none of which can reach
+   * Redis at all) or an ordinary cache-miss stampede (a newly-logged-in
+   * user's first few requests arriving before that first request's Redis
+   * write has landed). A few seconds is long enough to absorb such a burst,
+   * short enough that a permission change reaches this process quickly even
+   * on the rare path that misses invalidateUserPermissions()'s explicit
+   * Map.delete below and has to wait out the TTL instead.
+   */
+  private static readonly LOCAL_CACHE_TTL_MS = 4000;
+
+  /**
+   * Hard cap on the local cache's entry count — a safety net against
+   * unbounded memory growth, not a performance target. A few thousand covers
+   * the working set of concurrently active users on one process comfortably.
+   * Eviction is oldest-inserted-first: a plain Map preserves insertion order,
+   * so `map.keys().next().value` is the oldest key with no extra bookkeeping.
+   * That is a simple, correct-enough policy for a multi-second TTL cache; a
+   * full LRU would track access recency this cache has no use for.
+   */
+  private static readonly LOCAL_CACHE_MAX_ENTRIES = 5000;
+
+  /**
+   * Per-process fallback tier for getUserAuthState, keyed identically to the
+   * Redis cache. See LOCAL_CACHE_TTL_MS for why it exists and how long an
+   * entry lives.
+   */
+  private readonly localAuthStateCache = new Map<
+    string,
+    {
+      state: { permissions: string[]; forcePasswordReset: boolean };
+      expiresAt: number;
+    }
+  >();
+
   constructor(
     private readonly tenantService: TenantService,
     private readonly tenantsService: TenantsService,
@@ -237,6 +278,19 @@ export class AuthService {
     }
     if (cached) return cached;
 
+    // Second fallback tier, consulted only after a Redis MISS or error and
+    // before opening a Postgres transaction. This is what actually damps
+    // repeated identical runInSchema calls for the same (userId, companyId)
+    // under a Redis outage or a cache-miss stampede — see LOCAL_CACHE_TTL_MS.
+    // TenantService.runInSchema's transaction/SET LOCAL search_path mechanics
+    // are deliberately untouched by this change: SET LOCAL only scopes to the
+    // current transaction, so avoiding the transaction wrapper would either
+    // error or (with plain SET) leak the search_path to other queries sharing
+    // the pooled connection afterward — a cross-tenant correctness bug. This
+    // tier reduces how OFTEN that transaction opens, not how it works.
+    const localHit = this.getLocalAuthState(cacheKey);
+    if (localHit) return localHit;
+
     const schemaName = `tenant_${companyId}`;
     // Resolves the full role hierarchy: a role's permissions include everything
     // it inherits, transitively. See flattened-permissions.query.ts for why the
@@ -277,7 +331,54 @@ export class AuthService {
         }`,
       );
     }
+
+    // Populated alongside the Redis write, independent of whether that write
+    // succeeded: this tier's job is damping repeated Postgres round-trips
+    // within this process, which matters MOST exactly when Redis is the one
+    // failing.
+    this.setLocalAuthState(cacheKey, state);
+
     return state;
+  }
+
+  /**
+   * Reads the local fallback tier, evicting and ignoring an expired entry as
+   * if it were a miss.
+   */
+  private getLocalAuthState(
+    cacheKey: string,
+  ): { permissions: string[]; forcePasswordReset: boolean } | undefined {
+    const entry = this.localAuthStateCache.get(cacheKey);
+    if (!entry) return undefined;
+    if (Date.now() >= entry.expiresAt) {
+      this.localAuthStateCache.delete(cacheKey);
+      return undefined;
+    }
+    return entry.state;
+  }
+
+  /**
+   * Writes the local fallback tier, evicting the oldest entry first when at
+   * capacity (see LOCAL_CACHE_MAX_ENTRIES). Updating an already-present key
+   * does not grow the Map, so no eviction runs in that case.
+   */
+  private setLocalAuthState(
+    cacheKey: string,
+    state: { permissions: string[]; forcePasswordReset: boolean },
+  ): void {
+    if (
+      !this.localAuthStateCache.has(cacheKey) &&
+      this.localAuthStateCache.size >= AuthService.LOCAL_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey = this.localAuthStateCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.localAuthStateCache.delete(oldestKey);
+      }
+    }
+    this.localAuthStateCache.set(cacheKey, {
+      state,
+      expiresAt: Date.now() + AuthService.LOCAL_CACHE_TTL_MS,
+    });
   }
 
   /**
@@ -400,9 +501,16 @@ export class AuthService {
     companyId: string,
     userId: string,
   ): Promise<void> {
+    const cacheKey = `auth:permissions:${companyId}:${userId}`;
+    // Cleared synchronously and unconditionally, unlike the best-effort Redis
+    // delete below: this is an in-process Map with no I/O to fail, so there is
+    // no reason for a permission change to wait out LOCAL_CACHE_TTL_MS in
+    // THIS process when clearing it costs nothing.
+    this.localAuthStateCache.delete(cacheKey);
+
     try {
       await this.withCacheTimeout(
-        () => this.cacheManager.del(`auth:permissions:${companyId}:${userId}`),
+        () => this.cacheManager.del(cacheKey),
         'permission cache invalidation',
       );
     } catch (error) {

@@ -44,8 +44,15 @@ export class SchemaService {
       `Seeding tables and initial data for tenant: ${schemaName}`,
     );
 
-    // 1. Create base tables via the versioned tenant migration runner.
-    await this.tenantMigrationService.runMigrations(schemaName);
+    // 1. Create base tables via the versioned tenant migration runner, under
+    // the same advisory lock the fan-out uses. A single-tenant provisioning
+    // job can be handed out twice by BullMQ's stalled-job recovery (a missed
+    // lock-extension heartbeat during slow DDL, or a worker restart
+    // mid-job); without this, two concurrent runs would both see an empty
+    // `_tenant_migrations` table and race the same INSERT.
+    await this.tenantMigrationService.withSchemaLock(schemaName, () =>
+      this.tenantMigrationService.runMigrations(schemaName),
+    );
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();

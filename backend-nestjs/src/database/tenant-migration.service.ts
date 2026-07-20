@@ -157,26 +157,39 @@ export class TenantMigrationService {
 
   /**
    * Runs `fn` while holding a session-level Postgres advisory lock keyed on the
-   * schema name, so two concurrent fan-outs cannot apply DDL to the same schema
+   * schema name, so two concurrent callers cannot apply DDL to the same schema
    * at once. The lock is held on its own connection (separate from the one
    * `runMigrations` uses) and always released.
+   *
+   * Public: the fan-out above uses it to serialize concurrent deploys, and
+   * TenantProvisioningProcessor uses it to serialize concurrent executions of
+   * the SAME job that BullMQ's stalled-job recovery can otherwise hand out
+   * twice (a missed lock-extension heartbeat during slow DDL, or a worker
+   * restart mid-job) — without it, two concurrent runs both see an empty
+   * `_tenant_migrations` table and race the same INSERT.
    */
-  private async withSchemaLock<T>(
+  async withSchemaLock<T>(
     schemaName: string,
     fn: () => Promise<T>,
   ): Promise<T> {
     const lockRunner = this.dataSource.createQueryRunner();
     await lockRunner.connect();
     try {
-      await lockRunner.query(`SELECT pg_advisory_lock(hashtext($1))`, [
-        schemaName,
-      ]);
+      // hashtextextended(..., 0) gives a 64-bit hash rather than hashtext's
+      // 32-bit one — at a 32-bit width, the birthday bound puts collision
+      // odds at the low single-digit percent by ~10k tenants, which would
+      // needlessly serialize two unrelated schemas' DDL against each other.
+      await lockRunner.query(
+        `SELECT pg_advisory_lock(hashtextextended($1, 0))`,
+        [schemaName],
+      );
       return await fn();
     } finally {
       try {
-        await lockRunner.query(`SELECT pg_advisory_unlock(hashtext($1))`, [
-          schemaName,
-        ]);
+        await lockRunner.query(
+          `SELECT pg_advisory_unlock(hashtextextended($1, 0))`,
+          [schemaName],
+        );
       } finally {
         await lockRunner.release();
       }

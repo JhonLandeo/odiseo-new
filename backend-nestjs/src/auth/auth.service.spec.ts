@@ -556,12 +556,10 @@ describe('AuthService bounded permission cache', () => {
 
   it('serves a cache hit without touching the database', async () => {
     const { service, manager } = build({
-      get: jest
-        .fn()
-        .mockResolvedValue({
-          permissions: ['CACHED'],
-          forcePasswordReset: true,
-        }),
+      get: jest.fn().mockResolvedValue({
+        permissions: ['CACHED'],
+        forcePasswordReset: true,
+      }),
     });
 
     const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
@@ -697,6 +695,185 @@ describe('AuthService bounded permission cache', () => {
       warn.mockRestore();
       jest.useRealTimers();
     });
+  });
+});
+
+// ── stampede damper: the local per-process cache tier between Redis and DB ──
+// Guards against pool exhaustion under a sustained Redis outage or an ordinary
+// cache-miss stampede: repeated getUserAuthState calls for the SAME
+// (userId, companyId) within a short window must open at most one Postgres
+// transaction, not one per call.
+describe('AuthService local auth-state cache tier', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+  const CACHE_KEY = `auth:permissions:${COMPANY_ID}:${USER_ID}`;
+
+  function build() {
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ permissions: ['FROM_DB'] }]),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: USER_ID, forcePasswordReset: false }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    // Redis is always a miss here so every call falls through past it — the
+    // local tier below is what should absorb the repeats.
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, manager, tenantService, cacheManager };
+  }
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('hits Postgres only once for two rapid calls within the local TTL window', async () => {
+    const { service, tenantService } = build();
+
+    const first = await service.getUserAuthState(USER_ID, COMPANY_ID);
+    const second = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it('hits Postgres again once the local TTL has elapsed', async () => {
+    const { service, tenantService } = build();
+
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+    // Local TTL is a few seconds; 5s comfortably clears it.
+    await jest.advanceTimersByTimeAsync(5000);
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidateUserPermissions clears the local entry so the next call hits Postgres, not the stale value', async () => {
+    const { service, manager, tenantService } = build();
+
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+    manager.query.mockResolvedValue([{ permissions: ['ROTATED'] }]);
+    await service.invalidateUserPermissions(COMPANY_ID, USER_ID);
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledTimes(2);
+    expect(state.permissions).toEqual(['ROTATED']);
+  });
+
+  it('populates the local tier alongside the Redis write', async () => {
+    const { service, cacheManager, tenantService } = build();
+
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(cacheManager.set).toHaveBeenCalledWith(
+      CACHE_KEY,
+      expect.objectContaining({ permissions: ['FROM_DB'] }),
+      60 * 1000,
+    );
+    expect(tenantService.runInSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('still damps repeated Postgres calls when the Redis write itself fails', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ permissions: ['FROM_DB'] }]),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: USER_ID, forcePasswordReset: false }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockRejectedValue(new Error('Redis down')),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
+// ── local cache eviction: bounded size, oldest-inserted evicted first ──
+describe('AuthService local auth-state cache eviction', () => {
+  function build() {
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ permissions: ['FROM_DB'] }]),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: 'x', forcePasswordReset: false }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, tenantService };
+  }
+
+  // Exercises the eviction logic directly against a small test-only cap
+  // rather than inserting thousands of entries: the eviction policy itself
+  // (oldest-inserted-first, via Map insertion order) is what is under test,
+  // not the production cap value.
+  it('evicts the oldest inserted entry once the cache is at capacity', async () => {
+    const { service, tenantService } = build();
+    const capField = 'LOCAL_CACHE_MAX_ENTRIES';
+    const originalCap = (AuthService as any)[capField];
+    (AuthService as any)[capField] = 2;
+
+    try {
+      await service.getUserAuthState('user-a', 'company-1'); // oldest
+      await service.getUserAuthState('user-b', 'company-1');
+      // A third distinct key pushes the cache over the 2-entry cap, evicting
+      // user-a's entry — its next lookup must hit Postgres again.
+      await service.getUserAuthState('user-c', 'company-1');
+
+      tenantService.runInSchema.mockClear();
+      await service.getUserAuthState('user-a', 'company-1');
+      expect(tenantService.runInSchema).toHaveBeenCalledTimes(1);
+
+      tenantService.runInSchema.mockClear();
+      await service.getUserAuthState('user-c', 'company-1');
+      expect(tenantService.runInSchema).not.toHaveBeenCalled();
+    } finally {
+      (AuthService as any)[capField] = originalCap;
+    }
   });
 });
 

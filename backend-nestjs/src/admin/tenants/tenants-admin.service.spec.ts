@@ -1,5 +1,6 @@
 import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { TenantsAdminService } from './tenants-admin.service';
+import { TENANT_PROVISIONING_JOB_OPTIONS } from './constants/tenant-provisioning-queue.constants';
 
 jest.mock('bcrypt', () => ({
   hash: jest.fn().mockResolvedValue('$2b$10$hashedpassword'),
@@ -17,9 +18,12 @@ function createService(company: any = { id: TENANT_ID }) {
     save: jest.fn((entity: any) =>
       Promise.resolve({ id: TENANT_ID, ...entity }),
     ),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
     manager: mockManager,
   };
-  const eventEmitter = { emit: jest.fn() };
+  const tenantProvisioningQueue = {
+    add: jest.fn().mockResolvedValue(undefined),
+  };
   const tenantService = {
     runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
       op(mockManager),
@@ -33,7 +37,7 @@ function createService(company: any = { id: TENANT_ID }) {
   };
   const service = new TenantsAdminService(
     companyRepository as any,
-    eventEmitter as any,
+    tenantProvisioningQueue as any,
     tenantService as any,
     tenantsService as any,
     authService as any,
@@ -42,7 +46,7 @@ function createService(company: any = { id: TENANT_ID }) {
     service,
     mockManager,
     companyRepository,
-    eventEmitter,
+    tenantProvisioningQueue,
     tenantService,
     tenantsService,
     authService,
@@ -336,14 +340,32 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
     );
   });
 
-  it('refuses to activate a tenant whose schema was never provisioned', async () => {
-    const { service, mockManager, companyRepository } = deactivated();
+  it('refuses to activate a tenant whose schema was never provisioned, but re-enqueues provisioning', async () => {
+    const { service, mockManager, companyRepository, tenantProvisioningQueue } =
+      deactivated();
     mockManager.query.mockResolvedValue([]);
 
     await expect(service.updateStatus(TENANT_ID, 'ACTIVE')).rejects.toThrow(
       ConflictException,
     );
     expect(companyRepository.save).not.toHaveBeenCalled();
+    // Both idempotent (CREATE SCHEMA IF NOT EXISTS, migration tracking), so
+    // re-running the same job from scratch is safe.
+    expect(tenantProvisioningQueue.add).toHaveBeenCalledWith(
+      'provision',
+      { schemaName: `tenant_${TENANT_ID}`, companyId: TENANT_ID },
+      TENANT_PROVISIONING_JOB_OPTIONS,
+    );
+  });
+
+  it('tells the operator the requeue itself failed when the queue is unreachable', async () => {
+    const { service, mockManager, tenantProvisioningQueue } = deactivated();
+    mockManager.query.mockResolvedValue([]);
+    tenantProvisioningQueue.add.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await expect(
+      service.updateStatus(TENANT_ID, 'ACTIVE'),
+    ).rejects.toThrow(/el reencolado también falló/);
   });
 
   // Provisioning can crash right after CREATE SCHEMA: the schema exists but
@@ -360,6 +382,25 @@ describe('TenantsAdminService.updateStatus reactivation guard', () => {
       /aprovisionamiento quedó incompleto/,
     );
     expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('re-enqueues provisioning for a half-seeded schema so the runner resumes where it stopped', async () => {
+    const { service, mockManager, tenantProvisioningQueue } = deactivated();
+    mockManager.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('information_schema.schemata')) return [{ 1: 1 }];
+      if (sql.includes('information_schema.tables')) return []; // no marker table
+      return [{ 1: 1 }];
+    });
+
+    await expect(
+      service.updateStatus(TENANT_ID, 'ACTIVE'),
+    ).rejects.toThrow(/aprovisionamiento quedó incompleto/);
+
+    expect(tenantProvisioningQueue.add).toHaveBeenCalledWith(
+      'provision',
+      { schemaName: `tenant_${TENANT_ID}`, companyId: TENANT_ID },
+      TENANT_PROVISIONING_JOB_OPTIONS,
+    );
   });
 
   it('refuses to activate when the marker table exists but the initial migration never committed', async () => {
@@ -671,9 +712,25 @@ describe('TenantsAdminService.create', () => {
     await expect(service.create(input)).rejects.toThrow('connection reset');
   });
 
+  // The company row already committed by the time queue.add() runs; a
+  // failure to enqueue (Redis unreachable) must not leave it silently
+  // stranded ACTIVE-on-paper/isActive:false with no job and no signal.
+  it('suspends the company and rethrows when enqueueing provisioning fails', async () => {
+    const { service, companyRepository, tenantProvisioningQueue } =
+      createService(null);
+    tenantProvisioningQueue.add.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await expect(service.create(input)).rejects.toThrow('ECONNREFUSED');
+
+    expect(companyRepository.update).toHaveBeenCalledWith(TENANT_ID, {
+      isActive: false,
+      status: 'SUSPENDED',
+    });
+  });
+
   // Provisioning is asynchronous and findBySubdomain (TenantMiddleware)
   // filters on isActive: an active row here would route requests to a schema
-  // that does not exist yet. The provisioning listener owns activation.
+  // that does not exist yet. TenantProvisioningProcessor owns activation.
   it('creates the company non-serviceable until provisioning completes', async () => {
     const { service, companyRepository } = createService(null);
 
@@ -684,28 +741,27 @@ describe('TenantsAdminService.create', () => {
     );
   });
 
-  it('emits the provisioning event for the saved company schema', async () => {
-    const { service, eventEmitter } = createService(null);
+  it('durably enqueues the provisioning job for the saved company schema', async () => {
+    const { service, tenantProvisioningQueue } = createService(null);
 
     const saved = await service.create(input);
 
     expect(saved.id).toBe(TENANT_ID);
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
-      'tenant.provisioning.started',
-      expect.objectContaining({
-        schemaName: `tenant_${TENANT_ID}`,
-        companyId: TENANT_ID,
-      }),
+    expect(tenantProvisioningQueue.add).toHaveBeenCalledWith(
+      'provision',
+      { schemaName: `tenant_${TENANT_ID}`, companyId: TENANT_ID },
+      expect.objectContaining({ attempts: 3 }),
     );
   });
 
-  it('does not emit a provisioning event when the insert fails', async () => {
-    const { service, companyRepository, eventEmitter } = createService(null);
+  it('does not enqueue a provisioning job when the insert fails', async () => {
+    const { service, companyRepository, tenantProvisioningQueue } =
+      createService(null);
     companyRepository.save.mockRejectedValue(uniqueViolation());
 
     await expect(service.create(input)).rejects.toBeInstanceOf(
       ConflictException,
     );
-    expect(eventEmitter.emit).not.toHaveBeenCalled();
+    expect(tenantProvisioningQueue.add).not.toHaveBeenCalled();
   });
 });
