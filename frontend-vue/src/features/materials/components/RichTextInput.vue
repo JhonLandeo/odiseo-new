@@ -80,7 +80,7 @@ const showToolbar = ref(!props.collapsibleToolbar)
         variant="ghost"
         color="neutral"
         icon="i-heroicons-adjustments-horizontal"
-        @click="showToolbar = true"
+        @click="() => { showToolbar = true }"
         title="Personalizar texto"
         class="opacity-60 hover:opacity-100 rounded-md bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-white/10 shadow-sm hover:shadow transition-all duration-200"
       />
@@ -128,7 +128,7 @@ const showToolbar = ref(!props.collapsibleToolbar)
         </div>
         
         <div v-if="collapsibleToolbar" class="ml-auto">
-           <UButton size="xs" variant="ghost" color="neutral" icon="i-heroicons-x-mark" @click="showToolbar = false" title="Ocultar herramientas" />
+           <UButton size="xs" variant="ghost" color="neutral" icon="i-heroicons-x-mark" @click="() => { showToolbar = false }" title="Ocultar herramientas" />
         </div>
     </div>
     <!-- Editor -->

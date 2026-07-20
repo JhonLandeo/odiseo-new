@@ -26,7 +26,7 @@
       <div class="flex-1 max-w-md relative">
         <UInput v-model="searchQuery" placeholder="Buscar ciclo..." icon="i-heroicons-magnifying-glass" size="md"
           color="neutral" variant="outline" class="w-full" id="cycle-search-input"
-          :ui="{ icon: { trailing: { pointer: '' } } }">
+          :ui="{ trailing: 'pointer-events-auto' }">
           <template #trailing>
             <div
               class="hidden sm:flex items-center gap-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-mono select-none">

@@ -79,7 +79,11 @@ defineExpose({ open });
 <template>
   <UModal v-model:open="isOpen">
     <template #content>
-      <UCard :ui="{ ring: '', divide: 'divide-y divide-slate-100 dark:divide-slate-800' }">
+      <!-- Nuxt UI v3's UCard folds v2's separate `ring`/`divide` :ui keys into
+           `root`'s class string -- this is that same visual treatment
+           (no ring, divider between header/body/footer), not an arbitrary
+           class list. -->
+      <UCard :ui="{ root: 'ring-0 divide-y divide-slate-100 dark:divide-slate-800' }">
         <div class="p-4 sm:p-6">
           <h3 class="text-lg font-medium mb-4">Clonar Sílabos del Ciclo</h3>
           <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">

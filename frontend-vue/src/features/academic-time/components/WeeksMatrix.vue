@@ -240,7 +240,7 @@
                 variant="outline"
                 color="neutral"
                 class="flex-1 justify-center rounded-lg py-2 text-xs font-semibold"
-                @click="isDeleteConfirmOpen = false"
+                @click="() => { isDeleteConfirmOpen = false }"
               >
                 Cancelar
               </UButton>

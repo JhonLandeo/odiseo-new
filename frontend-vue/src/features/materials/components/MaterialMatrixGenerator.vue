@@ -418,7 +418,7 @@ defineExpose({ isOpen, openWithContext });
                       masivos por semana.</p>
                   </div>
                 </div>
-                <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isOpen = false" />
+                <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="() => { isOpen = false }" />
               </div>
               <div class="mt-6 flex flex-col md:flex-row items-center gap-4">
                 <div class="w-full md:w-96 relative">
@@ -866,7 +866,7 @@ defineExpose({ isOpen, openWithContext });
                 </div>
               </div>
               <div class="relative z-[1060]">
-                <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isReviewModalOpen = false"
+                <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="() => { isReviewModalOpen = false }"
                   class="shrink-0 cursor-pointer pointer-events-auto" />
               </div>
             </div>

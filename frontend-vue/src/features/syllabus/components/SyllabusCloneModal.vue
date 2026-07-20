@@ -107,7 +107,11 @@ defineExpose({ isOpen, courseId });
 <template>
   <UModal v-model:open="isOpen">
     <template #content>
-      <UCard :ui="{ ring: '', divide: 'divide-y divide-slate-100 dark:divide-slate-800' }">
+      <!-- Nuxt UI v3's UCard folds v2's separate `ring`/`divide` :ui keys into
+           `root`'s class string -- this is that same visual treatment
+           (no ring, divider between header/body/footer), not an arbitrary
+           class list. -->
+      <UCard :ui="{ root: 'ring-0 divide-y divide-slate-100 dark:divide-slate-800' }">
         <div class="p-4 sm:p-6">
           <h3 class="text-lg font-medium mb-4">Clonar Sílabo Individual</h3>
           <UAlert 
@@ -145,7 +149,7 @@ defineExpose({ isOpen, courseId });
           </UFormField>
           
           <div class="flex justify-end gap-2 mt-6">
-            <UButton color="neutral" variant="ghost" class="btn-premium-secondary" @click="isOpen = false">Cancelar</UButton>
+            <UButton color="neutral" variant="ghost" class="btn-premium-secondary" @click="() => { isOpen = false }">Cancelar</UButton>
             <UButton color="neutral" variant="ghost" class="btn-premium-primary" @click="confirmClone" :loading="store.loading" :disabled="!sourceId">Confirmar Clonación</UButton>
           </div>
         </div>

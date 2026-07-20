@@ -60,7 +60,7 @@ function handleCancelled() {
           </div>
           <div class="flex items-center gap-2">
             <UButton v-if="view === 'list'" color="primary" size="xs" icon="i-heroicons-plus" @click="openCreate">Nueva Plantilla</UButton>
-            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="isOpen = false" />
+            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="() => { isOpen = false }" />
           </div>
         </div>
 

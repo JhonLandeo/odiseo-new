@@ -11,6 +11,7 @@ export interface ReviewQuestionOption {
   label: string;
   text: string;
   is_correct: boolean;
+  isCorrect?: boolean;
 }
 
 export interface ReviewQuestion {

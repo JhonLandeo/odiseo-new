@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { usePdfDesignsStore, type PdfDesignTemplate } from '../store/pdfDesigns'
 import PdfDesignPreview from './PdfDesignPreview.vue'
 
@@ -29,6 +29,16 @@ watch(selectedId, (val) => {
   emit('update:modelValue', val)
 })
 
+// USelectMenu's v-model expects `string | undefined`, while this component's
+// public API (props/emit) intentionally models "no selection" as `null`.
+// Bridge the two at the template boundary without changing the underlying model.
+const selectedIdForSelect = computed({
+  get: () => selectedId.value ?? undefined,
+  set: (val: string | undefined) => {
+    selectedId.value = val ?? null
+  }
+})
+
 async function openPreview() {
   if (!selectedId.value) return
   loadingPreview.value = true
@@ -55,7 +65,7 @@ async function openPreview() {
       Plantilla de Diseño
     </label>
     <div class="flex gap-2">
-      <USelectMenu v-model="selectedId" :items="store.designs" value-key="id" label-key="name"
+      <USelectMenu v-model="selectedIdForSelect" :items="store.designs" value-key="id" label-key="name"
         placeholder="Sin personalización" class="flex-1" size="sm">
         <template #default>
           {{ store.designs.find(d => d.id === selectedId)?.name || 'Sin personalización' }}
@@ -84,7 +94,7 @@ async function openPreview() {
           <div class="bg-white dark:bg-[#1a1a24] rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col pointer-events-auto">
             <div class="flex items-center justify-between px-6 pt-4 pb-2">
               <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">Vista Previa (Diseño Seleccionado)</h3>
-              <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="showPreview = false" />
+              <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark" @click="() => { showPreview = false }" />
             </div>
             <div class="overflow-y-auto flex-1 px-6 pb-6">
               <PdfDesignPreview :html="previewHtml" :loading="loadingPreview" />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { useMaterialsStore } from '../store/materials';
+import { useMaterialsStore, type ReviewQuestionOption } from '../store/materials';
 import { useCatalogsStore } from '@/features/catalogs/store';
 
 const props = defineProps<{
@@ -392,10 +392,10 @@ const handleApprove = async () => {
             <!-- Search -->
             <UInput v-model="searchQuery" icon="i-heroicons-magnifying-glass"
               placeholder="Buscar código o palabra clave..." class="w-full sm:w-72" size="sm"
-              :ui="{ icon: { trailing: { pointer: '' } } }">
+              :ui="{ trailing: 'pointer-events-auto' }">
               <template #trailing>
                 <UButton v-show="searchQuery !== ''" color="neutral" variant="link" icon="i-heroicons-x-mark-20-solid"
-                  :padded="false" @click="searchQuery = ''" />
+                  :padded="false" @click="() => { searchQuery = '' }" />
               </template>
             </UInput>
           </div>
@@ -547,11 +547,11 @@ const handleApprove = async () => {
                           TIPO: {{ q.type === 'MULTIPLE_CHOICE' ? 'Opc. Múltiple' : (q.type || 'N/A') }}
                         </div>
 
-                        <div v-if="q.options && q.options.some(o => o.is_correct || o.isCorrect)"
+                        <div v-if="q.options && q.options.some((o: ReviewQuestionOption) => o.is_correct || o.isCorrect)"
                           class="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md border border-emerald-100 dark:border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider"
                           title="Alternativa Correcta">
                           <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5" />
-                          RPTA: {{q.options.find(o => o.is_correct || o.isCorrect)?.label}}
+                          RPTA: {{q.options.find((o: ReviewQuestionOption) => o.is_correct || o.isCorrect)?.label}}
                         </div>
                       </div>
                     </div>

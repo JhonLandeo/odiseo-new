@@ -179,7 +179,7 @@ async function confirmDelete() {
                 variant="outline" 
                 color="neutral" 
                 class="flex-1 justify-center rounded-lg py-2 text-xs font-semibold"
-                @click="isConfirmOpen = false"
+                @click="() => { isConfirmOpen = false }"
               >
                 Cancelar
               </UButton>

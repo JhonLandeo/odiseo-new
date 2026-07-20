@@ -168,6 +168,11 @@ async function onGridImageChange(e: Event, zone: 'header' | 'footer', position: 
   }
 }
 
+function clearGridSlot(zone: 'header' | 'footer', position: 'left' | 'center' | 'right') {
+  const config = zone === 'header' ? form.value.headerConfig : form.value.footerConfig
+  ;(config as any)[position] = ''
+}
+
 function updatePreview() {
   if (debounceTimeout) clearTimeout(debounceTimeout)
   debounceTimeout = setTimeout(async () => {
@@ -553,7 +558,7 @@ const variablesHelper = [
                       <input :ref="'headerImg_' + pos" type="file" accept="image/*" class="hidden"
                         @change="e => onGridImageChange(e, 'header', pos as any)" />
                       <UButton v-if="isImageUrl((form.headerConfig as any)[pos])" size="xs" variant="ghost"
-                        color="error" icon="i-heroicons-trash" @click="(form.headerConfig as any)[pos] = ''">Borrar
+                        color="error" icon="i-heroicons-trash" @click="() => clearGridSlot('header', pos as 'left' | 'center' | 'right')">Borrar
                       </UButton>
                     </div>
                   </div>
@@ -633,7 +638,7 @@ const variablesHelper = [
                       <input :ref="'footerImg_' + pos" type="file" accept="image/*" class="hidden"
                         @change="e => onGridImageChange(e, 'footer', pos as any)" />
                       <UButton v-if="isImageUrl((form.footerConfig as any)[pos])" size="xs" variant="ghost"
-                        color="error" icon="i-heroicons-trash" @click="(form.footerConfig as any)[pos] = ''">Borrar
+                        color="error" icon="i-heroicons-trash" @click="() => clearGridSlot('footer', pos as 'left' | 'center' | 'right')">Borrar
                       </UButton>
                     </div>
                   </div>

@@ -7,7 +7,7 @@
             <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white">
               Generar Material
             </h3>
-            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark-20-solid" class="-my-1" @click="isOpen = false" />
+            <UButton color="neutral" variant="ghost" icon="i-heroicons-x-mark-20-solid" class="-my-1" @click="() => { isOpen = false }" />
           </div>
         </template>
 
@@ -54,7 +54,7 @@
 
         <template #footer>
           <div class="flex justify-end space-x-2">
-            <UButton color="neutral" @click="isOpen = false">Cancelar</UButton>
+            <UButton color="neutral" @click="() => { isOpen = false }">Cancelar</UButton>
             <UButton color="primary" :loading="isSubmitting" @click="submit">Generar</UButton>
           </div>
         </template>

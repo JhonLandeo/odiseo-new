@@ -2,7 +2,7 @@
 export default defineNuxtConfig({
   compatibilityDate: '2026-06-15',
   srcDir: 'src/',
-  modules: ['@pinia/nuxt', '@nuxt/ui'],
+  modules: ['@pinia/nuxt', '@nuxt/ui', '@nuxt/eslint'],
   devtools: { enabled: true },
   devServer: {
     port: 3001
