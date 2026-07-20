@@ -227,28 +227,15 @@ describe('GenerateMaterialUseCase', () => {
     });
   });
 
-  describe('material type at creation (Fix 2 counterpart)', () => {
-    it('persists EXAMEN when exam areas are requested', async () => {
-      await useCase.execute(
-        TENANT_ID,
-        USER_ID,
-        dto({ exam_areas: [{ name: 'Area A' }] }),
-      );
-
-      const created = manager.create.mock.calls.find(
-        ([entity]: any[]) => entity === MaterialRequest,
-      );
-      expect(created[1].materialType).toBe('EXAMEN');
-      expect(queue.add.mock.calls[0][1].material_type).toBe('EXAMEN');
-    });
-
-    it('persists BALOTARIO when no exam areas are requested', async () => {
+  describe('material type at creation', () => {
+    it('always persists BALOTARIO', async () => {
       await useCase.execute(TENANT_ID, USER_ID, dto());
 
       const created = manager.create.mock.calls.find(
         ([entity]: any[]) => entity === MaterialRequest,
       );
       expect(created[1].materialType).toBe('BALOTARIO');
+      expect(queue.add.mock.calls[0][1].material_type).toBe('BALOTARIO');
     });
   });
 

@@ -52,7 +52,7 @@ export class MaterialsController {
   @RequirePermissions(PERMISSIONS.EDIT_MATERIALS)
   @HttpCode(HttpStatus.ACCEPTED) // 202 Accepted
   @ApiOperation({
-    summary: 'Solicitar generación asíncrona de balotario/examen',
+    summary: 'Solicitar generación asíncrona de balotario',
   })
   @ApiResponse({
     status: 202,

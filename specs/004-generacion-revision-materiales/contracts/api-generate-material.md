@@ -16,8 +16,7 @@ Endpoint REST expuesto por el SaaS B2B (NestJS) para solicitar la generación de
     {
       "course_id": "math-101"
     }
-  ],
-  "exam_areas": ["ciencias", "letras"] // Opcional, solo para tipo EXAMEN
+  ]
 }
 ```
 

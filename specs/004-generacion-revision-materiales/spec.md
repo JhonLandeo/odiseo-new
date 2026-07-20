@@ -62,7 +62,7 @@ Como administrador del tenant, quiero solicitar la generación de un PDF basánd
 **Acceptance Scenarios**:
 
 1. **Given** un Ciclo con un Perfil de Material y sílabos configurados, **When** el admin solicita generar un material seleccionando la Semana y el Perfil, **Then** el backend cruza las reglas del perfil con el sílabo, arma el payload con los datos del tenant y la distribución final, y lo encola en BullMQ retornando HTTP 202 con el `job_id`.
-2. **Given** una solicitud de material tipo EXAMEN, **When** el admin especifica las áreas de examen, **Then** el payload incluye el array de `exam_areas` para que el Processor genere cuadernillos segregados por área.
+2. ~~**Given** una solicitud de material tipo EXAMEN...~~ — **DESCARTADO** (2026-07-19): el tipo EXAMEN y su payload `exam_areas` nunca se terminaron de implementar (el flag llegaba al job de BullMQ pero ningún consumidor lo leía) y se decidió retirar el código incompleto en vez de completarlo. `GenerateMaterialUseCase` solo produce `material_type: 'BALOTARIO'`.
 3. **Given** que el admin solicita generación con revisión, **When** marca la opción `requires_review = true`, **Then** el Processor pausa después de obtener las preguntas y notifica `REVIEW_REQUIRED` al frontend para que el admin revise antes de generar el PDF.
 
 ---
@@ -76,7 +76,7 @@ Como sistema, necesito que el Processor en AWS Fargate procese los mensajes de S
 **Acceptance Scenarios**:
 
 1. **Given** un Job en BullMQ con distribución del sílabo, **When** el Processor lo procesa, **Then** llama al Core API para obtener las preguntas de cada topic/subtopic según las cantidades solicitadas, genera el PDF usando Playwright con el branding del tenant (logo, nombre), sube el archivo a S3 y notifica vía WebSocket al usuario con el `download_url`.
-2. **Given** un material tipo EXAMEN con múltiples áreas, **When** el Processor procesa el mensaje, **Then** genera un PDF separado por cada área, los empaqueta en un ZIP y sube el archivo único a S3.
+2. ~~**Given** un material tipo EXAMEN con múltiples áreas...~~ — **DESCARTADO** (2026-07-19), ver User Story 1, escenario 2.
 3. **Given** que el Core API retorna menos preguntas de las solicitadas para algunos subtemas, **When** el Processor detecta la insuficiencia, **Then** registra el desglose de faltantes (ej. "Faltan 3 de Ecuaciones Lineales") y continúa con las preguntas disponibles, marcando los vacíos en el resultado.
 
 ---
@@ -118,7 +118,7 @@ Como administrador conectado al panel B2B, quiero recibir una notificación visu
 - **FR-005**: La vista de revisión MUST mostrar las preguntas en el orden exacto que aparecerán en el PDF, agrupadas por tema/subtema, con indicadores visuales claros para preguntas encontradas vs. vacíos.
 - **FR-006**: El sistema MUST soportar dos modos de generación: (a) generación directa (sin revisión) y (b) generación con revisión previa (`requires_review = true`).
 - **FR-007**: Las URLs de descarga de S3 para cada curso MUST ser URLs pre-firmadas (presigned URLs) con expiración temporal de 24 horas. El backend MUST generar una nueva URL pre-firmada al solicitar la descarga si la anterior ha expirado, sin necesidad de re-compilar el PDF.
-- **FR-008**: Para materiales tipo EXAMEN con múltiples áreas, el Processor MUST generar cuadernillos separados por área y empaquetarlos en un ZIP.
+- ~~**FR-008**: Para materiales tipo EXAMEN con múltiples áreas...~~ — **DESCARTADO** (2026-07-19), ver User Story 1, escenario 2.
 - **FR-009**: Las preguntas presentadas en la vista de revisión MUST ser inmutables. El sistema MUST permitir únicamente el reemplazo lógico (`REPLACED`) o la eliminación de la pregunta en la distribución (`REMOVED`), sin modificar el contenido original de la pregunta.
 - **FR-010**: El sistema MUST manejar la siguiente máquina de estados para `material_requests.status`:
   - `PENDING` -> `REVIEW_REQUIRED` (si requiere revisión, tras la extracción inicial por el Processor).
@@ -147,7 +147,7 @@ Como administrador conectado al panel B2B, quiero recibir una notificación visu
 - **SC-001**: Un material puede ser solicitado, procesado asincrónicamente, y descargado desde S3 exitosamente end-to-end.
 - **SC-002**: La vista de revisión muestra las preguntas en el orden correcto y permite gestionar vacíos sin pérdida de datos.
 - **SC-003**: Las notificaciones WebSocket llegan al frontend en tiempo real (< 2 segundos después de que el Processor completa).
-- **SC-004**: Materiales tipo EXAMEN con N áreas generan exactamente N cuadernillos empaquetados en un ZIP.
+- ~~**SC-004**: Materiales tipo EXAMEN con N áreas generan exactamente N cuadernillos...~~ — **DESCARTADO** (2026-07-19), ver User Story 1, escenario 2.
 - **SC-005**: El tiempo end-to-end de generación de un PDF (desde solicitud hasta notificación WebSocket) MUST ser ≤60 segundos en condiciones normales de operación.
 
 ## Edge Cases

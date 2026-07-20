@@ -143,15 +143,15 @@ describe('ApproveMaterialReviewUseCase', () => {
   });
 
   describe('material type propagation (Fix 2)', () => {
-    it('keeps an EXAMEN request an EXAMEN through approval', async () => {
-      request.materialType = 'EXAMEN';
+    it('keeps a PRACTICA request a PRACTICA through approval', async () => {
+      request.materialType = 'PRACTICA';
 
       await useCase.execute('req-1', dto(), {
         tenantId: TENANT_ID,
         userId: USER_ID,
       });
 
-      expect(dispatchedJob().material_type).toBe('EXAMEN');
+      expect(dispatchedJob().material_type).toBe('PRACTICA');
     });
 
     it('carries a BALOTARIO request through unchanged', async () => {

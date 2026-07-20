@@ -81,13 +81,6 @@ export interface MaterialReviewQuestion {
 
 // --- API Request/Response DTOs ---
 
-export interface GenerateMaterialRequest {
-  material_type: 'EXAMEN' | 'BALOTARIO';
-  course_id: string;
-  difficulty_level: string;
-  exam_areas?: string[];
-}
-
 export interface GenerateMaterialResponse {
   status: 'processing';
   job_id: string;

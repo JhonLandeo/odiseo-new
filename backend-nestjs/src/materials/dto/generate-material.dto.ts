@@ -32,11 +32,6 @@ export class GenerateMaterialDto {
   courses: CourseDto[];
 
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  exam_areas?: string[];
-
-  @IsOptional()
   @IsUUID()
   design_template_id?: string;
 }

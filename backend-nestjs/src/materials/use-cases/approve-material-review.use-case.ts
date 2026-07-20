@@ -321,10 +321,9 @@ export class ApproveMaterialReviewUseCase {
               company?.logoUrl ||
               'https://s3.aws.com/tenant-assets/odiseo-innova.png',
           },
-          // Read the type the request was actually created with. Hardcoding
-          // 'BALOTARIO' here silently downgraded every EXAMEN that went
-          // through the review flow, because `GenerateMaterialUseCase` decides
-          // the type from `dto.exam_areas` and persists it on the entity.
+          // Read the type the request was actually created with, rather than
+          // hardcoding 'BALOTARIO' — that would silently downgrade any
+          // 'PRACTICA' request that goes through the review flow.
           material_type: request.materialType || 'BALOTARIO',
           course_id: courseReq.courseId,
           // KNOWN GAP: there is no per-request difficulty in the domain model.

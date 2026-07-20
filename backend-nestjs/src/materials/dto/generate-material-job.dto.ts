@@ -4,11 +4,6 @@ export interface TenantInfo {
   logo_url: string;
 }
 
-export interface ExamArea {
-  exam_area_id: string;
-  name: string;
-}
-
 export interface SyllabusDistribution {
   topic_id: string;
   subtopic_id: string;
@@ -26,10 +21,9 @@ export interface NotificationInfo {
 export interface GenerateMaterialJobDto {
   job_id: string;
   tenant: TenantInfo;
-  material_type: 'EXAMEN' | 'BALOTARIO' | 'PRACTICA';
+  material_type: 'BALOTARIO' | 'PRACTICA';
   course_id: string;
   difficulty_level: string;
-  exam_areas?: ExamArea[];
   syllabus_distribution: SyllabusDistribution[];
   notification: NotificationInfo;
   design_template_id?: string | null;
