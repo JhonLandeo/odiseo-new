@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Logger,
   Res,
   Req,
   UnauthorizedException,
@@ -23,6 +24,8 @@ import { jwtExpirationToMs } from './jwt-expiration.util';
 
 @Controller('v1/auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
@@ -139,7 +142,54 @@ export class AuthController {
   // forbidden to do.
   @AllowDuringPasswordReset()
   @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) res: express.Response) {
+  async logout(
+    @Req() req: express.Request,
+    @Res({ passthrough: true }) res: express.Response,
+  ) {
+    // Server-side revocation, not just a client-side cookie clear: without
+    // this, a copy of the cookie taken before logout (a leaked/stolen token,
+    // or a second device sharing the same session) would keep working for the
+    // rest of the token's 24h lifetime. revokeUserTokens is per-USER, not
+    // per-session — this codebase tracks no sessions, only per-user auth
+    // state — so logging out on one device revokes every device/session this
+    // user is signed in on, exactly like every other revocation trigger
+    // (password change, admin deactivation, role change).
+    //
+    // Best-effort by design: an already-expired or malformed token, or even a
+    // revocation write that fails, must never turn "log me out" into a 401 —
+    // the client is trying to END a session, and clearing the cookie below is
+    // what actually accomplishes that from its point of view.
+    const token = req.cookies?.jwt;
+    if (token) {
+      let payload: { sub: string; companyId: string } | undefined;
+      try {
+        payload = this.authService.verifyToken(token);
+      } catch {
+        // Expired/malformed token: routine (the client is logging out of a
+        // session that's already effectively dead) — nothing to revoke, no
+        // signal worth logging. Fall through to clearing the cookie.
+      }
+      if (payload) {
+        try {
+          await this.authService.revokeUserTokens(
+            payload.companyId,
+            payload.sub,
+          );
+        } catch (error) {
+          // A VALID token's revocation write failing is a real problem — that
+          // token stays fully usable despite the user believing they logged
+          // out — unlike an expired/malformed token above, which had nothing
+          // to revoke in the first place. Still never blocks the cookie
+          // clear: "log me out" must not itself 401.
+          this.logger.error(
+            `Failed to revoke tokens for user ${payload.sub} in company ${payload.companyId} on logout; their token may remain valid until it naturally expires: ${
+              error instanceof Error ? error.message : 'unknown error'
+            }`,
+          );
+        }
+      }
+    }
+
     res.clearCookie('jwt', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

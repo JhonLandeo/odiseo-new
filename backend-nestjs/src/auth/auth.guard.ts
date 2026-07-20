@@ -65,8 +65,38 @@ export class JwtAuthGuard implements CanActivate {
 
       // Dynamically load permissions and the password-reset hold to avoid stale
       // claims — one cached lookup serves both downstream guards.
-      const { permissions, forcePasswordReset } =
+      const { permissions, forcePasswordReset, tokensValidAfter } =
         await this.authService.getUserAuthState(payload.sub, payload.companyId);
+
+      // JWT revocation: AuthService.revokeUserTokens stamps tokensValidAfter
+      // to the instant a user's authority or account state last changed
+      // (logout, password change, deactivation, credential reset, role
+      // change). A token issued (iat, seconds) before that instant must be
+      // rejected here even though it has not otherwise expired — that is the
+      // whole point of a durable, cache-backed revocation mechanism instead
+      // of just waiting out the token's 24h lifetime. tokensValidAfter is
+      // null for an account that has never been revoked.
+      //
+      // Compared at whole-second granularity on both sides: `iat` is seconds
+      // (jsonwebtoken truncates down, per the JWT spec), but tokensValidAfter
+      // is a millisecond Date. Comparing iat*1000 directly against the raw
+      // millisecond value would false-reject a token minted legitimately
+      // AFTER a revocation whenever both land in the same wall-clock second
+      // (e.g. an immediate re-login right after logout) — iat's truncation
+      // alone can put it below tokensValidAfter's ms offset even though the
+      // real mint time was later. Flooring tokensValidAfter to the second
+      // removes that false positive; the tradeoff is a token minted in the
+      // very same second as a revocation it should have missed stays valid
+      // for up to one extra second, which is what the existing 60s Redis /
+      // 4s local cache freshness window already tolerates by design.
+      const tokensValidAfterSec =
+        tokensValidAfter !== null ? Math.floor(tokensValidAfter / 1000) : null;
+      if (tokensValidAfterSec !== null && payload.iat < tokensValidAfterSec) {
+        this.logger.warn(
+          `Revoked token rejected for user ${payload.sub} in company ${payload.companyId}`,
+        );
+        throw new UnauthorizedException('Token revoked');
+      }
 
       // Attach decoded user and fresh state to request for downstream use
       (request as any).user = {

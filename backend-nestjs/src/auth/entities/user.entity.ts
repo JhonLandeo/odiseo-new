@@ -42,6 +42,19 @@ export class User {
   @Column({ name: 'force_password_reset', default: false })
   forcePasswordReset: boolean;
 
+  /**
+   * Set to NOW() by AuthService.revokeUserTokens whenever this user's
+   * authority or account state changes (password change, deactivation,
+   * credential reset, role assignment/update/delete) or they log out. NULL
+   * means the account has never had its tokens revoked. JwtAuthGuard rejects
+   * any token whose `iat` (issued-at) claim predates this timestamp, even one
+   * that has not otherwise expired — see getUserAuthState/JwtAuthGuard for the
+   * comparison. Durable (Postgres-backed) so revocation survives a Redis
+   * restart/eviction, unlike the permission cache alone.
+   */
+  @Column({ name: 'tokens_valid_after', type: 'timestamptz', nullable: true })
+  tokensValidAfter: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -22,12 +22,12 @@ import {
 
 @Injectable()
 export class RolesService {
-  private readonly logger = new Logger(RolesService.name);
-
   // Roles live in the per-tenant schema, so every operation must run inside the
   // tenant transaction (via TenantService). A plain default-connection
   // repository would target the public schema, where the roles table does not
   // exist.
+  private readonly logger = new Logger(RolesService.name);
+
   constructor(
     private readonly tenantService: TenantService,
     private readonly authService: AuthService,
@@ -59,27 +59,41 @@ export class RolesService {
   }
 
   /**
-   * Drops the cached permissions of the given users in the current tenant.
-   * Best-effort by design: the mutation is already committed, and the 60s TTL
-   * is the backstop if the cache is momentarily unreachable — so a cache
-   * failure here is logged, never surfaced to the client as an error on a
-   * write that already succeeded.
+   * Revokes the tokens and drops the cached permissions of the given users in
+   * the current tenant.
+   *
+   * A role edit or removal changes what its holders are effectively allowed
+   * to do; assigning a role changes it for the target directly. Without
+   * revoking, anyone already holding a JWT keeps acting on their PREVIOUS
+   * permission set for the rest of the token's 24h lifetime — including, in
+   * the demotion/removal case, permissions they should have just lost.
+   * revokeUserTokens durably stamps tokens_valid_after and drops the cache
+   * (both tiers) so the very next request re-reads fresh authority.
+   *
+   * The role/assignment mutation this runs after has ALREADY committed, so a
+   * revocation failure here must never make the caller believe that mutation
+   * itself failed — it did not. Each holder is revoked independently via
+   * `Promise.allSettled` (one holder's DB failure must not abort the others
+   * still in flight), and any failures are logged loudly with the exact
+   * holder ids so an operator can act (the affected accounts keep their
+   * pre-change token validity until it's manually revoked or naturally
+   * expires — a narrowed, logged exposure, not a silent one).
    */
   private async invalidateUsers(userIds: string[]): Promise<void> {
     const companyId = this.cls.get('companyId');
     if (!companyId || userIds.length === 0) return;
 
-    try {
-      await Promise.all(
-        userIds.map((userId) =>
-          this.authService.invalidateUserPermissions(companyId, userId),
-        ),
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Permission cache invalidation failed for ${userIds.length} user(s) in company ${String(companyId)}; stale entries expire with the TTL: ${
-          error instanceof Error ? error.message : 'unknown error'
-        }`,
+    const results = await Promise.allSettled(
+      userIds.map((userId) =>
+        this.authService.revokeUserTokens(companyId, userId),
+      ),
+    );
+    const failedUserIds = results
+      .map((result, index) => (result.status === 'rejected' ? userIds[index] : null))
+      .filter((userId): userId is string => userId !== null);
+    if (failedUserIds.length > 0) {
+      this.logger.error(
+        `Failed to revoke tokens for ${failedUserIds.length}/${userIds.length} user(s) in company ${companyId} after a role change: ${failedUserIds.join(', ')}. Their previously-issued tokens remain valid until manually revoked or naturally expired.`,
       );
     }
   }

@@ -579,6 +579,7 @@ describe('AuthService bounded permission cache', () => {
     expect(state).toEqual({
       permissions: ['FROM_DB'],
       forcePasswordReset: false,
+      tokensValidAfter: null,
     });
     expect(manager.query).toHaveBeenCalled();
     expect(cacheManager.set).toHaveBeenCalledWith(CACHE_KEY, state, 60 * 1000);
@@ -611,6 +612,7 @@ describe('AuthService bounded permission cache', () => {
     expect(state).toEqual({
       permissions: ['FROM_DB'],
       forcePasswordReset: false,
+      tokensValidAfter: null,
     });
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
@@ -1012,5 +1014,222 @@ describe('AuthService password-reset hold', () => {
         `auth:permissions:${COMPANY_ID}:${USER_ID}`,
       );
     });
+
+    // The password change above already committed; a revocation failure must
+    // not make this report as failed when the password genuinely did change.
+    it('does not fail when revocation fails, but logs it loudly', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation();
+      const { service, manager } = build(await heldUser('current-password'));
+      manager.update
+        .mockResolvedValueOnce({ affected: 1 })
+        .mockRejectedValueOnce(new Error('DB down'));
+
+      await expect(
+        service.changePassword(
+          USER_ID,
+          COMPANY_ID,
+          'current-password',
+          'brand-new-pass',
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(USER_ID));
+    });
+  });
+});
+
+// ───────────────── JWT revocation: AuthService.revokeUserTokens ─────────────
+// The durable half of revocation: stamps users.tokens_valid_after so
+// JwtAuthGuard can reject a token issued before that instant, even one that
+// has not otherwise expired. Wired into every mutation that changes a user's
+// authority or account state (see call sites in auth.service.ts,
+// tenant-admins.service.ts, tenants-admin.service.ts, roles.service.ts).
+describe('AuthService.revokeUserTokens', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+  const CACHE_KEY = `auth:permissions:${COMPANY_ID}:${USER_ID}`;
+
+  function build() {
+    const manager = {
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, manager, tenantService, cacheManager };
+  }
+
+  it('stamps tokens_valid_after on the user row in the tenant schema', async () => {
+    const { service, manager, tenantService } = build();
+
+    await service.revokeUserTokens(COMPANY_ID, USER_ID);
+
+    expect(tenantService.runInSchema).toHaveBeenCalledWith(
+      `tenant_${COMPANY_ID}`,
+      expect.any(Function),
+    );
+    expect(manager.update).toHaveBeenCalledWith(
+      User,
+      { id: USER_ID },
+      { tokensValidAfter: expect.any(Date) },
+    );
+  });
+
+  it('drops the cached auth state (both tiers) after the write', async () => {
+    const { service, cacheManager } = build();
+
+    await service.revokeUserTokens(COMPANY_ID, USER_ID);
+
+    expect(cacheManager.del).toHaveBeenCalledWith(CACHE_KEY);
+  });
+
+  // The database write is the durable source of truth this mechanism exists
+  // to provide — unlike the cache drop, it must NOT be swallowed. A caller
+  // that awaits revokeUserTokens must see the failure.
+  it('propagates a database failure instead of swallowing it', async () => {
+    const { service, manager } = build();
+    manager.update.mockRejectedValue(new Error('connection lost'));
+
+    await expect(
+      service.revokeUserTokens(COMPANY_ID, USER_ID),
+    ).rejects.toThrow('connection lost');
+  });
+
+  // The cache drop is best-effort, exactly like every other cache access in
+  // this file: a Redis failure must not turn a successful, durable
+  // revocation into a thrown error.
+  it('still resolves when the cache drop fails, since the DB write already succeeded', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const { service, cacheManager } = build();
+    cacheManager.del.mockRejectedValue(new Error('Redis down'));
+
+    await expect(
+      service.revokeUserTokens(COMPANY_ID, USER_ID),
+    ).resolves.toBeUndefined();
+
+    warn.mockRestore();
+  });
+});
+
+// ── tokensValidAfter threading through getUserAuthState's cache tiers ──
+// JwtAuthGuard's revocation check depends on tokensValidAfter surviving the
+// Redis round-trip and the local stampede-damper tier unchanged.
+describe('AuthService.getUserAuthState tokensValidAfter threading', () => {
+  const COMPANY_ID = 'company-1';
+  const USER_ID = 'user-1';
+  const REVOKED_AT = new Date('2026-01-01T00:00:00.000Z');
+
+  function build(user: any) {
+    const manager = {
+      query: jest.fn().mockResolvedValue([{ permissions: [] }]),
+      findOne: jest.fn().mockResolvedValue(user),
+    };
+    const tenantService = {
+      runInSchema: jest.fn((_schema: string, op: (m: any) => Promise<any>) =>
+        op(manager),
+      ),
+    };
+    const cacheManager = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AuthService(
+      tenantService as any,
+      { findBySubdomain: jest.fn() } as any,
+      { sign: jest.fn(), verify: jest.fn() } as any,
+      cacheManager as any,
+    );
+    return { service, cacheManager };
+  }
+
+  it('defaults to null when the account has never been revoked', async () => {
+    const { service } = build({
+      id: USER_ID,
+      forcePasswordReset: false,
+      tokensValidAfter: null,
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state.tokensValidAfter).toBeNull();
+  });
+
+  it('converts a revoked user Date column to epoch milliseconds', async () => {
+    const { service } = build({
+      id: USER_ID,
+      forcePasswordReset: false,
+      tokensValidAfter: REVOKED_AT,
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state.tokensValidAfter).toBe(REVOKED_AT.getTime());
+  });
+
+  it('caches tokensValidAfter as a plain number, not a Date, so it survives Redis', async () => {
+    const { service, cacheManager } = build({
+      id: USER_ID,
+      forcePasswordReset: false,
+      tokensValidAfter: REVOKED_AT,
+    });
+
+    await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    const [, cachedValue] = cacheManager.set.mock.calls[0];
+    expect(typeof cachedValue.tokensValidAfter).toBe('number');
+    expect(cachedValue.tokensValidAfter).toBe(REVOKED_AT.getTime());
+  });
+
+  it('threads tokensValidAfter back out of a Redis cache hit', async () => {
+    const { service, cacheManager } = build({
+      id: USER_ID,
+      forcePasswordReset: false,
+      tokensValidAfter: null,
+    });
+    cacheManager.get.mockResolvedValue({
+      permissions: [],
+      forcePasswordReset: false,
+      tokensValidAfter: REVOKED_AT.getTime(),
+    });
+
+    const state = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+    expect(state.tokensValidAfter).toBe(REVOKED_AT.getTime());
+  });
+
+  it('threads tokensValidAfter through the local stampede-damper tier', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service } = build({
+        id: USER_ID,
+        forcePasswordReset: false,
+        tokensValidAfter: REVOKED_AT,
+      });
+
+      const first = await service.getUserAuthState(USER_ID, COMPANY_ID);
+      // Within the local TTL: served from the local tier, not recomputed.
+      const second = await service.getUserAuthState(USER_ID, COMPANY_ID);
+
+      expect(first.tokensValidAfter).toBe(REVOKED_AT.getTime());
+      expect(second.tokensValidAfter).toBe(REVOKED_AT.getTime());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

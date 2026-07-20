@@ -30,21 +30,29 @@ export class TenantAdminsService {
   ) {}
 
   /**
-   * Drops the target user's cached auth state after a committed mutation.
-   * Without this a deactivated admin keeps a working session and a
-   * password-reset hold stays invisible for up to the cache TTL. Best-effort:
-   * the database write already committed, so a cache failure is logged and the
-   * TTL remains the backstop — it must never fail the mutation.
+   * Revokes the target user's tokens and drops their cached auth state after
+   * a committed mutation. Without this a deactivated admin (or one whose
+   * password was just reset) keeps every session they are signed into
+   * working — including on other devices — until the token's own 24h
+   * lifetime runs out; revokeUserTokens durably closes that window down to
+   * the cache's freshness window instead.
+   *
+   * Wrapped in try/catch: the caller's mutation (password update / softDelete)
+   * has ALREADY committed by the time this runs, so a revocation failure must
+   * never make an already-succeeded request look like it failed. Logged
+   * loudly instead — the affected account keeps a working old token for a
+   * while longer, which is recoverable (retry, or deactivate the account
+   * directly) unlike pretending the mutation itself didn't happen.
    */
   private async invalidateAuthState(
     companyId: string,
     userId: string,
   ): Promise<void> {
     try {
-      await this.authService.invalidateUserPermissions(companyId, userId);
+      await this.authService.revokeUserTokens(companyId, userId);
     } catch (error) {
-      this.logger.warn(
-        `Auth-state cache invalidation failed for user ${userId} in company ${companyId}; stale entry expires with the TTL: ${
+      this.logger.error(
+        `Failed to revoke tokens for user ${userId} in company ${companyId}; their previous token may remain valid until manually revoked or naturally expired: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );

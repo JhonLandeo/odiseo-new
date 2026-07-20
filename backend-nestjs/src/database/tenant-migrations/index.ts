@@ -644,4 +644,30 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         );
     `,
   },
+  {
+    // JWT revocation, per-user (this codebase has no per-session tracking —
+    // permission caching is already per-user, and revocation follows the same
+    // granularity). NULL means "never revoked": every token this user holds
+    // is honored until it naturally expires.
+    //
+    // AuthService.revokeUserTokens stamps this to NOW() whenever the user's
+    // authority or account state changes (password change, deactivation,
+    // credential reset, role assignment/update/delete) or the user logs out.
+    // JwtAuthGuard then rejects any token whose `iat` (issued-at) claim
+    // predates this timestamp — even one that has not expired yet — so a
+    // stolen token, or one belonging to an account that just lost its
+    // authority, becomes unusable within the existing auth-state cache's
+    // freshness window instead of surviving for the rest of its lifetime.
+    // Durable (Postgres-backed) on purpose: the cache alone is ephemeral and
+    // must not be the only place revocation is recorded.
+    //
+    // Nullable, no default: unlike force_password_reset (0005), "never
+    // revoked" is the absence of a moment, not a boolean flag, so NULL is the
+    // only correct value for both pre-existing and freshly created rows.
+    id: '0012_users_tokens_valid_after',
+    up: (schema: string) => `
+      ALTER TABLE "${schema}".users
+        ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ;
+    `,
+  },
 ];

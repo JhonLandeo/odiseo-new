@@ -33,7 +33,7 @@ function createService(company: any = { id: TENANT_ID }) {
     invalidateSubdomainCache: jest.fn().mockResolvedValue(undefined),
   };
   const authService = {
-    invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
+    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
   };
   const service = new TenantsAdminService(
     companyRepository as any,
@@ -189,7 +189,7 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
       await expect(
         service.resetAdminCredentials(TENANT_ID, 'new@test.com'),
       ).rejects.toBeInstanceOf(NotFoundException);
-      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+      expect(authService.revokeUserTokens).not.toHaveBeenCalled();
     });
 
     // A driver returning anything but [rows, affectedCount] is a contract
@@ -204,29 +204,36 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
       await expect(
         service.resetAdminCredentials(TENANT_ID, 'new@test.com'),
       ).rejects.toThrow(/Unexpected UPDATE result shape/);
-      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+      expect(authService.revokeUserTokens).not.toHaveBeenCalled();
     });
 
     // The reset raises force_password_reset and rotates the credentials, both
-    // served from the cached auth state; the committed write must drop it.
-    it('invalidates the cached auth state of the reset administrator', async () => {
+    // served from the cached auth state; the committed write must drop it. It
+    // must also revoke any JWT minted under the OLD credentials, or a session
+    // that predates the reset would keep working for the rest of its 24h
+    // lifetime.
+    it('revokes tokens and drops the cached auth state of the reset administrator', async () => {
       const { service, mockManager, authService } = createService();
       mockQueries(mockManager, [{ id: 'user-1' }]);
 
       await service.resetAdminCredentials(TENANT_ID, 'new@test.com');
 
-      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      expect(authService.revokeUserTokens).toHaveBeenCalledWith(
         TENANT_ID,
         'user-1',
       );
     });
 
-    it('still reports success when the cache invalidation rejects', async () => {
-      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    // The generated password exists ONLY in this stack frame — the UPDATE
+    // above already committed it as the account's new credential. A
+    // revocation failure must not discard the caller's only copy of it;
+    // logged loudly instead, and the new credentials still returned.
+    it('still returns the new credentials when revocation fails, but logs it loudly', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation();
       const { service, mockManager, authService } = createService();
-      authService.invalidateUserPermissions.mockRejectedValue(
-        new Error('Redis down'),
-      );
+      authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
       mockQueries(mockManager, [{ id: 'user-1' }]);
 
       const result = await service.resetAdminCredentials(
@@ -235,8 +242,8 @@ describe('TenantsAdminService.resetAdminCredentials', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(warn).toHaveBeenCalledTimes(1);
-      warn.mockRestore();
+      expect(result.temporaryPassword).toEqual(expect.any(String));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('user-1'));
     });
   });
 });

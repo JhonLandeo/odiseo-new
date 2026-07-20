@@ -38,7 +38,7 @@ function createService(
   };
   const authService = {
     getUserPermissions: jest.fn().mockResolvedValue(actorPermissions),
-    invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
+    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
   };
   const cls = { get: jest.fn().mockReturnValue(companyId) };
   const rolesResolver = {
@@ -360,8 +360,8 @@ describe('RolesService.assignRolesToUser escalation guard (A6)', () => {
 
     expect(repo.delete).toHaveBeenCalledWith({ userId: 'target-user' });
     expect(repo.save).toHaveBeenCalled();
-    // The target's cached permissions are dropped after the write.
-    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+    // The target's tokens are revoked (and cache dropped) after the write.
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
       COMPANY_ID,
       'target-user',
     );
@@ -554,13 +554,13 @@ describe('RolesService cache invalidation with role inheritance', () => {
       ACTOR_ID,
     );
 
-    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
       COMPANY_ID,
       'direct-holder',
     );
     // The security-relevant half: this user holds only a CHILD role, so
     // editing the parent silently changed their effective permissions.
-    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
       COMPANY_ID,
       'child-role-holder',
     );
@@ -588,44 +588,91 @@ describe('RolesService cache invalidation with role inheritance', () => {
 
     await service.remove('role-1');
 
-    expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
       COMPANY_ID,
       'child-role-holder',
     );
   });
 
-  // Invalidation runs AFTER the transaction commits, so a Redis failure must
-  // degrade to "stale until the TTL" — never fail a mutation that succeeded.
-  it('does not fail the update when the cache invalidation rejects', async () => {
-    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+  // The role mutation has ALREADY committed by the time invalidateUsers runs,
+  // so a revocation failure must never make an already-succeeded request
+  // report as failed — that would be a misleading signal (the role change
+  // genuinely happened). Logged loudly instead; see invalidateUsers' own
+  // doc comment.
+  it('does not fail an update when revocation fails, but logs it loudly', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     const { service, manager, authService } = createService([]);
     manager.query.mockResolvedValue([{ user_id: 'direct-holder' }]);
-    authService.invalidateUserPermissions.mockRejectedValue(
-      new Error('Redis down'),
-    );
+    authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
 
-    const role = await service.update(
-      'role-1',
-      { name: 'Renamed' } as UpdateRoleDto,
-      ACTOR_ID,
-    );
+    await expect(
+      service.update('role-1', { name: 'Renamed' } as UpdateRoleDto, ACTOR_ID),
+    ).resolves.toBeDefined();
 
-    expect(role).toEqual({ id: 'role-1', name: 'Coordinator' });
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('direct-holder'),
+    );
   });
 
-  it('does not fail the assignment when the cache invalidation rejects', async () => {
-    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+  it('does not fail an assignment when revocation fails, but logs it loudly', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     const { service, authService } = createService([]);
-    authService.invalidateUserPermissions.mockRejectedValue(
-      new Error('Redis down'),
-    );
+    authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
 
     await expect(
       service.assignRolesToUser(ACTOR_ID, 'target-user', []),
     ).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('target-user'),
+    );
+  });
+
+  it('does not log when every holder revokes successfully', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    const { service, manager, authService } = createService([]);
+    manager.query.mockResolvedValue([{ user_id: 'direct-holder' }]);
+    authService.revokeUserTokens.mockResolvedValue(undefined);
+
+    await service.update('role-1', { name: 'Renamed' } as UpdateRoleDto, ACTOR_ID);
+
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  // Promise.allSettled exists specifically for this: one holder's DB failure
+  // must not abort the others still in flight, and the log must name exactly
+  // the ones that failed — not all of them, not none of them.
+  it('revokes every succeeding holder and names only the failing one when outcomes are mixed', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    const { service, manager, authService } = createService([]);
+    manager.query.mockResolvedValue([
+      { user_id: 'holder-ok-1' },
+      { user_id: 'holder-fails' },
+      { user_id: 'holder-ok-2' },
+    ]);
+    authService.revokeUserTokens.mockImplementation((_companyId, userId) =>
+      userId === 'holder-fails'
+        ? Promise.reject(new Error('DB down'))
+        : Promise.resolve(undefined),
+    );
+
+    await expect(
+      service.update('role-1', { name: 'Renamed' } as UpdateRoleDto, ACTOR_ID),
+    ).resolves.toBeDefined();
+
+    // The other holders' calls were made, not skipped because one rejected.
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'holder-ok-1',
+    );
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
+      COMPANY_ID,
+      'holder-ok-2',
+    );
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [message] = errorSpy.mock.calls[0];
+    expect(String(message)).toContain('holder-fails');
+    expect(String(message)).not.toContain('holder-ok-1');
+    expect(String(message)).not.toContain('holder-ok-2');
   });
 });

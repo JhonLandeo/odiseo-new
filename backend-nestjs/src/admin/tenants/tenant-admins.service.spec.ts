@@ -1,4 +1,4 @@
-import { Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { TenantAdminsService } from './tenant-admins.service';
 
 // ────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ function createService(companyRepoOverride?: any, tenantServiceOverride?: any) {
   const tenantService =
     tenantServiceOverride ?? createMockTenantService(mockManager);
   const authService = {
-    invalidateUserPermissions: jest.fn().mockResolvedValue(undefined),
+    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
   };
   const service = new TenantAdminsService(
     companyRepo,
@@ -297,13 +297,14 @@ describe('TenantAdminsService', () => {
       await expect(
         service.updatePassword(TENANT_ID, 'ghost-id', { password: 'Pass123!' }),
       ).rejects.toThrow(NotFoundException);
-      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+      expect(authService.revokeUserTokens).not.toHaveBeenCalled();
     });
 
     // The force_password_reset hold is served from the cached auth state, so
     // the committed write must drop that entry or the hold stays invisible for
-    // up to the cache TTL.
-    it('invalidates the cached auth state after the password change', async () => {
+    // up to the cache TTL. It must also revoke any JWT minted under the old
+    // password, or a stolen/still-open session would keep working.
+    it('revokes tokens and drops the cached auth state after the password change', async () => {
       const { service, mockManager, authService } = createService();
       mockManager.query
         .mockResolvedValueOnce([{ id: USER_ID }])
@@ -313,29 +314,32 @@ describe('TenantAdminsService', () => {
         password: 'NewPass123!',
       });
 
-      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      expect(authService.revokeUserTokens).toHaveBeenCalledWith(
         TENANT_ID,
         USER_ID,
       );
     });
 
-    it('still reports success when the cache invalidation rejects', async () => {
-      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    // The password update has ALREADY committed by the time invalidateAuthState
+    // runs, so a revocation failure must not make an already-succeeded
+    // request report as failed. Logged loudly instead.
+    it('does not fail the request when revocation fails, but logs it loudly', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation();
       const { service, mockManager, authService } = createService();
-      authService.invalidateUserPermissions.mockRejectedValue(
-        new Error('Redis down'),
-      );
+      authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
       mockManager.query
         .mockResolvedValueOnce([{ id: USER_ID }])
         .mockResolvedValueOnce(undefined);
 
-      const result = await service.updatePassword(TENANT_ID, USER_ID, {
-        password: 'NewPass123!',
-      });
+      await expect(
+        service.updatePassword(TENANT_ID, USER_ID, {
+          password: 'NewPass123!',
+        }),
+      ).resolves.toEqual({ success: true });
 
-      expect(result).toEqual({ success: true });
-      expect(warn).toHaveBeenCalledTimes(1);
-      warn.mockRestore();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(USER_ID));
     });
   });
 
@@ -382,12 +386,14 @@ describe('TenantAdminsService', () => {
       await expect(service.softDelete(TENANT_ID, USER_ID)).rejects.toThrow(
         NotFoundException,
       );
-      expect(authService.invalidateUserPermissions).not.toHaveBeenCalled();
+      expect(authService.revokeUserTokens).not.toHaveBeenCalled();
     });
 
     // A deactivated admin holding a still-valid JWT would keep their cached
-    // permissions until the TTL expired without this.
-    it('invalidates the cached auth state after the deactivation', async () => {
+    // permissions AND a working session until the JWT's own 24h lifetime ran
+    // out without this — revokeUserTokens closes that window down to the
+    // cache's freshness window instead.
+    it('revokes tokens and drops the cached auth state after the deactivation', async () => {
       const { service, mockManager, authService } = createService();
       mockManager.query
         .mockResolvedValueOnce([{ count: '2' }])
@@ -395,27 +401,27 @@ describe('TenantAdminsService', () => {
 
       await service.softDelete(TENANT_ID, USER_ID);
 
-      expect(authService.invalidateUserPermissions).toHaveBeenCalledWith(
+      expect(authService.revokeUserTokens).toHaveBeenCalledWith(
         TENANT_ID,
         USER_ID,
       );
     });
 
-    it('still reports success when the cache invalidation rejects', async () => {
-      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    it('does not fail the deactivation when revocation fails, but logs it loudly', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation();
       const { service, mockManager, authService } = createService();
-      authService.invalidateUserPermissions.mockRejectedValue(
-        new Error('Redis down'),
-      );
+      authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
       mockManager.query
         .mockResolvedValueOnce([{ count: '2' }])
         .mockResolvedValueOnce([[{ id: USER_ID }], 1]);
 
-      const result = await service.softDelete(TENANT_ID, USER_ID);
+      await expect(
+        service.softDelete(TENANT_ID, USER_ID),
+      ).resolves.toEqual({ success: true });
 
-      expect(result).toEqual({ success: true });
-      expect(warn).toHaveBeenCalledTimes(1);
-      warn.mockRestore();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(USER_ID));
     });
   });
 });

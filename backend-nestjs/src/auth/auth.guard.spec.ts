@@ -29,6 +29,7 @@ describe('JwtAuthGuard', () => {
     payload?: any;
     verifyThrows?: unknown;
     clsCompanyId?: string | null;
+    tokensValidAfter?: number | null;
   }) {
     const reflector = new Reflector();
     jest
@@ -47,6 +48,7 @@ describe('JwtAuthGuard', () => {
       getUserAuthState: jest.fn().mockResolvedValue({
         permissions: ['VIEW_MATERIALS'],
         forcePasswordReset: false,
+        tokensValidAfter: options.tokensValidAfter ?? null,
       }),
     } as unknown as AuthService;
 
@@ -181,5 +183,129 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  // ── JWT revocation: iat vs tokensValidAfter ──────────────────────────
+  describe('token revocation', () => {
+    it('allows a token when the account has never been revoked (tokensValidAfter null)', async () => {
+      const { guard } = build({
+        payload: { sub: 'user-1', companyId: 'company-a', iat: 1_000_000 },
+        clsCompanyId: 'company-a',
+        tokensValidAfter: null,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).resolves.toBe(true);
+    });
+
+    it('allows a token issued AFTER the last revocation', async () => {
+      const issuedAtSeconds = 1_000_000;
+      const { guard } = build({
+        payload: {
+          sub: 'user-1',
+          companyId: 'company-a',
+          iat: issuedAtSeconds,
+        },
+        clsCompanyId: 'company-a',
+        // Revocation predates the token's iat: token still valid.
+        tokensValidAfter: issuedAtSeconds * 1000 - 5000,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).resolves.toBe(true);
+    });
+
+    it('rejects a token issued BEFORE the last revocation', async () => {
+      const issuedAtSeconds = 1_000_000;
+      const { guard, authService } = build({
+        payload: {
+          sub: 'user-1',
+          companyId: 'company-a',
+          iat: issuedAtSeconds,
+        },
+        clsCompanyId: 'company-a',
+        // Revocation happened after the token was issued: token now revoked.
+        tokensValidAfter: issuedAtSeconds * 1000 + 5000,
+      });
+      const { execution, request } = context();
+
+      await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      // The revoked token's claims must never reach downstream guards.
+      expect(request.user).toBeUndefined();
+      expect(authService.getUserAuthState).toHaveBeenCalled();
+    });
+
+    // iat is whole seconds (JWT spec truncates down); tokensValidAfter is a
+    // millisecond Date. The guard floors tokensValidAfter to the second
+    // before comparing, so a token minted in the SAME wall-clock second as a
+    // revocation must still be allowed even when the revocation's ms offset
+    // is nonzero — otherwise an immediate re-login right after logout would
+    // be wrongly rejected as "revoked".
+    it('allows a token whose iat exactly equals the floored revocation second', async () => {
+      const issuedAtSeconds = 1_000_000;
+      const { guard } = build({
+        payload: { sub: 'user-1', companyId: 'company-a', iat: issuedAtSeconds },
+        clsCompanyId: 'company-a',
+        tokensValidAfter: issuedAtSeconds * 1000,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).resolves.toBe(true);
+    });
+
+    it('allows a token minted later in the SAME second as a revocation with a nonzero ms offset', async () => {
+      const issuedAtSeconds = 1_000_000;
+      const { guard } = build({
+        payload: { sub: 'user-1', companyId: 'company-a', iat: issuedAtSeconds },
+        clsCompanyId: 'company-a',
+        // Revocation stamped 400ms into the same second iat truncates down
+        // to — a naive iat*1000 &lt; tokensValidAfter comparison would reject
+        // this even though the real mint time was after the revocation.
+        tokensValidAfter: issuedAtSeconds * 1000 + 400,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).resolves.toBe(true);
+    });
+
+    it('rejects a token whose iat second is strictly before the revocation second', async () => {
+      const issuedAtSeconds = 1_000_000;
+      const { guard } = build({
+        payload: { sub: 'user-1', companyId: 'company-a', iat: issuedAtSeconds },
+        clsCompanyId: 'company-a',
+        // Revocation lands in the NEXT second: a genuinely stale token.
+        tokensValidAfter: (issuedAtSeconds + 1) * 1000,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('logs a warning identifying the user on a revoked-token rejection', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const issuedAtSeconds = 1_000_000;
+      const { guard } = build({
+        payload: {
+          sub: 'user-1',
+          companyId: 'company-a',
+          iat: issuedAtSeconds,
+        },
+        clsCompanyId: 'company-a',
+        tokensValidAfter: issuedAtSeconds * 1000 + 5000,
+      });
+      const { execution } = context();
+
+      await expect(guard.canActivate(execution)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('user-1');
+      warn.mockRestore();
+    });
   });
 });

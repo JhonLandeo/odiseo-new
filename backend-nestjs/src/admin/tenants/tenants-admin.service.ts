@@ -493,18 +493,28 @@ export class TenantsAdminService {
       );
     }
 
-    // The reset raises force_password_reset, which is served from the cached
-    // auth state: without dropping it the hold stays invisible (and the old
-    // permissions stay live) for up to the cache TTL. Best-effort — the write
-    // already committed, so a cache failure is logged, never surfaced.
+    // The reset raises force_password_reset and rotates the password AND
+    // email: without revoking, an admin who still holds a JWT minted under
+    // the old credentials keeps a fully working session for the rest of its
+    // 24h lifetime. revokeUserTokens durably closes that window and drops
+    // the cached auth state so the hold/new permissions are visible
+    // immediately, not just after the cache TTL.
+    //
+    // Wrapped, like every other revokeUserTokens caller (see its own doc
+    // comment): the credential rotation above already committed, so a
+    // revocation failure must not make this report as failed. Worth calling
+    // out specifically here though — `generated` is a random password that
+    // exists ONLY in this stack frame, so letting a revocation failure throw
+    // would discard the caller's only copy of it, with no way to retrieve or
+    // reset it again short of generating a DIFFERENT one. Logged loudly
+    // instead: the old token remaining valid a while longer is recoverable
+    // (deactivate/reactivate, or retry the reset) in a way a lost password
+    // is not.
     try {
-      await this.authService.invalidateUserPermissions(
-        company.id,
-        result.adminId,
-      );
+      await this.authService.revokeUserTokens(company.id, result.adminId);
     } catch (error) {
-      this.logger.warn(
-        `Auth-state cache invalidation failed for admin ${result.adminId} in company ${company.id}; stale entry expires with the TTL: ${
+      this.logger.error(
+        `Failed to revoke tokens for admin ${result.adminId} in company ${company.id} after resetAdminCredentials; their previous token may remain valid until manually revoked or naturally expired. New credentials were already committed and are being returned to the caller: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );

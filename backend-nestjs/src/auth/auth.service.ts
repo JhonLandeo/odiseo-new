@@ -19,6 +19,19 @@ import {
 } from '../admin/roles/permissions/flattened-permissions.query';
 import * as bcrypt from 'bcrypt';
 
+/**
+ * The shape cached (Redis and the local per-process tier) and returned by
+ * getUserAuthState. tokensValidAfter is epoch milliseconds, not a Date — it
+ * must survive JSON (de)serialization through Redis unchanged; storing a
+ * Date would round-trip back out as a string and break `.getTime()`-style
+ * comparisons downstream (e.g. in JwtAuthGuard).
+ */
+interface CachedAuthState {
+  permissions: string[];
+  forcePasswordReset: boolean;
+  tokensValidAfter: number | null;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -75,10 +88,7 @@ export class AuthService {
    */
   private readonly localAuthStateCache = new Map<
     string,
-    {
-      state: { permissions: string[]; forcePasswordReset: boolean };
-      expiresAt: number;
-    }
+    { state: CachedAuthState; expiresAt: number }
   >();
 
   constructor(
@@ -243,11 +253,17 @@ export class AuthService {
    * token expired, and conversely a user who had just changed their password
    * would stay locked out holding a token that still said otherwise. Reading it
    * here keeps it as fresh as the permissions the guards already trust.
+   *
+   * tokensValidAfter rides along the same way, for the same reason: it is
+   * JwtAuthGuard's JWT-revocation check (see AuthService.revokeUserTokens),
+   * and a token claim would freeze it at login just like force_password_reset.
+   * Stored as epoch milliseconds (not a Date) so it survives JSON
+   * (de)serialization through Redis unchanged.
    */
   async getUserAuthState(
     userId: string,
     companyId: string,
-  ): Promise<{ permissions: string[]; forcePasswordReset: boolean }> {
+  ): Promise<CachedAuthState> {
     const cacheKey = `auth:permissions:${companyId}:${userId}`;
 
     // The cache read is bounded and best-effort: on timeout or any cache error
@@ -255,15 +271,10 @@ export class AuthService {
     // The cache is only an optimization — Postgres is the source of truth — so a
     // hung or broken Redis must degrade this hot path to a slower DB-computed
     // lookup, keeping the authenticated API up rather than hanging it.
-    let cached:
-      { permissions: string[]; forcePasswordReset: boolean } | null | undefined;
+    let cached: CachedAuthState | null | undefined;
     try {
       cached = await this.withCacheTimeout(
-        () =>
-          this.cacheManager.get<{
-            permissions: string[];
-            forcePasswordReset: boolean;
-          }>(cacheKey),
+        () => this.cacheManager.get<CachedAuthState>(cacheKey),
         'permission cache read',
       );
     } catch (error) {
@@ -307,6 +318,9 @@ export class AuthService {
           // Absent user: the token outlived the account. Deny nothing here —
           // that is JwtAuthGuard's and getUserFromToken's call, not ours.
           forcePasswordReset: user?.forcePasswordReset ?? false,
+          tokensValidAfter: user?.tokensValidAfter
+            ? user.tokensValidAfter.getTime()
+            : null,
         };
       },
     );
@@ -345,9 +359,7 @@ export class AuthService {
    * Reads the local fallback tier, evicting and ignoring an expired entry as
    * if it were a miss.
    */
-  private getLocalAuthState(
-    cacheKey: string,
-  ): { permissions: string[]; forcePasswordReset: boolean } | undefined {
+  private getLocalAuthState(cacheKey: string): CachedAuthState | undefined {
     const entry = this.localAuthStateCache.get(cacheKey);
     if (!entry) return undefined;
     if (Date.now() >= entry.expiresAt) {
@@ -362,10 +374,7 @@ export class AuthService {
    * capacity (see LOCAL_CACHE_MAX_ENTRIES). Updating an already-present key
    * does not grow the Map, so no eviction runs in that case.
    */
-  private setLocalAuthState(
-    cacheKey: string,
-    state: { permissions: string[]; forcePasswordReset: boolean },
-  ): void {
+  private setLocalAuthState(cacheKey: string, state: CachedAuthState): void {
     if (
       !this.localAuthStateCache.has(cacheKey) &&
       this.localAuthStateCache.size >= AuthService.LOCAL_CACHE_MAX_ENTRIES
@@ -476,21 +485,38 @@ export class AuthService {
       );
     });
 
-    // The flag is served from the same 60s cache the guards read, so without
-    // this the user would stay locked out of every route for up to a minute
-    // after successfully changing their password.
-    await this.invalidateUserPermissions(companyId, userId);
+    // A changed password must invalidate every session minted under the old
+    // one, not just refresh the cached permission/hold flags — otherwise a
+    // stolen token would keep working, unaffected by the very password
+    // rotation meant to shut it out. revokeUserTokens drops the cache too, so
+    // this also covers what the old invalidateUserPermissions call did here.
+    //
+    // Wrapped: the password change above already committed, so a revocation
+    // failure must not make this endpoint report failure for a password
+    // change that genuinely succeeded. Logged loudly instead.
+    try {
+      await this.revokeUserTokens(companyId, userId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to revoke tokens for user ${userId} in company ${companyId} after changePassword; their previous token may remain valid until manually revoked or naturally expired: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
   }
 
   /**
    * Invalidates the cached permissions for a specific user, forcing the next
    * request to reload them from the database.
    *
-   * Wired into every mutation that changes a user's authority or hold state:
-   * RolesService.update/remove (which fan out to every holder of the role),
-   * user-role assignment, tenant-admin password/deactivation flows and the
-   * platform credentials reset. The cache is Redis-backed, so the delete
-   * reaches every instance.
+   * Called only internally, by revokeUserTokens — every former direct caller
+   * (password change, tenant-admin password/deactivation flows, the platform
+   * credentials reset, RolesService.update/remove/assignRolesToUser) now goes
+   * through that method instead, so this durably revokes as well as dropping
+   * the cache. Kept as its own method rather than inlined, purely so
+   * revokeUserTokens' durable DB write and this best-effort cache drop stay
+   * two clearly separate, independently-readable steps. The cache is
+   * Redis-backed, so the delete reaches every instance.
    *
    * Best-effort and bounded, like every other cache access here: callers run
    * AFTER their database write has committed, so a Redis failure must degrade
@@ -520,5 +546,59 @@ export class AuthService {
         }`,
       );
     }
+  }
+
+  /**
+   * Durably revokes every JWT this user currently holds.
+   *
+   * Per-user, not per-session: this codebase has no session tracking, only
+   * per-user permission caching (see invalidateUserPermissions), and
+   * revocation follows that same granularity — logging out, changing a
+   * password, or losing a role invalidates every device/session the user is
+   * signed in on, not just the one that triggered it.
+   *
+   * Stamps users.tokens_valid_after to the current instant in the tenant
+   * schema. JwtAuthGuard compares that value against each token's `iat`
+   * (issued-at, seconds) claim on every request: a token issued before this
+   * moment is rejected immediately, even though it has not expired yet. This
+   * is durable (Postgres-backed) rather than living only in the ephemeral
+   * permission cache, so a stolen or leaked token cannot outlive a Redis
+   * restart or eviction — it becomes unusable within the cache's existing
+   * freshness window (60s Redis / 4s local), not for the rest of its 24h
+   * lifetime.
+   *
+   * Deliberately uses the application clock (`new Date()`), not Postgres's
+   * NOW(): `iat` itself is stamped by jsonwebtoken using this same Node
+   * process's clock when generateToken() signs a token. Comparing against a
+   * DB-side NOW() would introduce clock-skew risk between Node and Postgres
+   * for no benefit; comparing against this process's own clock is exactly
+   * consistent with how `iat` was produced.
+   *
+   * The database write here is NOT swallowed — it throws on failure, since it
+   * is the durable source of truth this whole mechanism exists to provide,
+   * and a caller that needs to know revocation genuinely happened (or
+   * genuinely didn't) needs that signal. Every current caller's own mutation
+   * has ALREADY committed by the time it calls this, though, so each one
+   * wraps this call and logs loudly on failure rather than letting an
+   * already-succeeded request report as failed — see changePassword above,
+   * TenantAdminsService.invalidateAuthState, TenantsAdminService's
+   * resetAdminCredentials call site, and RolesService.invalidateUsers (the
+   * one bulk case: per-holder via Promise.allSettled, not a single try/catch,
+   * so one holder's failure can't abort the others still in flight).
+   */
+  async revokeUserTokens(companyId: string, userId: string): Promise<void> {
+    const schemaName = `tenant_${companyId}`;
+
+    await this.tenantService.runInSchema(schemaName, async (manager) => {
+      await manager.update(User, { id: userId }, { tokensValidAfter: new Date() });
+    });
+
+    // Drops the cached auth state (both tiers) so the next request recomputes
+    // it from Postgres and observes the fresh tokens_valid_after value —
+    // otherwise a still-cached entry could keep serving a revoked token's
+    // request for up to the cache TTL despite the DB write above having
+    // already landed. Best-effort, like every other cache access in this
+    // file: the revocation itself is already durable via the write above.
+    await this.invalidateUserPermissions(companyId, userId);
   }
 }

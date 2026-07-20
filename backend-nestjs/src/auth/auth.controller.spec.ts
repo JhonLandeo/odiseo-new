@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 
 describe('AuthController.login session cookie', () => {
@@ -67,5 +68,92 @@ describe('AuthController.login session cookie', () => {
     expect(await loginCookieOptions(res)).toMatchObject({
       maxAge: 24 * 60 * 60 * 1000,
     });
+  });
+});
+
+// ── logout: server-side revocation, not just a client-side cookie clear ──
+describe('AuthController.logout', () => {
+  function createController(options: { verifyThrows?: unknown } = {}) {
+    const authService = {
+      verifyToken: jest.fn(() => {
+        if (options.verifyThrows) {
+          throw options.verifyThrows;
+        }
+        return { sub: 'user-1', companyId: 'company-1' };
+      }),
+      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+    };
+    const res = { clearCookie: jest.fn() };
+    const controller = new AuthController(authService as any);
+    return { controller, res, authService };
+  }
+
+  it('revokes the caller tokens for a valid session cookie', async () => {
+    const { controller, res, authService } = createController();
+    const req = { cookies: { jwt: 'valid.jwt.token' } };
+
+    await controller.logout(req as any, res as any);
+
+    expect(authService.verifyToken).toHaveBeenCalledWith('valid.jwt.token');
+    expect(authService.revokeUserTokens).toHaveBeenCalledWith(
+      'company-1',
+      'user-1',
+    );
+  });
+
+  it('always clears the cookie for a valid session', async () => {
+    const { controller, res } = createController();
+    const req = { cookies: { jwt: 'valid.jwt.token' } };
+
+    await controller.logout(req as any, res as any);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'jwt',
+      expect.objectContaining({ httpOnly: true, path: '/' }),
+    );
+  });
+
+  // Logging out must never turn into a 401: the client is trying to END a
+  // session, and an already-invalid token or credential is not a reason to
+  // refuse that.
+  it('clears the cookie without throwing or logging when the token is invalid/expired', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    const { controller, res, authService } = createController({
+      verifyThrows: new Error('jwt expired'),
+    });
+    const req = { cookies: { jwt: 'expired.jwt.token' } };
+
+    await expect(
+      controller.logout(req as any, res as any),
+    ).resolves.toEqual({ message: 'Logged out successfully' });
+    expect(authService.revokeUserTokens).not.toHaveBeenCalled();
+    expect(res.clearCookie).toHaveBeenCalled();
+    // Routine — there was nothing to revoke — so nothing worth an operator's
+    // attention, unlike a valid token whose revocation write genuinely fails.
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('clears the cookie without throwing, but logs loudly, when the revocation write fails', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    const { controller, res, authService } = createController();
+    authService.revokeUserTokens.mockRejectedValue(new Error('DB down'));
+    const req = { cookies: { jwt: 'valid.jwt.token' } };
+
+    await expect(
+      controller.logout(req as any, res as any),
+    ).resolves.toEqual({ message: 'Logged out successfully' });
+    expect(res.clearCookie).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('user-1'));
+  });
+
+  it('clears the cookie and skips revocation entirely when there is no cookie', async () => {
+    const { controller, res, authService } = createController();
+    const req = { cookies: {} };
+
+    await controller.logout(req as any, res as any);
+
+    expect(authService.verifyToken).not.toHaveBeenCalled();
+    expect(authService.revokeUserTokens).not.toHaveBeenCalled();
+    expect(res.clearCookie).toHaveBeenCalled();
   });
 });

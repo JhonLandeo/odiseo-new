@@ -140,11 +140,8 @@ describe('tenant migration 0011 — syllabus_distribution NULL-safe unique index
     );
   const SENTINEL = '00000000-0000-0000-0000-000000000000';
 
-  it('appends 0011 as the last migration, directly after 0010', () => {
+  it('places 0011 directly after 0010', () => {
     const ids = TENANT_MIGRATIONS.map((m) => m.id);
-    expect(ids[ids.length - 1]).toBe(
-      '0011_syllabus_distribution_null_safe_unique',
-    );
     expect(ids.indexOf('0011_syllabus_distribution_null_safe_unique')).toBe(
       ids.indexOf('0010_material_request_course_pdf_metrics') + 1,
     );
@@ -190,5 +187,32 @@ describe('tenant migration 0011 — syllabus_distribution NULL-safe unique index
     ].map((m) => m[1]);
     expect(names).toHaveLength(1);
     expect(names[0].length).toBeLessThanOrEqual(63);
+  });
+});
+
+// 0012 adds the durable revocation timestamp JWT revocation is built on:
+// AuthService.revokeUserTokens stamps it and JwtAuthGuard compares it against
+// each token's `iat` claim.
+describe('tenant migration 0012 — users tokens_valid_after', () => {
+  const migration = () =>
+    TENANT_MIGRATIONS.find((m) => m.id === '0012_users_tokens_valid_after');
+
+  it('appends 0012 as the last migration, directly after 0011', () => {
+    const ids = TENANT_MIGRATIONS.map((m) => m.id);
+    expect(ids[ids.length - 1]).toBe('0012_users_tokens_valid_after');
+    expect(ids.indexOf('0012_users_tokens_valid_after')).toBe(
+      ids.indexOf('0011_syllabus_distribution_null_safe_unique') + 1,
+    );
+  });
+
+  it('adds a nullable TIMESTAMPTZ column idempotently via ADD COLUMN IF NOT EXISTS', () => {
+    const sql = migration()!.up('tenant_x');
+    expect(sql).toMatch(/ALTER TABLE "tenant_x"\.users/);
+    expect(sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS tokens_valid_after TIMESTAMPTZ/,
+    );
+    // No default, no NOT NULL: NULL means "never revoked".
+    expect(sql).not.toMatch(/tokens_valid_after TIMESTAMPTZ NOT NULL/);
+    expect(sql).not.toMatch(/DEFAULT/);
   });
 });
