@@ -171,6 +171,8 @@ async function onGridImageChange(e: Event, zone: 'header' | 'footer', position: 
 function clearGridSlot(zone: 'header' | 'footer', position: 'left' | 'center' | 'right') {
   const config = zone === 'header' ? form.value.headerConfig : form.value.footerConfig
   ;(config as any)[position] = ''
+  delete gridFiles[`${zone}-${position}`]
+  gridModes.value[zone][position] = 'text'
 }
 
 function updatePreview() {
