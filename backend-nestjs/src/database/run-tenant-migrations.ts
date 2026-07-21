@@ -45,7 +45,20 @@ async function bootstrap() {
     failed = true;
     logger.error('Tenant migration fan-out crashed', error as Error);
   } finally {
-    await app.close();
+    // @nestjs/typeorm's onApplicationShutdown can throw when tearing down a
+    // multi-connection setup (default + questionsConnection) from a
+    // standalone `createApplicationContext` — a known rough edge in that
+    // lifecycle hook, not a sign anything above actually failed. The process
+    // is exiting immediately after this either way, so a teardown error here
+    // must never flip an otherwise-successful migration run to a failing
+    // exit code.
+    try {
+      await app.close();
+    } catch (closeError) {
+      logger.warn(
+        `Ignoring an error while closing the application context: ${(closeError as Error).message}`,
+      );
+    }
   }
 
   process.exit(failed ? 1 : 0);
