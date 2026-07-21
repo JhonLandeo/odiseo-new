@@ -30,7 +30,7 @@ export function createCorsOriginValidator(options: {
   const permissive = isPermissiveCorsEnvironment(options.nodeEnv);
   const allowedOrigins = [
     `https://${options.baseDomain}`,
-    'http://localhost:5173',
+    'http://localhost:3001',
   ];
 
   return (requestOrigin: string, callback: CorsOriginCallback): void => {

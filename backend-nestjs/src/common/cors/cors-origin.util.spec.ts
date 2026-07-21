@@ -59,7 +59,7 @@ describe('cors-origin.util', () => {
     it('allows the base domain and its subdomains under a strict env', () => {
       expect(check('production', 'https://odiseo.com').allowed).toBe(true);
       expect(check(undefined, 'https://acme.odiseo.com').allowed).toBe(true);
-      expect(check(undefined, 'http://localhost:5173').allowed).toBe(true);
+      expect(check(undefined, 'http://localhost:3001').allowed).toBe(true);
     });
 
     it('allows requests with no Origin header (non-browser clients)', () => {
