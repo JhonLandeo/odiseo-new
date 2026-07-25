@@ -1,6 +1,6 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Tenant Roles & Permissions
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Branch**: `009-tenant-roles-permissions` | **Date**: 2026-07-12 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 

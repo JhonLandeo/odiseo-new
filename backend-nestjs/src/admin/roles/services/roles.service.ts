@@ -294,8 +294,25 @@ export class RolesService {
         const repo = manager.getRepository(Role);
         const role = await this.findOneWith(manager, id);
 
-        if (role.isSystemDefault && updateRoleDto.name) {
-          throw new ConflictException('Cannot rename a system default role');
+        // A system default role is the tenant's only guaranteed way back into
+        // administration. Its name (identity), permissions, and inheritance are
+        // frozen so an admin cannot strip MANAGE_ROLES from it and lock the whole
+        // tenant out of its own administration (FR-009). Description stays editable
+        // — it carries no privilege.
+        if (role.isSystemDefault) {
+          if (updateRoleDto.name !== undefined) {
+            throw new ConflictException('Cannot rename a system default role');
+          }
+          if (updateRoleDto.permissions !== undefined) {
+            throw new ConflictException(
+              'Cannot alter the permissions of a system default role',
+            );
+          }
+          if (updateRoleDto.inheritedRoleIds !== undefined) {
+            throw new ConflictException(
+              'Cannot alter the inheritance of a system default role',
+            );
+          }
         }
 
         const { inheritedRoleIds, ...roleData } = updateRoleDto;

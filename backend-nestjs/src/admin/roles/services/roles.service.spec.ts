@@ -676,3 +676,75 @@ describe('RolesService cache invalidation with role inheritance', () => {
     expect(String(message)).not.toContain('holder-ok-2');
   });
 });
+
+// ─────────────────── FR-009: system default role protection ───────────────
+// The system default role is the tenant's only guaranteed path back into
+// administration. Freezing its identity, permissions, and inheritance prevents
+// an admin from stripping MANAGE_ROLES off it and locking the whole tenant out.
+describe('RolesService system default role protection (FR-009)', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  function withSystemDefaultRole(actorPermissions: string[] = []) {
+    const ctx = createService(actorPermissions);
+    ctx.repo.findOne.mockResolvedValue({
+      id: 'role-1',
+      name: 'Administrator',
+      isSystemDefault: true,
+    });
+    return ctx;
+  }
+
+  it('rejects renaming the system default role', async () => {
+    const { service, repo } = withSystemDefaultRole();
+
+    await expect(
+      service.update('role-1', { name: 'Renamed' } as UpdateRoleDto, ACTOR_ID),
+    ).rejects.toThrow(ConflictException);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  // The real lockout: an actor who legitimately holds MANAGE_ROLES submits an
+  // empty permission set to strip the admin role. assertCanGrant passes (an
+  // empty set grants nothing), so only this guard stands between the tenant and
+  // losing its administration entirely.
+  it('rejects emptying the permissions of the system default role', async () => {
+    const { service, repo } = withSystemDefaultRole([PERMISSIONS.MANAGE_ROLES]);
+
+    await expect(
+      service.update(
+        'role-1',
+        { permissions: [] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects altering the inheritance of the system default role', async () => {
+    const { service, repo } = withSystemDefaultRole();
+
+    await expect(
+      service.update(
+        'role-1',
+        { inheritedRoleIds: ['role-2'] } as UpdateRoleDto,
+        ACTOR_ID,
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('still allows editing the description of the system default role', async () => {
+    const { service, repo } = withSystemDefaultRole();
+
+    await service.update(
+      'role-1',
+      { description: 'Full administrative access' } as UpdateRoleDto,
+      ACTOR_ID,
+    );
+
+    expect(repo.save).toHaveBeenCalled();
+  });
+});

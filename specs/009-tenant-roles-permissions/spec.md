@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-12
 
-**Status**: Draft
+**Status**: Implemented (backend). Verified against code on 2026-07-24; see `contracts/api-endpoints.md` for the live request/response field naming.
 
 **Input**: User description: "quiero plantear los roles y premisos para los tenants, a que considerar que cada colegio lo maneja de una manera distinta, por ello a que plantear algo que sirva para todos ellos"
 

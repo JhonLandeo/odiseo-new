@@ -154,3 +154,24 @@ Task T010: "Create Vue Pinia store for roles in frontend-vue/src/features/admin/
 3. Add User Story 2 → Test independently → Deploy/Demo
 4. Add User Story 3 → Test independently → Deploy/Demo
 5. Each story adds value without breaking previous stories
+
+---
+
+## Phase 7: Reconciliation (2026-07-24)
+
+**Purpose**: Close coverage gaps found by `speckit-analyze` against `spec.md`. Tasks
+below backfill requirements that the shipped code already satisfies (marked `[x]`
+with the real file reference) and surface the one requirement still unmet (`[ ]`).
+
+**Note**: Tasks T005 and T014 describe a "flatten permissions into the JWT" design
+(`src/core/auth/jwt.strategy.ts`, `src/core/auth/auth.service.ts`) that the shipped
+code deliberately abandoned. Permissions are excluded from the JWT and resolved
+dynamically at `src/auth/auth.guard.ts:68`. The named files do not exist. Their
+descriptions are stale and should be read as historical intent, not current design.
+
+- [x] T020 [US1] (FR-001) Seed exactly one `is_system_default` role on tenant provisioning — implemented at `backend-nestjs/src/database/schema.service.ts:69-76`. Naming drift: seeded as `'Super Administrador'`, spec/data-model say "Administrator" (pending product decision on canonical name).
+- [x] T021 [US1] (FR-008) Deletion guards (block delete when users assigned or roles inherit) — implemented via DB `ON DELETE RESTRICT` (`backend-nestjs/src/database/tenant-migrations/index.ts:47,53`) translated to HTTP 409 (`roles.service.ts:351-360`).
+- [x] T022 [US1] (FR-004) Dynamic parent→child permission propagation — implemented via recursive CTE at read time (`backend-nestjs/src/admin/roles/queries/flattened-permissions.query.ts:41-54`).
+- [x] T023 [US1] (Assumption) Cyclic-inheritance prevention (self + transitive) — implemented at `roles.service.ts:305,317` with a per-tenant advisory lock guarding the check-then-write race.
+- [x] T024 [US1] (FR-009) Guard the system-default role against alteration of its name, permissions, and inheritance — implemented at `backend-nestjs/src/admin/roles/services/roles.service.ts` (`update()` now rejects name/permissions/inheritance changes when `isSystemDefault`, description stays editable). Covered by tests in `roles.service.spec.ts` ("system default role protection (FR-009)"), including the empty-permissions lockout case.
+- [ ] T025 (C1) Add acceptance note to frontend tasks T011/T015/T017: user actions notify via non-blocking Toasts, never native `alert()` (constitution IV).

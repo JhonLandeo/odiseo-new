@@ -14,7 +14,7 @@ All endpoints below require authentication and are scoped to the current tenant 
       {
         "id": "uuid",
         "name": "Docente",
-        "is_system_default": false,
+        "isSystemDefault": false,
         "permissions": ["VIEW_SYLLABUS", "VIEW_MATERIALS"]
       }
     ]
@@ -30,10 +30,16 @@ All endpoints below require authentication and are scoped to the current tenant 
     "name": "Coordinador Académico",
     "description": "Supervisa a los docentes",
     "permissions": ["MANAGE_USERS", "EDIT_SYLLABUS"],
-    "inherited_role_ids": ["uuid-of-docente-role"]
+    "inheritedRoleIds": ["uuid-of-docente-role"]
   }
   ```
-- **Response** (201 Created): Role object.
+- **Response** (201 Created): Role object. Fields are serialized in camelCase
+  (`isSystemDefault`, `inheritedRoles`, `createdAt`, `updatedAt`), mirroring the
+  TypeORM entity — no snake_case conversion layer is applied.
+
+  > **Field naming**: request bodies for role create/update use camelCase
+  > (`inheritedRoleIds`), matching `CreateRoleDto`/`UpdateRoleDto`. Only the
+  > user-role assignment endpoint (#5) uses `role_ids`, matching `AssignRolesDto`.
 
 ### 3. Update Role
 - **Method**: `PATCH`
