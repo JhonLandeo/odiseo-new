@@ -1,4 +1,9 @@
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { TenantsAdminService } from './tenants-admin.service';
 import { TENANT_PROVISIONING_JOB_OPTIONS } from './constants/tenant-provisioning-queue.constants';
 
@@ -770,5 +775,65 @@ describe('TenantsAdminService.create', () => {
       ConflictException,
     );
     expect(tenantProvisioningQueue.add).not.toHaveBeenCalled();
+  });
+
+  // ───────────────── Option A: optional admin credentials ─────────────────
+
+  // Admin credentials are meaningless apart — provisioning an admin needs both
+  // an email and a password. One without the other is a client mistake and
+  // must be rejected before any company row is written.
+  it('rejects adminEmail without adminPassword before creating the company', async () => {
+    const { service, companyRepository } = createService(null);
+
+    await expect(
+      service.create({ ...input, adminEmail: 'director@colegio.edu' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects adminPassword without adminEmail before creating the company', async () => {
+    const { service, companyRepository } = createService(null);
+
+    await expect(
+      service.create({ ...input, adminPassword: 'Pass1234' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(companyRepository.save).not.toHaveBeenCalled();
+  });
+
+  // Both present → the credentials ride along in the provisioning job so the
+  // processor can seed the Super Administrador inside the new schema.
+  it('carries the admin credentials into the provisioning job when both are present', async () => {
+    const { service, tenantProvisioningQueue } = createService(null);
+
+    await service.create({
+      ...input,
+      adminEmail: 'director@colegio.edu',
+      adminPassword: 'Pass1234',
+    });
+
+    expect(tenantProvisioningQueue.add).toHaveBeenCalledWith(
+      'provision',
+      {
+        schemaName: `tenant_${TENANT_ID}`,
+        companyId: TENANT_ID,
+        adminEmail: 'director@colegio.edu',
+        adminPassword: 'Pass1234',
+      },
+      TENANT_PROVISIONING_JOB_OPTIONS,
+    );
+  });
+
+  // Neither present → today's role-only behavior: the job payload must NOT
+  // carry admin credentials, so the processor seeds only the default role.
+  it('omits admin credentials from the job payload when none are provided', async () => {
+    const { service, tenantProvisioningQueue } = createService(null);
+
+    await service.create(input);
+
+    expect(tenantProvisioningQueue.add).toHaveBeenCalledWith(
+      'provision',
+      { schemaName: `tenant_${TENANT_ID}`, companyId: TENANT_ID },
+      TENANT_PROVISIONING_JOB_OPTIONS,
+    );
   });
 });

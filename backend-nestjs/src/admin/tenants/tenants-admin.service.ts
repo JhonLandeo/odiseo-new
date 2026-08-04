@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   Logger,
   NotFoundException,
@@ -12,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { TENANT_PROVISIONING_JOB_OPTIONS } from './constants/tenant-provisioning-queue.constants';
+import type { TenantProvisioningJobData } from './processors/tenant-provisioning.processor';
 import { TenantService } from '../../database/tenant.service';
 import { TenantsService } from '../../tenants/tenants.service';
 import { AuthService } from '../../auth/auth.service';
@@ -149,7 +151,20 @@ export class TenantsAdminService {
     address?: string;
     taxId?: string;
     logoUrl?: string;
+    adminEmail?: string;
+    adminPassword?: string;
   }): Promise<Company> {
+    // Option A: admin credentials are optional, but they are meaningless apart —
+    // the schema needs both an email and a password to provision an admin. One
+    // without the other is a client mistake (a half-filled form), so reject it
+    // up front rather than silently dropping the field or provisioning an
+    // unusable account.
+    if (Boolean(data.adminEmail) !== Boolean(data.adminPassword)) {
+      throw new BadRequestException(
+        'adminEmail and adminPassword must be provided together.',
+      );
+    }
+
     const existing = await this.companyRepository.findOne({
       where: { subdomain: data.subdomain },
     });
@@ -210,10 +225,22 @@ export class TenantsAdminService {
     // can re-enqueue it, and rethrow so the caller sees the create as failed
     // rather than a false-success 201 for a tenant that will never resolve.
     const schemaName = `tenant_${savedCompany.id}`;
+    const jobData: TenantProvisioningJobData = {
+      schemaName,
+      companyId: savedCompany.id,
+    };
+    // Carry the admin credentials into the job ONLY when both are present (the
+    // guard above guarantees they are all-or-nothing); the processor seeds the
+    // Super Administrador as part of provisioning. Absent → today's role-only
+    // behavior, admin added later via the decoupled flow.
+    if (data.adminEmail && data.adminPassword) {
+      jobData.adminEmail = data.adminEmail;
+      jobData.adminPassword = data.adminPassword;
+    }
     try {
       await this.tenantProvisioningQueue.add(
         'provision',
-        { schemaName, companyId: savedCompany.id },
+        jobData,
         TENANT_PROVISIONING_JOB_OPTIONS,
       );
     } catch (error) {

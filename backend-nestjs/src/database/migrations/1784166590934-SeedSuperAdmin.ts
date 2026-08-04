@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { TENANT_MIGRATIONS } from '../tenant-migrations';
-import { TENANT_SUPER_ADMIN_PERMISSIONS } from '../../admin/roles/constants/permissions.constant';
+import { PLATFORM_SUPER_ADMIN_PERMISSIONS } from '../../admin/roles/constants/permissions.constant';
 import { resolveSeedPassword } from '../seed-superadmin-password';
 
 export class SeedSuperAdmin1784166590934 implements MigrationInterface {
@@ -56,7 +56,7 @@ export class SeedSuperAdmin1784166590934 implements MigrationInterface {
     // hardcoded list had drifted to 7 of the 15 permissions — missing
     // VIEW_ACADEMIC_TIME and VIEW_CATALOGS among others — so a freshly seeded
     // Super Admin was denied the very pages the frontend guards on.
-    const superAdminPermsJSON = JSON.stringify(TENANT_SUPER_ADMIN_PERMISSIONS);
+    const superAdminPermsJSON = JSON.stringify(PLATFORM_SUPER_ADMIN_PERMISSIONS);
     const sysRoleRes = await queryRunner.query(
       `
             INSERT INTO "${sysSchema}".roles (name, description, is_system_default, permissions)

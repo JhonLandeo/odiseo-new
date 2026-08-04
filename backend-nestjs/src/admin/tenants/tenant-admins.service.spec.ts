@@ -218,6 +218,52 @@ describe('TenantAdminsService', () => {
     });
   });
 
+  // ─────────── Option A: retry-safe provisioning path (createSuperAdminInSchema)
+  describe('createSuperAdminInSchema (idempotent provisioning path)', () => {
+    // Same insert as create(), single-sourced: on a clean schema it inserts the
+    // user and assigns the role.
+    it('creates the Super Administrador and assigns the role', async () => {
+      const { service, mockManager } = createService();
+      mockManager.query
+        .mockResolvedValueOnce([]) // email check — no duplicate
+        .mockResolvedValueOnce([{ id: ROLE_ID }]) // role lookup
+        .mockResolvedValueOnce([
+          { id: USER_ID, email: 'director@colegio.edu', name: 'director@colegio.edu', is_active: true },
+        ]) // user insert
+        .mockResolvedValueOnce(undefined); // role assignment
+
+      const result = await service.createSuperAdminInSchema(TENANT_ID, {
+        email: 'director@colegio.edu',
+        name: 'director@colegio.edu',
+        password: 'Pass1234',
+      });
+
+      expect(result?.id).toBe(USER_ID);
+      const roleAssignCall = mockManager.query.mock.calls[3];
+      expect(roleAssignCall[0]).toContain('user_roles');
+      expect(roleAssignCall[1]).toEqual([USER_ID, ROLE_ID]);
+    });
+
+    // The provisioning job retries (attempts: 3). A retry after a job that
+    // already committed the admin (then failed on a later step) must SKIP the
+    // now-existing user and return null — never throw a Conflict the retry can
+    // never clear, which would strand the tenant unactivated forever.
+    it('skips (returns null) instead of throwing when the admin already exists', async () => {
+      const { service, mockManager } = createService();
+      mockManager.query.mockResolvedValueOnce([{ id: 'existing-user' }]); // email exists
+
+      const result = await service.createSuperAdminInSchema(TENANT_ID, {
+        email: 'director@colegio.edu',
+        name: 'director@colegio.edu',
+        password: 'Pass1234',
+      });
+
+      expect(result).toBeNull();
+      // No INSERT was attempted — only the duplicate-email probe ran.
+      expect(mockManager.query).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // ─────────────────────────────── US-003: update ────────────────
   describe('US-003 — update (Editar administrador)', () => {
     it('AC-010: should update allowed fields', async () => {

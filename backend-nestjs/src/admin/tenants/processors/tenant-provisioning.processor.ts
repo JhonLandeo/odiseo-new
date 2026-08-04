@@ -6,11 +6,17 @@ import { Repository } from 'typeorm';
 import { SchemaService } from '../../../database/schema.service';
 import { Company } from '../../../tenants/entities/tenant.entity';
 import { TenantsService } from '../../../tenants/tenants.service';
+import { TenantAdminsService } from '../tenant-admins.service';
 
 /** Payload of a 'provision' job on the tenant-provisioning-queue. */
 export interface TenantProvisioningJobData {
   schemaName: string;
   companyId: string;
+  // Option A: when BOTH are present the initial Super Administrador is
+  // provisioned inside the new schema as part of this job. Absent for the
+  // decoupled flow (create the tenant now, add the admin later).
+  adminEmail?: string;
+  adminPassword?: string;
 }
 
 @Processor('tenant-provisioning-queue')
@@ -22,6 +28,7 @@ export class TenantProvisioningProcessor extends WorkerHost {
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     private readonly tenantsService: TenantsService,
+    private readonly tenantAdminsService: TenantAdminsService,
   ) {
     super();
   }
@@ -55,7 +62,7 @@ export class TenantProvisioningProcessor extends WorkerHost {
   async process(
     job: Job<TenantProvisioningJobData, void, string>,
   ): Promise<void> {
-    const { schemaName, companyId } = job.data;
+    const { schemaName, companyId, adminEmail, adminPassword } = job.data;
     this.logger.log(
       `Processing provisioning job ${job.id} for tenant ${schemaName} (attempt ${
         job.attemptsMade + 1
@@ -67,6 +74,22 @@ export class TenantProvisioningProcessor extends WorkerHost {
 
     // Provision tables and seed the default role.
     await this.schemaService.seedTenantSchema(schemaName, companyId);
+
+    // Option A: seed the initial Super Administrador BEFORE activation, so a
+    // tenant only ever becomes serviceable once its admin can sign in. Both
+    // credentials come together (the create endpoint rejects one without the
+    // other), so the presence of both is the switch. createSuperAdminInSchema
+    // is idempotent — a retry after a partially-completed job (admin committed,
+    // activation failed) skips the already-existing user instead of failing on
+    // a duplicate. The email has no separate display name in the payload, so it
+    // doubles as the name (the admin renames on first sign-in).
+    if (adminEmail && adminPassword) {
+      await this.tenantAdminsService.createSuperAdminInSchema(companyId, {
+        email: adminEmail,
+        name: adminEmail,
+        password: adminPassword,
+      });
+    }
 
     this.logger.log(`Tenant ${schemaName} successfully provisioned.`);
     // This is the ONLY place a company becomes serviceable: it is created

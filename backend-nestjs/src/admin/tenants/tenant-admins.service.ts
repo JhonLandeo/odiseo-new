@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Company } from '../../tenants/entities/tenant.entity';
 import { TenantService } from '../../database/tenant.service';
@@ -113,68 +113,131 @@ export class TenantAdminsService {
     const schema = `tenant_${tenantId}`;
 
     return this.tenantService.runInSchema(schema, async (manager) => {
-      // Validar email duplicado
-      const existingUser = await manager.query(
-        `SELECT id FROM "${schema}".users WHERE email = $1`,
-        [data.email],
-      );
-      if (existingUser.length > 0) {
-        throw new ConflictException('Ya existe un usuario con ese correo.');
-      }
-
-      // Asegurar que exista el rol
-      const roleResult = await manager.query(
-        `SELECT id FROM "${schema}".roles WHERE name = 'Super Administrador' LIMIT 1`,
-      );
-      let roleId;
-      if (roleResult.length === 0) {
-        // Canonical UPPERCASE permission vocabulary enforced by PermissionsGuard
-        // (single source of truth) — never the stale lowercase set.
-        const superAdminPermsJSON = JSON.stringify(
-          TENANT_SUPER_ADMIN_PERMISSIONS,
-        );
-        const newRole = await manager.query(
-          `
-          INSERT INTO "${schema}".roles (name, description, is_system_default, permissions)
-          VALUES ('Super Administrador', 'Administrador Principal de la Institución', true, $1::jsonb)
-          RETURNING id
-        `,
-          [superAdminPermsJSON],
-        );
-        roleId = newRole[0].id;
-      } else {
-        roleId = roleResult[0].id;
-      }
-
-      // Crear usuario.
-      //
-      // force_password_reset: AC-016. Every path in this file, and every other
-      // path that writes a password_hash the account owner did not choose
-      // (the seed migration, TenantsAdminService.resetAdminCredentials), raises
-      // this flag for the same reason — the password is a secret shared with
-      // whoever set it, so it is not the owner's password until the owner
-      // replaces it. PasswordResetGuard blocks the account meanwhile.
-      const passwordHash = await bcrypt.hash(data.password, 10);
-      const userRes = await manager.query(
-        `
-        INSERT INTO "${schema}".users (email, password_hash, name, company_id, is_active, force_password_reset)
-        VALUES ($1, $2, $3, $4, true, true) RETURNING id, email, name, is_active
-      `,
-        [data.email, passwordHash, data.name, tenantId],
-      );
-
-      const userId = userRes[0].id;
-
-      // Asignar rol
-      await manager.query(
-        `
-        INSERT INTO "${schema}".user_roles (user_id, role_id) VALUES ($1, $2)
-      `,
-        [userId, roleId],
-      );
-
-      return userRes[0];
+      // Interactive API path: a duplicate email is a caller error, so surface
+      // it as a 409 (idempotent: false). The retry-safe provisioning path uses
+      // the same insert with idempotent: true instead — see the note on
+      // `insertSuperAdmin`.
+      const created = await this.insertSuperAdmin(manager, schema, tenantId, {
+        email: data.email,
+        name: data.name,
+        password: data.password,
+        idempotent: false,
+      });
+      // idempotent: false never skips, so `created` is always the inserted row.
+      return created!;
     });
+  }
+
+  /**
+   * Provisions the tenant's Super Administrador user inside an ALREADY-EXISTING
+   * schema, from a background/provisioning context (no CLS tenant is set, so the
+   * schema is passed explicitly). Runs the SAME insert as the interactive
+   * `create` above — single source of truth for the "insert user + ensure role
+   * + assign role" logic — but in idempotent mode.
+   *
+   * Idempotency matters because the provisioning job retries (attempts: 3): a
+   * retry after a job that already committed the admin (e.g. it crashed on the
+   * later activation step) must NOT fail on the now-existing email. It skips and
+   * returns null instead of throwing a Conflict the retry could never clear.
+   */
+  async createSuperAdminInSchema(
+    tenantId: string,
+    data: { email: string; name: string; password: string },
+  ): Promise<{ id: string; email: string; name: string } | null> {
+    const schema = `tenant_${tenantId}`;
+    return this.tenantService.runInSchema(schema, (manager) =>
+      this.insertSuperAdmin(manager, schema, tenantId, {
+        ...data,
+        idempotent: true,
+      }),
+    );
+  }
+
+  /**
+   * Single source of truth for creating a Super Administrador inside a tenant
+   * schema: duplicate-email guard, ensure the 'Super Administrador' role exists,
+   * hash the password, insert the user, assign the role. Both the interactive
+   * `create` (idempotent: false → throws on a duplicate email) and the
+   * retry-safe provisioning path (idempotent: true → skips a pre-existing email
+   * and returns null) call it. Assumes the caller has opened the schema
+   * transaction via runInSchema.
+   */
+  private async insertSuperAdmin(
+    manager: EntityManager,
+    schema: string,
+    tenantId: string,
+    data: {
+      email: string;
+      name: string;
+      password: string;
+      idempotent: boolean;
+    },
+  ): Promise<{ id: string; email: string; name: string } | null> {
+    // Validar email duplicado
+    const existingUser = await manager.query(
+      `SELECT id FROM "${schema}".users WHERE email = $1`,
+      [data.email],
+    );
+    if (existingUser.length > 0) {
+      // Retry-safe path: the admin already exists (a prior attempt committed
+      // it), so treat this as done rather than fail a retry that can never
+      // clear the conflict.
+      if (data.idempotent) {
+        return null;
+      }
+      throw new ConflictException('Ya existe un usuario con ese correo.');
+    }
+
+    // Asegurar que exista el rol
+    const roleResult = await manager.query(
+      `SELECT id FROM "${schema}".roles WHERE name = 'Super Administrador' LIMIT 1`,
+    );
+    let roleId;
+    if (roleResult.length === 0) {
+      // Canonical UPPERCASE permission vocabulary enforced by PermissionsGuard
+      // (single source of truth) — never the stale lowercase set.
+      const superAdminPermsJSON = JSON.stringify(TENANT_SUPER_ADMIN_PERMISSIONS);
+      const newRole = await manager.query(
+        `
+        INSERT INTO "${schema}".roles (name, description, is_system_default, permissions)
+        VALUES ('Super Administrador', 'Administrador Principal de la Institución', true, $1::jsonb)
+        RETURNING id
+      `,
+        [superAdminPermsJSON],
+      );
+      roleId = newRole[0].id;
+    } else {
+      roleId = roleResult[0].id;
+    }
+
+    // Crear usuario.
+    //
+    // force_password_reset: AC-016. Every path in this file, and every other
+    // path that writes a password_hash the account owner did not choose
+    // (the seed migration, TenantsAdminService.resetAdminCredentials), raises
+    // this flag for the same reason — the password is a secret shared with
+    // whoever set it, so it is not the owner's password until the owner
+    // replaces it. PasswordResetGuard blocks the account meanwhile.
+    const passwordHash = await bcrypt.hash(data.password, 10);
+    const userRes = await manager.query(
+      `
+      INSERT INTO "${schema}".users (email, password_hash, name, company_id, is_active, force_password_reset)
+      VALUES ($1, $2, $3, $4, true, true) RETURNING id, email, name, is_active
+    `,
+      [data.email, passwordHash, data.name, tenantId],
+    );
+
+    const userId = userRes[0].id;
+
+    // Asignar rol
+    await manager.query(
+      `
+      INSERT INTO "${schema}".user_roles (user_id, role_id) VALUES ($1, $2)
+    `,
+      [userId, roleId],
+    );
+
+    return userRes[0];
   }
 
   async update(tenantId: string, userId: string, data: UpdateTenantAdminDto) {

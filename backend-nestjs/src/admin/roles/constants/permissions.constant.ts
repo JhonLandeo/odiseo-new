@@ -54,6 +54,20 @@ export const TENANT_SUPER_ADMIN_PERMISSIONS: string[] = [
   PERMISSIONS.EDIT_MATERIALS,
 ];
 
+/**
+ * Canonical permission set for the PLATFORM tenant's Super Admin — the Odiseo
+ * owner who administers every tenant. Extends the institution-level set with
+ * MANAGE_TENANTS, the platform-level capability that gates cross-tenant
+ * operations (the admin consumption dashboard, the queue dashboard, and tenant
+ * provisioning/scoping). A real tenant's Director must NOT receive this — only
+ * the platform owner does, which is why it is a separate set seeded exclusively
+ * by the platform SeedSuperAdmin migration, not by per-tenant provisioning.
+ */
+export const PLATFORM_SUPER_ADMIN_PERMISSIONS: string[] = [
+  ...TENANT_SUPER_ADMIN_PERMISSIONS,
+  PERMISSIONS.MANAGE_TENANTS,
+];
+
 export const PERMISSIONS_METADATA = [
   {
     module: 'Admin',

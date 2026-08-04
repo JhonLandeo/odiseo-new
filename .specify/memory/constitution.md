@@ -1,27 +1,24 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.1 → 2.0.0
-- Rationale: Reestructuración MAYOR. Se separan los PRINCIPIOS (invariantes,
-  agnósticos de tecnología) de la IMPLEMENTACIÓN VIGENTE (stack concreto,
-  enmendable). Se relajan mandatos tecnológicos prematuros (FastAPI, Fargate,
-  SQS, API Gateway WebSockets, pgvector) que no reflejaban el código real,
-  y se refuerzan los invariantes que sí protegen al negocio.
+- Version change: 2.0.0 → 2.1.0
+- Rationale: Adición MINOR. Se incorporan dos estándares de calidad transversales
+  a raíz de un bug real de drift contrato-vs-código: el frontend enviaba
+  `adminEmail`/`adminPassword` que el DTO del backend rechazaba (400
+  `forbidNonWhitelisted`), y el error de validación quedaba invisible para el
+  usuario en la UI. Ambos son fallas de legibilidad/estandarización que ninguna
+  feature debería poder repetir.
 - Modified principles:
-  - II. Valores Principales → reformulado como "Invariantes Arquitectónicos"
-    (no negociables), con foco en el PRINCIPIO (cómputo pesado fuera del proceso
-    de la API) en vez de la tecnología (Fargate).
-  - III. Tech Stack → renombrado "Implementación Vigente" y marcado como
-    ENMENDABLE vía PATCH/MINOR sin revisión constitucional mayor.
-  - V. Restricciones de Integración → el acceso al banco pasa de "SOLO REST"
-    a "solo lectura y detrás de una capa anticorrupción".
-  - VIII. Antipatrones → reformulados alrededor del principio (no del stack).
-- Added:
-  - Estándar de idempotencia para jobs asíncronos.
-  - Distinción explícita Invariante vs Implementación en Governance.
-- Removed: mandatos duros de FastAPI, Fargate, SQS, API Gateway WebSockets y
-  pgvector como requisitos constitucionales (bajados a "implementación sugerida").
-- Templates: ✅ sin cambios requeridos (usan placeholders dinámicos).
-- Follow-up TODOs: alinear docker-compose (referencia a worker-fastapi inexistente).
+  - IV. Estándares de Calidad → se agregan "Paridad de contratos front↔back"
+    (verificada por test que rompe el build) y "Sin fallas silenciosas".
+  - VIII. Antipatrones → dos nuevos antipatrones que convierten esos estándares
+    en causa de rechazo de PR.
+- Added: estándar de paridad de contratos compartidos (test de contrato que falla
+  en CI ante cualquier drift); estándar de no-fallas-silenciosas (todo error de
+  API es visible y accionable; un 400 de validación se mapea a su campo).
+- Removed: nada.
+- Templates: ✅ sin cambios requeridos.
+- Follow-up TODOs: primer test de contrato aplicado a `CreateTenantDto` ⇄ payload
+  del store de tenants del frontend (feature de creación de empresas, Opción A).
 -->
 # Odiseo Constitution
 
@@ -86,6 +83,16 @@ El ecosistema Odiseo se divide en dos dominios estrictamente separados:
 - **Nombres en BD**: todas las tablas, columnas, índices, constraints y funciones
   en inglés `snake_case`. Prohibido español u otros idiomas en la capa de datos.
 - **Contratos de integración** definidos y versionados entre el SaaS y el Core.
+- **Paridad de contratos front↔back**: los tipos de request/response compartidos
+  entre frontend y backend (DTOs, payloads) se mantienen sincronizados y se
+  verifican con un **test de contrato que falla en CI ante cualquier drift**. Un
+  campo que un lado envía y el otro no acepta —o un nombre/casing que no coincide—
+  es un defecto que DEBE romper el build, no llegar a producción. El test lee la
+  contraparte real (no una copia) para que la divergencia no pueda esconderse.
+- **Sin fallas silenciosas**: todo error de API se le presenta al usuario con un
+  mensaje accionable; un error de validación (400) se mapea al campo que lo
+  originó. Ningún error se traga: la ausencia de feedback visible ante un fallo es,
+  por sí misma, un defecto. (El *cómo* mostrarlo lo define la regla de Toasts.)
 - **UX & Notificaciones**: acciones del usuario (éxito, error, borrado) se
   notifican con UI no bloqueante (Toasts). NUNCA `alert()` nativo del navegador.
 
@@ -122,6 +129,10 @@ El ecosistema Odiseo se divide en dos dominios estrictamente separados:
   pasa por la capa anticorrupción de lectura. (Invariante — Restricción V)
 - **NUNCA** persistir contenido pesado de reactivos en el SaaS B2B. (Invariante II.2)
 - **NUNCA** dejar un job asíncrono sin protección de idempotencia. (Invariante II.4)
+- **NUNCA** shippear un cambio en un DTO/payload compartido sin su test de
+  contrato front↔back que rompa ante drift. (Invariante — IV Paridad de contratos)
+- **NUNCA** tragarse un error de API sin feedback visible al usuario, ni dejar un
+  400 de validación sin mapear a su campo. (Invariante — IV Sin fallas silenciosas)
 
 ### IX. Métricas de Éxito
 - Cero fugas de datos entre empresas B2B.
@@ -146,4 +157,4 @@ El ecosistema Odiseo se divide en dos dominios estrictamente separados:
   (Sección VIII) es causa de rechazo de PR. Las decisiones de stack dentro de la
   Sección III no bloquean por sí mismas.
 
-**Version**: 2.0.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-07-17
+**Version**: 2.1.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-07-25

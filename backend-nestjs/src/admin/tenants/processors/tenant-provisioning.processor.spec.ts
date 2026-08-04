@@ -7,6 +7,7 @@ const SCHEMA = `tenant_${COMPANY_ID}`;
 function createProcessor(overrides?: {
   createTenantSchema?: jest.Mock;
   seedTenantSchema?: jest.Mock;
+  createSuperAdminInSchema?: jest.Mock;
 }) {
   const calls: string[] = [];
   const track =
@@ -34,11 +35,17 @@ function createProcessor(overrides?: {
       calls.push('invalidateCache');
     }),
   };
+  const tenantAdminsService = {
+    createSuperAdminInSchema:
+      overrides?.createSuperAdminInSchema ??
+      jest.fn(track('createAdmin', { id: 'admin-1' })),
+  };
 
   const processor = new TenantProvisioningProcessor(
     schemaService as any,
     companyRepository as any,
     tenantsService as any,
+    tenantAdminsService as any,
   );
   return {
     processor,
@@ -46,14 +53,25 @@ function createProcessor(overrides?: {
     schemaService,
     companyRepository,
     tenantsService,
+    tenantAdminsService,
   };
 }
 
-function makeJob(overrides?: { attemptsMade?: number; attempts?: number }) {
+function makeJob(overrides?: {
+  attemptsMade?: number;
+  attempts?: number;
+  adminEmail?: string;
+  adminPassword?: string;
+}) {
   return {
     id: 'job-1',
     name: 'provision',
-    data: { schemaName: SCHEMA, companyId: COMPANY_ID },
+    data: {
+      schemaName: SCHEMA,
+      companyId: COMPANY_ID,
+      adminEmail: overrides?.adminEmail,
+      adminPassword: overrides?.adminPassword,
+    },
     attemptsMade: overrides?.attemptsMade ?? 0,
     opts: { attempts: overrides?.attempts ?? 3 },
   } as any;
@@ -87,6 +105,62 @@ describe('TenantProvisioningProcessor.process', () => {
       'update:{"isActive":true}',
       'invalidateCache',
     ]);
+  });
+
+  // Option A: no admin credentials in the payload keeps today's role-only
+  // behavior — the schema is seeded, activated, and NO admin user is created.
+  it('does not create an admin when the job carries no credentials', async () => {
+    const { processor, tenantAdminsService } = createProcessor();
+
+    await processor.process(makeJob());
+
+    expect(tenantAdminsService.createSuperAdminInSchema).not.toHaveBeenCalled();
+  });
+
+  // Option A ordering contract: the admin must be seeded AFTER the schema is
+  // created and seeded, and BEFORE activation — a tenant only becomes
+  // serviceable once its admin can sign in.
+  it('creates the admin after seeding and before activation when both credentials are present', async () => {
+    const { processor, calls, tenantAdminsService } = createProcessor();
+
+    await processor.process(
+      makeJob({ adminEmail: 'director@colegio.edu', adminPassword: 'Pass1234' }),
+    );
+
+    expect(calls).toEqual([
+      'createSchema',
+      'seed',
+      'createAdmin',
+      'update:{"isActive":true}',
+      'invalidateCache',
+    ]);
+    expect(tenantAdminsService.createSuperAdminInSchema).toHaveBeenCalledWith(
+      COMPANY_ID,
+      {
+        email: 'director@colegio.edu',
+        name: 'director@colegio.edu',
+        password: 'Pass1234',
+      },
+    );
+  });
+
+  // The admin is seeded before activation, so if admin creation throws the
+  // company must NOT be activated — BullMQ retries the whole job (admin
+  // creation is idempotent), and a failed admin must never leave a serviceable
+  // tenant with no way in.
+  it('does not activate the company when admin creation fails', async () => {
+    const { processor, companyRepository } = createProcessor({
+      createSuperAdminInSchema: jest
+        .fn()
+        .mockRejectedValue(new Error('admin insert broke')),
+    });
+
+    await expect(
+      processor.process(
+        makeJob({ adminEmail: 'a@b.com', adminPassword: 'Pass1234' }),
+      ),
+    ).rejects.toThrow('admin insert broke');
+    expect(companyRepository.update).not.toHaveBeenCalled();
   });
 
   // Retries exist specifically so a transient failure does not permanently
